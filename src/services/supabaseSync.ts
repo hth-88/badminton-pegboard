@@ -45,9 +45,16 @@ export function getSupabaseConfig(): SupabaseConfig | null {
     // Bỏ qua lỗi parse
   }
 
-  // Fallback từ import.meta.env
-  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+  // Fallback từ import.meta.env (hỗ trợ cả VITE_ và biến tự động từ Vercel Supabase Integration)
+  const envUrl =
+    (import.meta as any).env?.VITE_SUPABASE_URL ||
+    (import.meta as any).env?.SUPABASE_URL ||
+    (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_URL;
+
+  const envKey =
+    (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+    (import.meta as any).env?.SUPABASE_ANON_KEY ||
+    (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (envUrl && envKey) {
     return {
