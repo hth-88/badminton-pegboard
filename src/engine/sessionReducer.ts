@@ -49,6 +49,7 @@ export function createInitialSessionState(): BadmintonSessionState {
     mixDebt: { doubles: 0, singles: 0 },
     readyQueue: [],
     autoSinglesSnooze: {},
+    courtPlanIndex: {},
     undoStack: [],
     redoStack: [],
   };
@@ -68,6 +69,7 @@ function createSnapshot(state: BadmintonSessionState): BadmintonSessionSnapshot 
     mixDebt: { ...state.mixDebt },
     readyQueue: JSON.parse(JSON.stringify(state.readyQueue)),
     autoSinglesSnooze: JSON.parse(JSON.stringify(state.autoSinglesSnooze)),
+    courtPlanIndex: { ...(state.courtPlanIndex || {}) },
   };
 }
 
@@ -201,6 +203,14 @@ export type BadmintonAction =
       type: 'SNOOZE_AUTO_SINGLES';
       payload: { courtId: string; untilTs: number; queueSize: number };
     }
+  | {
+      type: 'SNOOZE_AUTO_SINGLES_WAIT';
+      payload: { courtId: string; untilTs: number; queueSize: number };
+    }
+  | {
+      type: 'CYCLE_NEXT_UP_PROPOSAL';
+      payload: { courtId: string };
+    }
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'RESET_SESSION' }
@@ -286,6 +296,12 @@ export function badmintonReducer(
           return { ...p, waitStreak: 0 };
         }
         if (p.status === 'ACTIVE' && !playingOnOtherCourts.has(p.id)) {
+          if (baseNextState.settings.courtMode === 'SPLIT_COURT') {
+            if (p.assignedPool === courtId || p.assignedPool === 'ALL') {
+              return { ...p, waitStreak: p.waitStreak + 1 };
+            }
+            return p;
+          }
           return { ...p, waitStreak: p.waitStreak + 1 };
         }
         return p;
@@ -718,7 +734,8 @@ export function badmintonReducer(
       };
     }
 
-    case 'SNOOZE_AUTO_SINGLES': {
+    case 'SNOOZE_AUTO_SINGLES':
+    case 'SNOOZE_AUTO_SINGLES_WAIT': {
       return {
         ...baseNextState,
         autoSinglesSnooze: {
@@ -727,6 +744,18 @@ export function badmintonReducer(
             untilTs: action.payload.untilTs,
             queueSizeAtSnooze: action.payload.queueSize,
           },
+        },
+      };
+    }
+
+    case 'CYCLE_NEXT_UP_PROPOSAL': {
+      const { courtId } = action.payload;
+      const currentIdx = baseNextState.courtPlanIndex[courtId] ?? 0;
+      return {
+        ...baseNextState,
+        courtPlanIndex: {
+          ...baseNextState.courtPlanIndex,
+          [courtId]: currentIdx + 1,
         },
       };
     }

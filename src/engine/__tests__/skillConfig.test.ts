@@ -75,3 +75,4 @@ describe('Skill Configuration & Effective Skill Calculation', () => {
     expect(compareRanks('tb', 'tb')).toBe(0);
   });
 });
+

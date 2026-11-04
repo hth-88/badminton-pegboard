@@ -56,6 +56,7 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
       mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
       readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
       autoSinglesSnooze: raw.autoSinglesSnooze || {},
+      courtPlanIndex: raw.courtPlanIndex || {},
       undoStack: Array.isArray(raw.undoStack) ? raw.undoStack.slice(0, 30) : [],
       redoStack: Array.isArray(raw.redoStack) ? raw.redoStack.slice(0, 30) : [],
     };
@@ -156,6 +157,7 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
     mixDebt: { doubles: 0, singles: 0 },
     readyQueue: [],
     autoSinglesSnooze: {},
+    courtPlanIndex: {},
     undoStack: [],
     redoStack: [],
   };

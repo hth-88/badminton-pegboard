@@ -116,6 +116,8 @@ export interface PenaltyWeights {
   singlesOpponentRepeatMultiplier: number;
   singlesRecentOpponentPenalty: number;
   singlesCountExcessMultiplier: number;
+  gamesGapPenalty: number;
+  oddGenderSplitPenalty: number;
 }
 
 export const DEFAULT_PENALTY_WEIGHTS: PenaltyWeights = {
@@ -134,6 +136,8 @@ export const DEFAULT_PENALTY_WEIGHTS: PenaltyWeights = {
   singlesOpponentRepeatMultiplier: 100,
   singlesRecentOpponentPenalty: 1500,
   singlesCountExcessMultiplier: 200,
+  gamesGapPenalty: 6000,
+  oddGenderSplitPenalty: 20,
 };
 
 export interface SessionSettings {
@@ -192,10 +196,33 @@ export interface MatchScoreBreakdown {
   skillDiff: number;
 }
 
+export interface FixedSlot {
+  playerId: string;
+  team: 1 | 2;
+}
+
+export type ValidationSeverity = 'BLOCK' | 'WARN';
+
+export interface ValidationIssue {
+  severity: ValidationSeverity;
+  code: string;
+  message: string;
+  playerIds?: string[];
+}
+
+export interface LineupDescription {
+  team1Skill: number;
+  team2Skill: number;
+  diff: number;
+  label: 'Cân kèo' | 'Lệch nhẹ' | 'Lệch nhiều';
+}
+
 export interface MatchProposal {
   lineup: Lineup;
   debugScore: MatchScoreBreakdown;
   penalty: number;
+  relaxed: boolean;
+  relaxedReasons: string[];
 }
 
 export type CourtPlanStatus =
@@ -223,6 +250,7 @@ export interface BadmintonSessionSnapshot {
   mixDebt: { doubles: number; singles: number };
   readyQueue: ReadyQueueItem[];
   autoSinglesSnooze: Record<string, { untilTs: number; queueSizeAtSnooze: number }>;
+  courtPlanIndex: Record<string, number>;
 }
 
 export interface BadmintonSessionState extends BadmintonSessionSnapshot {
