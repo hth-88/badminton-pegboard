@@ -72,6 +72,7 @@ export interface Lineup {
   /** Nguồn gốc vị trí của từng người: do thuật toán ghép ('AUTO') hay Host gán tay ('MANUAL') */
   slotSource: Record<string, 'AUTO' | 'MANUAL'>;
   id?: string;
+  isLockedByHost?: boolean;
 }
 
 export type CourtPolicy = 'MIX' | 'DOUBLES_ONLY' | 'SINGLES_ONLY';
@@ -81,6 +82,7 @@ export interface Court {
   name: string;
   isActive: boolean;
   policy: CourtPolicy;
+  forcedType?: 'DOUBLES' | 'SINGLES' | null;
   currentMatch: (Lineup & { startedAt: number; id?: string }) | null;
   nextUp: (Lineup & { isLockedByHost: boolean }) | null;
 }
@@ -129,7 +131,7 @@ export const DEFAULT_PENALTY_WEIGHTS: PenaltyWeights = {
   partnerRepeatBase: 150,
   partnerRecentPenalty: 400,
   opponentRepeatMultiplier: 35,
-  skillBalanceMultiplier: 30,
+  skillBalanceMultiplier: 65,
   gender2M2FUnbalancedPenalty: 250,
   gender2M2FMixedBonus: 50,
   avoidMatchPenalty: 200,

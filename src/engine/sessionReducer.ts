@@ -16,7 +16,7 @@ import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
 import { buildStatsFromHistory, createEmptyStats, recordCompletedMatch } from './statsManager';
 import { validateLineup } from './validateLineup';
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const DEFAULT_SETTINGS: SessionSettings = {
   maleBonus: 1.5,
@@ -37,6 +37,7 @@ export function createDefaultCourts(count = 3): Court[] {
     name: `Sân ${i + 1}`,
     isActive: i < 2, // Sân 1 và 2 active, sân 3 trở đi isActive = false
     policy: 'MIX',
+    forcedType: null,
     currentMatch: null,
     nextUp: null,
   }));
@@ -128,6 +129,234 @@ function cleanLineupSlotSource(
   return result;
 }
 
+/**
+ * Helper thuần kết thúc một trận đấu (Mục 0.10)
+ */
+export function applyEndMatch(
+  state: BadmintonSessionState,
+  courtId: string,
+  now: number,
+  expectedMatchId?: string
+): BadmintonSessionState {
+  const targetCourt = state.courts.find((c) => c.id === courtId);
+  if (!targetCourt || !targetCourt.currentMatch) return state;
+  if (expectedMatchId !== undefined && targetCourt.currentMatch.id !== expectedMatchId) {
+    return state;
+  }
+
+  const current = targetCourt.currentMatch;
+  const durationMinutes = Math.max(
+    1,
+    Math.round((now - (current.startedAt || now)) / 60000)
+  );
+
+  const historyItem: MatchHistory = {
+    id: current.id || `hist_${courtId}_${now}`,
+    courtId,
+    type: current.type,
+    team1: current.team1,
+    team2: current.team2,
+    slotSource: current.slotSource,
+    startedAt: current.startedAt || now - 15 * 60000,
+    endedAt: now,
+    durationMinutes,
+  };
+
+  const matchPlayers = new Set([...current.team1, ...current.team2]);
+
+  const updatedPlayers = state.players.map((p) => {
+    if (matchPlayers.has(p.id)) {
+      return {
+        ...p,
+        gamesPlayed: p.gamesPlayed + 1,
+        singlesCount: current.type === 'SINGLES' ? p.singlesCount + 1 : p.singlesCount,
+        lastPlayedAt: now,
+      };
+    }
+    return p;
+  });
+
+  const updatedStats = recordCompletedMatch(state.stats, historyItem);
+
+  let nextNextUp = targetCourt.nextUp;
+  let remainingQueue = [...state.readyQueue];
+
+  if (state.settings.courtMode === 'SHARED_POOL' && !nextNextUp && remainingQueue.length > 0) {
+    const candidateIdx = remainingQueue.findIndex(
+      (item) => !item.isLockedByHost || !item.courtId || item.courtId === courtId
+    );
+    if (candidateIdx >= 0) {
+      const [promoted] = remainingQueue.splice(candidateIdx, 1);
+      nextNextUp = {
+        ...promoted.lineup,
+        isLockedByHost: promoted.isLockedByHost,
+      };
+    }
+  }
+
+  const updatedCourts = state.courts.map((c) => {
+    if (c.id !== courtId) return c;
+    return {
+      ...c,
+      currentMatch: null,
+      nextUp: nextNextUp,
+    };
+  });
+
+  return {
+    ...state,
+    players: updatedPlayers,
+    courts: updatedCourts,
+    history: [...state.history, historyItem],
+    stats: updatedStats,
+    readyQueue: remainingQueue,
+    courtPlanIndex: { ...state.courtPlanIndex, [courtId]: 0 },
+  };
+}
+
+/**
+ * Helper thuần bắt đầu một trận đấu (Mục 0.10)
+ */
+export function applyStartMatch(
+  state: BadmintonSessionState,
+  courtId: string,
+  rawLineup: Lineup | undefined,
+  now: number
+): BadmintonSessionState {
+  const targetCourt = state.courts.find((c) => c.id === courtId);
+  // Mục 5: nếu court không tồn tại, không active, hoặc currentMatch !== null -> return state
+  if (!targetCourt || !targetCourt.isActive || targetCourt.currentMatch !== null) {
+    return state;
+  }
+
+  const lineupCandidate = rawLineup ?? targetCourt.nextUp;
+  if (!lineupCandidate) return state;
+
+  const cleanSlots = cleanLineupSlotSource(
+    lineupCandidate.team1,
+    lineupCandidate.team2,
+    lineupCandidate.slotSource
+  );
+  const lineupToStart: Lineup = {
+    ...lineupCandidate,
+    slotSource: cleanSlots,
+  };
+
+  // Mục 0.9: Chặn nếu bất kỳ người nào trong lineup đang PAUSED
+  const hasPausedPlayer = [...lineupToStart.team1, ...lineupToStart.team2].some((pid) => {
+    const p = state.players.find((pl) => pl.id === pid);
+    return p && p.status === 'PAUSED';
+  });
+  if (hasPausedPlayer) {
+    return state;
+  }
+
+  // Chạy validateLineup: có mã BLOCK -> return state
+  const issues = validateLineup(lineupToStart, state, courtId);
+  if (issues.some((i) => i.severity === 'BLOCK')) {
+    return state;
+  }
+
+  const matchPlayers = new Set([...lineupToStart.team1, ...lineupToStart.team2]);
+
+  // Cập nhật waitStreak
+  const playingOnOtherCourts = new Set<string>();
+  for (const c of state.courts) {
+    if (c.id !== courtId && c.isActive && c.currentMatch) {
+      c.currentMatch.team1.forEach((id) => playingOnOtherCourts.add(id));
+      c.currentMatch.team2.forEach((id) => playingOnOtherCourts.add(id));
+    }
+  }
+
+  const updatedPlayers = state.players.map((p) => {
+    if (matchPlayers.has(p.id)) {
+      return { ...p, waitStreak: 0 };
+    }
+    if (p.status === 'ACTIVE' && !playingOnOtherCourts.has(p.id)) {
+      if (state.settings.courtMode === 'SPLIT_COURT') {
+        if (p.assignedPool === courtId || p.assignedPool === 'ALL') {
+          return { ...p, waitStreak: p.waitStreak + 1 };
+        }
+        return p;
+      }
+      return { ...p, waitStreak: p.waitStreak + 1 };
+    }
+    return p;
+  });
+
+  // Cập nhật mixDebt (Mục 0.1: không trừ mixDebt khi court.forcedType != null)
+  const isManual =
+    Object.values(cleanSlots).length > 0 &&
+    Object.values(cleanSlots).every((s) => s === 'MANUAL');
+  const isForced = targetCourt.forcedType != null;
+
+  let newMixDebt = { ...state.mixDebt };
+  if (!isManual && !isForced) {
+    newMixDebt.doubles += state.settings.matchMix.doubles;
+    newMixDebt.singles += state.settings.matchMix.singles;
+    if (lineupToStart.type === 'DOUBLES') {
+      newMixDebt.doubles -= 1;
+    } else {
+      newMixDebt.singles -= 1;
+    }
+  }
+
+  // Cập nhật sân & rút người khỏi nextUp của sân khác
+  const updatedCourts = state.courts.map((c) => {
+    if (c.id === courtId) {
+      return {
+        ...c,
+        currentMatch: {
+          ...lineupToStart,
+          id: lineupToStart.id || `match_${courtId}_${now}`,
+          startedAt: now,
+        },
+        nextUp: null,
+      };
+    }
+    if (c.nextUp) {
+      const hasOverlap = [...c.nextUp.team1, ...c.nextUp.team2].some((id) =>
+        matchPlayers.has(id)
+      );
+      if (hasOverlap) {
+        if (!c.nextUp.isLockedByHost) {
+          return { ...c, nextUp: null };
+        }
+        const newT1 = c.nextUp.team1.filter((id) => !matchPlayers.has(id));
+        const newT2 = c.nextUp.team2.filter((id) => !matchPlayers.has(id));
+        const newSlots: Record<string, 'AUTO' | 'MANUAL'> = {};
+        [...newT1, ...newT2].forEach((id) => {
+          newSlots[id] = 'MANUAL';
+        });
+        return {
+          ...c,
+          nextUp: {
+            ...c.nextUp,
+            team1: newT1,
+            team2: newT2,
+            slotSource: newSlots,
+          },
+        };
+      }
+    }
+    return c;
+  });
+
+  const updatedReadyQueue = state.readyQueue.filter((item) => {
+    const itemIds = [...item.lineup.team1, ...item.lineup.team2];
+    return !itemIds.some((id) => matchPlayers.has(id));
+  });
+
+  return {
+    ...state,
+    players: updatedPlayers,
+    courts: updatedCourts,
+    mixDebt: newMixDebt,
+    readyQueue: updatedReadyQueue,
+    courtPlanIndex: { ...state.courtPlanIndex, [courtId]: 0 },
+  };
+}
+
 export type BadmintonAction =
   | {
       type: 'START_MATCH';
@@ -135,11 +364,11 @@ export type BadmintonAction =
     }
   | {
       type: 'END_MATCH';
-      payload: { courtId: string; now: number };
+      payload: { courtId: string; now: number; expectedMatchId?: string };
     }
   | {
       type: 'END_AND_START';
-      payload: { courtId: string; now: number; nextLineup?: Lineup };
+      payload: { courtId: string; now: number; nextLineup?: Lineup; expectedMatchId?: string };
     }
   | {
       type: 'SWAP_PLAYERS';
@@ -226,11 +455,14 @@ export type BadmintonAction =
     }
   | {
       type: 'ADD_COURT';
-      payload: { id?: string; name?: string; policy?: CourtPolicy };
+      payload: { id?: string; name?: string; policy?: CourtPolicy; forcedType?: 'DOUBLES' | 'SINGLES' | null };
     }
   | {
       type: 'UPDATE_COURT';
-      payload: { courtId: string; updates: { name?: string; policy?: CourtPolicy; isActive?: boolean } };
+      payload: {
+        courtId: string;
+        updates: { name?: string; policy?: CourtPolicy; isActive?: boolean; forcedType?: 'DOUBLES' | 'SINGLES' | null };
+      };
     }
   | {
       type: 'REMOVE_COURT';
@@ -338,6 +570,7 @@ export function badmintonReducer(
       })),
       courts: state.courts.map((c) => ({
         ...c,
+        forcedType: null,
         currentMatch: null,
         nextUp: null,
       })),
@@ -354,7 +587,7 @@ export function badmintonReducer(
     };
   }
 
-  // Mục 3: Các action không tạo snapshot undo (CYCLE_NEXT_UP_PROPOSAL, SNOOZE_AUTO_SINGLES, SNOOZE_AUTO_SINGLES_WAIT)
+  // Mục 3: Các action không tạo snapshot undo
   const isNoUndo = NO_UNDO_ACTIONS.has(action.type);
   const nextUndoStack = isNoUndo
     ? state.undoStack
@@ -369,393 +602,59 @@ export function badmintonReducer(
 
   switch (action.type) {
     case 'START_MATCH': {
-      const { courtId, now } = action.payload;
-      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
-      // Mục 5: nếu court không tồn tại, không active, hoặc currentMatch !== null -> return state
-      if (!targetCourt || !targetCourt.isActive || targetCourt.currentMatch !== null) {
+      const { courtId, lineup, now } = action.payload;
+      const res = applyStartMatch(baseNextState, courtId, lineup, now);
+      if (res === baseNextState) {
         return state;
       }
-
-      const rawLineup = action.payload.lineup ?? targetCourt.nextUp;
-      if (!rawLineup) return state;
-
-      const cleanSlots = cleanLineupSlotSource(rawLineup.team1, rawLineup.team2, rawLineup.slotSource);
-      const lineupToStart: Lineup = {
-        ...rawLineup,
-        slotSource: cleanSlots,
-      };
-
-      // Chạy validateLineup: có mã BLOCK -> return state
-      const issues = validateLineup(lineupToStart, baseNextState, courtId);
-      if (issues.some((i) => i.severity === 'BLOCK')) {
-        return state;
-      }
-
-      const matchPlayers = new Set([...lineupToStart.team1, ...lineupToStart.team2]);
-
-      // 1. Cập nhật waitStreak
-      const playingOnOtherCourts = new Set<string>();
-      for (const c of baseNextState.courts) {
-        if (c.id !== courtId && c.isActive && c.currentMatch) {
-          c.currentMatch.team1.forEach((id) => playingOnOtherCourts.add(id));
-          c.currentMatch.team2.forEach((id) => playingOnOtherCourts.add(id));
-        }
-      }
-
-      const updatedPlayers = baseNextState.players.map((p) => {
-        if (matchPlayers.has(p.id)) {
-          return { ...p, waitStreak: 0 };
-        }
-        if (p.status === 'ACTIVE' && !playingOnOtherCourts.has(p.id)) {
-          if (baseNextState.settings.courtMode === 'SPLIT_COURT') {
-            if (p.assignedPool === courtId || p.assignedPool === 'ALL') {
-              return { ...p, waitStreak: p.waitStreak + 1 };
-            }
-            return p;
-          }
-          return { ...p, waitStreak: p.waitStreak + 1 };
-        }
-        return p;
-      });
-
-      // 2. Cập nhật mixDebt (Mục 8)
-      const isManual =
-        Object.values(cleanSlots).length > 0 &&
-        Object.values(cleanSlots).every((s) => s === 'MANUAL');
-      let newMixDebt = { ...baseNextState.mixDebt };
-      if (!isManual) {
-        newMixDebt.doubles += baseNextState.settings.matchMix.doubles;
-        newMixDebt.singles += baseNextState.settings.matchMix.singles;
-        if (lineupToStart.type === 'DOUBLES') {
-          newMixDebt.doubles -= 1;
-        } else {
-          newMixDebt.singles -= 1;
-        }
-      }
-
-      // 3. Cập nhật sân & rút người khỏi nextUp của sân khác (Mục 5)
-      const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.id === courtId) {
-          return {
-            ...c,
-            currentMatch: {
-              ...lineupToStart,
-              id: lineupToStart.id || `match_${courtId}_${now}`,
-              startedAt: now,
-            },
-            nextUp: null,
-          };
-        }
-        // Sân khác: rút người khỏi nextUp
-        if (c.nextUp) {
-          const hasOverlap = [...c.nextUp.team1, ...c.nextUp.team2].some((id) =>
-            matchPlayers.has(id)
-          );
-          if (hasOverlap) {
-            if (!c.nextUp.isLockedByHost) {
-              return { ...c, nextUp: null };
-            }
-            const newT1 = c.nextUp.team1.filter((id) => !matchPlayers.has(id));
-            const newT2 = c.nextUp.team2.filter((id) => !matchPlayers.has(id));
-            const newSlots: Record<string, 'AUTO' | 'MANUAL'> = {};
-            [...newT1, ...newT2].forEach((id) => {
-              newSlots[id] = 'MANUAL';
-            });
-            return {
-              ...c,
-              nextUp: {
-                ...c.nextUp,
-                team1: newT1,
-                team2: newT2,
-                slotSource: newSlots,
-              },
-            };
-          }
-        }
-        return c;
-      });
-
-      // 4. Bỏ khỏi readyQueue nếu có
-      const updatedReadyQueue = baseNextState.readyQueue.filter((item) => {
-        const itemIds = [...item.lineup.team1, ...item.lineup.team2];
-        return !itemIds.some((id) => matchPlayers.has(id));
-      });
-
-      return {
-        ...baseNextState,
-        players: updatedPlayers,
-        courts: updatedCourts,
-        mixDebt: newMixDebt,
-        readyQueue: updatedReadyQueue,
-        courtPlanIndex: { ...baseNextState.courtPlanIndex, [courtId]: 0 }, // Mục 4: reset khi START_MATCH
-      };
+      return res;
     }
 
     case 'END_MATCH': {
-      const { courtId, now } = action.payload;
-      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
-      if (!targetCourt || !targetCourt.currentMatch) return state;
-
-      const current = targetCourt.currentMatch;
-      const durationMinutes = Math.max(
-        1,
-        Math.round((now - (current.startedAt || now)) / 60000)
-      );
-
-      const historyItem: MatchHistory = {
-        id: current.id || `hist_${courtId}_${now}`,
-        courtId,
-        type: current.type,
-        team1: current.team1,
-        team2: current.team2,
-        slotSource: current.slotSource,
-        startedAt: current.startedAt || now - 15 * 60000,
-        endedAt: now,
-        durationMinutes,
-      };
-
-      const matchPlayers = new Set([...current.team1, ...current.team2]);
-
-      const updatedPlayers = baseNextState.players.map((p) => {
-        if (matchPlayers.has(p.id)) {
-          return {
-            ...p,
-            gamesPlayed: p.gamesPlayed + 1,
-            singlesCount: current.type === 'SINGLES' ? p.singlesCount + 1 : p.singlesCount,
-            lastPlayedAt: now,
-          };
-        }
-        return p;
-      });
-
-      const updatedStats = recordCompletedMatch(baseNextState.stats, historyItem);
-
-      let nextNextUp = targetCourt.nextUp;
-      let remainingQueue = [...baseNextState.readyQueue];
-
-      if (baseNextState.settings.courtMode === 'SHARED_POOL' && !nextNextUp && remainingQueue.length > 0) {
-        const candidateIdx = remainingQueue.findIndex(
-          (item) => !item.isLockedByHost || !item.courtId || item.courtId === courtId
-        );
-        if (candidateIdx >= 0) {
-          const [promoted] = remainingQueue.splice(candidateIdx, 1);
-          nextNextUp = {
-            ...promoted.lineup,
-            isLockedByHost: promoted.isLockedByHost,
-          };
-        }
+      const { courtId, now, expectedMatchId } = action.payload;
+      const targetCourt = state.courts.find((c) => c.id === courtId);
+      if (expectedMatchId !== undefined && targetCourt?.currentMatch?.id !== expectedMatchId) {
+        return state;
       }
-
-      const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.id !== courtId) return c;
-        return {
-          ...c,
-          currentMatch: null,
-          nextUp: nextNextUp,
-        };
-      });
-
-      return {
-        ...baseNextState,
-        players: updatedPlayers,
-        courts: updatedCourts,
-        history: [...baseNextState.history, historyItem],
-        stats: updatedStats,
-        readyQueue: remainingQueue,
-        courtPlanIndex: { ...baseNextState.courtPlanIndex, [courtId]: 0 }, // Mục 4: reset khi END_MATCH
-      };
+      const res = applyEndMatch(baseNextState, courtId, now, expectedMatchId);
+      if (res === baseNextState) {
+        return state;
+      }
+      return res;
     }
 
-    // Mục 6: END_AND_START trong đúng 1 snapshot undo
+    // Mục 6 & 0.10: END_AND_START trong đúng 1 snapshot undo
     case 'END_AND_START': {
-      const { courtId, now, nextLineup } = action.payload;
-      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
+      const { courtId, now, nextLineup, expectedMatchId } = action.payload;
+      const targetCourt = state.courts.find((c) => c.id === courtId);
       if (!targetCourt || !targetCourt.currentMatch) return state;
-
-      const current = targetCourt.currentMatch;
-      const durationMinutes = Math.max(
-        1,
-        Math.round((now - (current.startedAt || now)) / 60000)
-      );
-
-      const historyItem: MatchHistory = {
-        id: current.id || `hist_${courtId}_${now}`,
-        courtId,
-        type: current.type,
-        team1: current.team1,
-        team2: current.team2,
-        slotSource: current.slotSource,
-        startedAt: current.startedAt || now - 15 * 60000,
-        endedAt: now,
-        durationMinutes,
-      };
-
-      const endedPlayers = new Set([...current.team1, ...current.team2]);
-      const playersAfterEnd = baseNextState.players.map((p) => {
-        if (endedPlayers.has(p.id)) {
-          return {
-            ...p,
-            gamesPlayed: p.gamesPlayed + 1,
-            singlesCount: current.type === 'SINGLES' ? p.singlesCount + 1 : p.singlesCount,
-            lastPlayedAt: now,
-          };
-        }
-        return p;
-      });
-
-      const statsAfterEnd = recordCompletedMatch(baseNextState.stats, historyItem);
-      const historyAfterEnd = [...baseNextState.history, historyItem];
-
-      let nextNextUp = targetCourt.nextUp;
-      let remainingQueue = [...baseNextState.readyQueue];
-      if (baseNextState.settings.courtMode === 'SHARED_POOL' && !nextNextUp && remainingQueue.length > 0) {
-        const candidateIdx = remainingQueue.findIndex(
-          (item) => !item.isLockedByHost || !item.courtId || item.courtId === courtId
-        );
-        if (candidateIdx >= 0) {
-          const [promoted] = remainingQueue.splice(candidateIdx, 1);
-          nextNextUp = {
-            ...promoted.lineup,
-            isLockedByHost: promoted.isLockedByHost,
-          };
-        }
+      if (expectedMatchId !== undefined && targetCourt.currentMatch.id !== expectedMatchId) {
+        return state;
       }
 
-      const courtsAfterEnd = baseNextState.courts.map((c) => {
-        if (c.id !== courtId) return c;
-        return {
-          ...c,
-          currentMatch: null,
-          nextUp: nextNextUp,
-        };
-      });
+      // 1. END_MATCH step
+      const stateAfterEnd = applyEndMatch(baseNextState, courtId, now, expectedMatchId);
+      if (stateAfterEnd === baseNextState) {
+        return state;
+      }
 
-      const stateAfterEnd: BadmintonSessionState = {
-        ...baseNextState,
-        players: playersAfterEnd,
-        courts: courtsAfterEnd,
-        history: historyAfterEnd,
-        stats: statsAfterEnd,
-        readyQueue: remainingQueue,
-        courtPlanIndex: { ...baseNextState.courtPlanIndex, [courtId]: 0 },
-      };
-
-      // Bước 2: START_MATCH cho lineup kế tiếp
-      const rawLineupToStart = nextLineup ?? nextNextUp;
-      if (!rawLineupToStart) {
+      // 2. START_MATCH step
+      const targetCourtAfter = stateAfterEnd.courts.find((c) => c.id === courtId);
+      const lineupToStart = nextLineup ?? targetCourtAfter?.nextUp;
+      if (!lineupToStart) {
         return stateAfterEnd;
       }
 
-      const cleanSlots = cleanLineupSlotSource(
-        rawLineupToStart.team1,
-        rawLineupToStart.team2,
-        rawLineupToStart.slotSource
-      );
-      const lineupToStart: Lineup = {
-        ...rawLineupToStart,
-        slotSource: cleanSlots,
-      };
-
-      const issues = validateLineup(lineupToStart, stateAfterEnd, courtId);
-      if (issues.some((i) => i.severity === 'BLOCK')) {
+      const stateAfterStart = applyStartMatch(stateAfterEnd, courtId, lineupToStart, now);
+      if (stateAfterStart === stateAfterEnd) {
+        // Nếu không start được (do PAUSED, BLOCK...) thì chỉ kết thúc trận
         return stateAfterEnd;
       }
 
-      const matchPlayers = new Set([...lineupToStart.team1, ...lineupToStart.team2]);
-      const playingOnOtherCourts = new Set<string>();
-      for (const c of courtsAfterEnd) {
-        if (c.id !== courtId && c.isActive && c.currentMatch) {
-          c.currentMatch.team1.forEach((id) => playingOnOtherCourts.add(id));
-          c.currentMatch.team2.forEach((id) => playingOnOtherCourts.add(id));
-        }
-      }
-
-      const finalPlayers = playersAfterEnd.map((p) => {
-        if (matchPlayers.has(p.id)) {
-          return { ...p, waitStreak: 0 };
-        }
-        if (p.status === 'ACTIVE' && !playingOnOtherCourts.has(p.id)) {
-          if (stateAfterEnd.settings.courtMode === 'SPLIT_COURT') {
-            if (p.assignedPool === courtId || p.assignedPool === 'ALL') {
-              return { ...p, waitStreak: p.waitStreak + 1 };
-            }
-            return p;
-          }
-          return { ...p, waitStreak: p.waitStreak + 1 };
-        }
-        return p;
-      });
-
-      const isManual =
-        Object.values(cleanSlots).length > 0 &&
-        Object.values(cleanSlots).every((s) => s === 'MANUAL');
-      let newMixDebt = { ...stateAfterEnd.mixDebt };
-      if (!isManual) {
-        newMixDebt.doubles += stateAfterEnd.settings.matchMix.doubles;
-        newMixDebt.singles += stateAfterEnd.settings.matchMix.singles;
-        if (lineupToStart.type === 'DOUBLES') {
-          newMixDebt.doubles -= 1;
-        } else {
-          newMixDebt.singles -= 1;
-        }
-      }
-
-      const finalCourts = courtsAfterEnd.map((c) => {
-        if (c.id === courtId) {
-          return {
-            ...c,
-            currentMatch: {
-              ...lineupToStart,
-              id: lineupToStart.id || `match_${courtId}_${now}`,
-              startedAt: now,
-            },
-            nextUp: null,
-          };
-        }
-        if (c.nextUp) {
-          const hasOverlap = [...c.nextUp.team1, ...c.nextUp.team2].some((id) =>
-            matchPlayers.has(id)
-          );
-          if (hasOverlap) {
-            if (!c.nextUp.isLockedByHost) {
-              return { ...c, nextUp: null };
-            }
-            const newT1 = c.nextUp.team1.filter((id) => !matchPlayers.has(id));
-            const newT2 = c.nextUp.team2.filter((id) => !matchPlayers.has(id));
-            const newSlots: Record<string, 'AUTO' | 'MANUAL'> = {};
-            [...newT1, ...newT2].forEach((id) => {
-              newSlots[id] = 'MANUAL';
-            });
-            return {
-              ...c,
-              nextUp: {
-                ...c.nextUp,
-                team1: newT1,
-                team2: newT2,
-                slotSource: newSlots,
-              },
-            };
-          }
-        }
-        return c;
-      });
-
-      const finalReadyQueue = remainingQueue.filter((item) => {
-        const itemIds = [...item.lineup.team1, ...item.lineup.team2];
-        return !itemIds.some((id) => matchPlayers.has(id));
-      });
-
-      return {
-        ...stateAfterEnd,
-        players: finalPlayers,
-        courts: finalCourts,
-        mixDebt: newMixDebt,
-        readyQueue: finalReadyQueue,
-        courtPlanIndex: { ...stateAfterEnd.courtPlanIndex, [courtId]: 0 },
-      };
+      return stateAfterStart;
     }
 
-    // Mục 7: SWAP_PLAYERS
+    // Mục 7 & 0.12: SWAP_PLAYERS
     case 'SWAP_PLAYERS': {
       const { courtId, target, slot1, slot2, baseLineup } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
@@ -774,6 +673,16 @@ export function badmintonReducer(
       }
       if ('team' in slot2 && !validateSlotIndex(currentOrNext.type, slot2.team, slot2.index)) {
         return state;
+      }
+
+      // 0.12: Không tạo mảng có lỗ hổng (index <= current length)
+      const team1Len = currentOrNext.team1.length;
+      const team2Len = currentOrNext.team2.length;
+      if (slot1.team === 1 && slot1.index > team1Len) return state;
+      if (slot1.team === 2 && slot1.index > team2Len) return state;
+      if ('team' in slot2) {
+        if (slot2.team === 1 && slot2.index > team1Len) return state;
+        if (slot2.team === 2 && slot2.index > team2Len) return state;
       }
 
       const team1 = [...currentOrNext.team1];
@@ -808,7 +717,7 @@ export function badmintonReducer(
       };
 
       // Có mã BLOCK -> return state
-      const issues = validateLineup(newLineup, baseNextState, courtId);
+      const issues = validateLineup(newLineup, baseNextState, courtId, { target });
       if (issues.some((i) => i.severity === 'BLOCK')) {
         return state;
       }
@@ -837,7 +746,7 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 7: SET_MANUAL_SLOT
+    // Mục 7 & 0.12: SET_MANUAL_SLOT
     case 'SET_MANUAL_SLOT': {
       const { courtId, target, team, index, playerId, baseLineup } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
@@ -851,6 +760,12 @@ export function badmintonReducer(
       if (!currentOrNext) return state;
 
       if (!validateSlotIndex(currentOrNext.type, team, index)) {
+        return state;
+      }
+
+      // 0.12: index <= length of that team
+      const curLen = team === 1 ? currentOrNext.team1.length : currentOrNext.team2.length;
+      if (index > curLen) {
         return state;
       }
 
@@ -869,7 +784,7 @@ export function badmintonReducer(
         slotSource: cleanSlots,
       };
 
-      const issues = validateLineup(newLineup, baseNextState, courtId);
+      const issues = validateLineup(newLineup, baseNextState, courtId, { target });
       if (issues.some((i) => i.severity === 'BLOCK')) {
         return state;
       }
@@ -898,14 +813,25 @@ export function badmintonReducer(
       };
     }
 
+    // Mục 0.11: SET_NEXT_UP validateLineup (chặn BLOCK, trừ INVALID_SIZE khi thiếu người)
     case 'SET_NEXT_UP': {
       const { courtId, lineup, isLockedByHost = false } = action.payload;
       const cleanSlots = cleanLineupSlotSource(lineup.team1, lineup.team2, lineup.slotSource);
+      const newLineup = { ...lineup, slotSource: cleanSlots, isLockedByHost };
+
+      const issues = validateLineup(newLineup, baseNextState, courtId, { target: 'NEXT_UP' });
+      const hasBlock = issues.some(
+        (i) => i.severity === 'BLOCK' && i.code !== 'INVALID_SIZE'
+      );
+      if (hasBlock) {
+        return state;
+      }
+
       const updatedCourts = baseNextState.courts.map((c) => {
         if (c.id !== courtId) return c;
         return {
           ...c,
-          nextUp: { ...lineup, slotSource: cleanSlots, isLockedByHost },
+          nextUp: newLineup,
         };
       });
       return {
@@ -965,6 +891,10 @@ export function badmintonReducer(
     // Mục 9: PAUSE_PLAYER
     case 'PAUSE_PLAYER': {
       const pid = action.payload.playerId;
+      const target = state.players.find((p) => p.id === pid);
+      if (!target || target.status === 'PAUSED') {
+        return state;
+      }
       const updatedPlayers = baseNextState.players.map((p) =>
         p.id === pid ? { ...p, status: 'PAUSED' as const, waitStreak: 0 } : p
       );
@@ -996,8 +926,8 @@ export function badmintonReducer(
     }
 
     case 'RESUME_PLAYER': {
-      const target = baseNextState.players.find((p) => p.id === action.payload.playerId);
-      if (!target) return state;
+      const target = state.players.find((p) => p.id === action.payload.playerId);
+      if (!target || target.status === 'ACTIVE') return state;
       const updatedPlayer = activatePlayerWithOffset(target, baseNextState.players);
       const updatedPlayers = baseNextState.players.map((p) =>
         p.id === target.id ? updatedPlayer : p
@@ -1011,6 +941,9 @@ export function badmintonReducer(
 
     case 'ADD_PLAYER': {
       const { player, now } = action.payload;
+      if (state.players.some((p) => p.id === player.id)) {
+        return state;
+      }
       let newPlayer: Player = {
         ...player,
         singlesCount: 0,
@@ -1036,9 +969,17 @@ export function badmintonReducer(
     // Mục 13: ADD_PLAYERS
     case 'ADD_PLAYERS': {
       const { players: newPlayersData, now } = action.payload;
+      const existingIds = new Set(state.players.map((p) => p.id));
       let currentPlayers = [...baseNextState.players];
+      let addedCount = 0;
 
       for (const pData of newPlayersData) {
+        if (existingIds.has(pData.id)) {
+          continue;
+        }
+        existingIds.add(pData.id);
+        addedCount++;
+
         let newPlayer: Player = {
           ...pData,
           singlesCount: 0,
@@ -1053,6 +994,10 @@ export function badmintonReducer(
           newPlayer = activatePlayerWithOffset(newPlayer, currentPlayers);
         }
         currentPlayers.push(newPlayer);
+      }
+
+      if (addedCount === 0) {
+        return state;
       }
 
       return {
@@ -1173,6 +1118,7 @@ export function badmintonReducer(
         name: action.payload.name || `Sân ${count}`,
         isActive: true,
         policy: action.payload.policy || 'MIX',
+        forcedType: action.payload.forcedType ?? null,
         currentMatch: null,
         nextUp: null,
       };
@@ -1183,7 +1129,7 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 16: UPDATE_COURT
+    // Mục 16, 0.1 & 0.14: UPDATE_COURT
     case 'UPDATE_COURT': {
       const { courtId, updates } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
@@ -1198,9 +1144,17 @@ export function badmintonReducer(
       if (updates.name !== undefined) sanitizedUpdates.name = updates.name;
       if (updates.policy !== undefined) sanitizedUpdates.policy = updates.policy;
       if (updates.isActive !== undefined) sanitizedUpdates.isActive = updates.isActive;
+      if (updates.forcedType !== undefined) sanitizedUpdates.forcedType = updates.forcedType;
 
       const nextAutoSnooze = { ...baseNextState.autoSinglesSnooze };
-      const nextPlanIndex = { ...baseNextState.courtPlanIndex };
+      let nextPlanIndex = { ...baseNextState.courtPlanIndex };
+
+      // 0.14: Đổi isActive (bật hoặc tắt) -> reset courtPlanIndex toàn bộ
+      const isTogglingActive =
+        updates.isActive !== undefined && updates.isActive !== targetCourt.isActive;
+      if (isTogglingActive) {
+        nextPlanIndex = {};
+      }
 
       const updatedCourts = baseNextState.courts.map((c) => {
         if (c.id !== courtId) return c;
@@ -1217,11 +1171,19 @@ export function badmintonReducer(
         return { ...c, ...sanitizedUpdates };
       });
 
+      let nextReadyQueue = baseNextState.readyQueue;
+      if (updates.isActive === false) {
+        nextReadyQueue = nextReadyQueue.map((item) =>
+          item.courtId === courtId ? { ...item, courtId: undefined } : item
+        );
+      }
+
       return {
         ...baseNextState,
         courts: updatedCourts,
+        readyQueue: nextReadyQueue,
         autoSinglesSnooze: nextAutoSnooze,
-        courtPlanIndex: updates.policy !== undefined ? {} : nextPlanIndex,
+        courtPlanIndex: updates.policy !== undefined || isTogglingActive ? {} : nextPlanIndex,
       };
     }
 
@@ -1238,11 +1200,15 @@ export function badmintonReducer(
       const updatedPlayers = baseNextState.players.map((p) =>
         p.assignedPool === courtId ? { ...p, assignedPool: 'ALL' as const } : p
       );
+      const updatedReadyQueue = baseNextState.readyQueue.map((item) =>
+        item.courtId === courtId ? { ...item, courtId: undefined } : item
+      );
 
       return {
         ...baseNextState,
         courts: updatedCourts,
         players: updatedPlayers,
+        readyQueue: updatedReadyQueue,
         courtPlanIndex: {},
       };
     }
@@ -1283,11 +1249,27 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 17: UPDATE_SETTINGS
+    // Mục 17 & 0.13: UPDATE_SETTINGS
     case 'UPDATE_SETTINGS': {
+      let normalizedMix = baseNextState.settings.matchMix;
+      if (action.payload.settings?.matchMix) {
+        const d = Math.max(0, action.payload.settings.matchMix.doubles || 0);
+        const s = Math.max(0, action.payload.settings.matchMix.singles || 0);
+        const total = d + s;
+        if (total === 0) {
+          normalizedMix = { doubles: 1, singles: 0 };
+        } else {
+          normalizedMix = {
+            doubles: Number((d / total).toFixed(4)),
+            singles: Number((s / total).toFixed(4)),
+          };
+        }
+      }
+
       const newSettings: SessionSettings = {
         ...baseNextState.settings,
         ...action.payload.settings,
+        matchMix: normalizedMix,
         weights: {
           ...baseNextState.settings.weights,
           ...(action.payload.settings?.weights || {}),
@@ -1339,7 +1321,7 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 19: DELETE_HISTORY_MATCH
+    // Mục 19 & 0.14: DELETE_HISTORY_MATCH (reset courtPlanIndex toàn bộ)
     case 'DELETE_HISTORY_MATCH': {
       const { matchId } = action.payload;
       const matchIndex = baseNextState.history.findIndex((h) => h.id === matchId);
@@ -1367,6 +1349,7 @@ export function badmintonReducer(
         players: updatedPlayers,
         history: remainingHistory,
         stats: updatedStats,
+        courtPlanIndex: {}, // 0.14: reset courtPlanIndex toàn bộ
       };
     }
 

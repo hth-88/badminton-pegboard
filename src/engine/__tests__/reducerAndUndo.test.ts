@@ -111,6 +111,12 @@ describe('Badminton Session Reducer & Undo/Redo Engine', () => {
   it('SWAP_PLAYERS và SET_MANUAL_SLOT đánh dấu slotSource thành MANUAL', () => {
     let state = createInitialSessionState();
     state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1'),
+      makePlayer('p2', 'P2'),
+      makePlayer('p3', 'P3'),
+      makePlayer('p4', 'P4'),
+    ];
     const lineup: Lineup = {
       type: 'DOUBLES',
       team1: ['p1', 'p2'],

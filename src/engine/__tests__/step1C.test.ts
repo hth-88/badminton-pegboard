@@ -470,7 +470,7 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
     const issues5 = validateLineup(avoidPartnerLineup, baseState);
     expect(issues5.some((i) => i.code === 'AVOID_PARTNER_VIOLATION' && i.severity === 'WARN')).toBe(true);
 
-    // 6. WARN: LOCK_PARTNER_SPLIT (p3 và p4 bị chia 2 đội đối đầu)
+    // 6. WARN: LOCK_PARTNER_SPLIT (p3 và p4 bị chia 2 đội đối đầu khi đánh DOUBLES)
     const splitLockLineup: Lineup = {
       type: 'DOUBLES',
       team1: ['p1', 'p3'],
@@ -479,6 +479,16 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
     };
     const issues6 = validateLineup(splitLockLineup, baseState);
     expect(issues6.some((i) => i.code === 'LOCK_PARTNER_SPLIT' && i.severity === 'WARN')).toBe(true);
+
+    // Mục D: Ca đơn (SINGLES) đối đầu giữa p3 và p4 KHÔNG cảnh báo LOCK_PARTNER_SPLIT
+    const singlesSplitLineup: Lineup = {
+      type: 'SINGLES',
+      team1: ['p3'],
+      team2: ['p4'],
+      slotSource: { p3: 'AUTO', p4: 'AUTO' },
+    };
+    const issuesSingles = validateLineup(singlesSplitLineup, baseState);
+    expect(issuesSingles.some((i) => i.code === 'LOCK_PARTNER_SPLIT')).toBe(false);
 
     // 7. WARN: AVOID_MATCH_VIOLATION (p1 và p3 chung sân)
     const issues7 = validateLineup(splitLockLineup, baseState);

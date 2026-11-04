@@ -135,41 +135,6 @@ export function getValidAvailablePlayersForCourt(
   });
 }
 
-/**
- * Quyết định loại trận (decideTargetMatchType) bằng bộ đếm thiếu hụt (mixDebt) thay cho random:
- * - Court.policy ép loại nếu không phải 'MIX'
- * - Nếu 'MIX': cộng tỉ lệ mix vào debt, chọn loại có debt lớn hơn (hòa -> Đôi)
- * - Nếu loại được chọn không đủ người -> fallback loại còn lại
- */
-export function decideTargetMatchType(
-  court: Court,
-  availableCount: number,
-  state: BadmintonSessionState
-): MatchType | 'NONE' {
-  // 1. Nếu court ép policy
-  if (court.policy === 'DOUBLES_ONLY') {
-    return availableCount >= 4 ? 'DOUBLES' : 'NONE';
-  }
-  if (court.policy === 'SINGLES_ONLY') {
-    return availableCount >= 2 ? 'SINGLES' : 'NONE';
-  }
-
-  // 2. Policy là 'MIX'
-  const simDebtD = state.mixDebt.doubles + state.settings.matchMix.doubles;
-  const simDebtS = state.mixDebt.singles + state.settings.matchMix.singles;
-
-  const preferredType: MatchType = simDebtS > simDebtD ? 'SINGLES' : 'DOUBLES';
-
-  if (preferredType === 'DOUBLES') {
-    if (availableCount >= 4) return 'DOUBLES';
-    if (availableCount >= 2) return 'SINGLES';
-    return 'NONE';
-  } else {
-    if (availableCount >= 2) return 'SINGLES';
-    if (availableCount >= 4) return 'DOUBLES';
-    return 'NONE';
-  }
-}
 
 /**
  * Tính điểm phạt chi tiết cho một trận ĐƠN
@@ -450,22 +415,22 @@ export function generateSinglesProposals(
 
   const playerMap = new Map(eligiblePlayers.map((p) => [p.id, p]));
 
-  // Nếu có fixedSlots
-  if (fixedSlots && fixedSlots.length > 0) {
-    // Validate fixedSlots
-    const fixedT1 = fixedSlots.filter((s) => s.team === 1);
-    const fixedT2 = fixedSlots.filter((s) => s.team === 2);
-    if (fixedT1.length > 1 || fixedT2.length > 1 || fixedSlots.length > 2) {
-      return [];
-    }
+  // 0.3: fixedSlots trỏ tới người không khả dụng (PAUSED, đang đánh, khác pool, hoặc noSingles): bỏ slot đó (coi là AUTO) thay vì trả []
+  const validFixedSlots: FixedSlot[] = [];
+  const seenPlayerIds = new Set<string>();
+  if (fixedSlots) {
     for (const slot of fixedSlots) {
-      if (!playerMap.has(slot.playerId)) {
-        return []; // Người cố định không có sẵn hoặc từ chối đánh đơn
+      if (playerMap.has(slot.playerId) && !seenPlayerIds.has(slot.playerId)) {
+        seenPlayerIds.add(slot.playerId);
+        validFixedSlots.push(slot);
       }
     }
-    if (fixedSlots.length === 2 && fixedSlots[0].playerId === fixedSlots[1].playerId) {
-      return [];
-    }
+  }
+
+  // Nếu có validFixedSlots
+  if (validFixedSlots.length > 0) {
+    const fixedT1 = validFixedSlots.filter((s) => s.team === 1).slice(0, 1);
+    const fixedT2 = validFixedSlots.filter((s) => s.team === 2).slice(0, 1);
 
     // Trường hợp cả 2 slot đều cố định
     if (fixedT1.length === 1 && fixedT2.length === 1) {
@@ -676,23 +641,31 @@ export function generateDoublesProposals(
     return !conflictPairKeys.has(key);
   });
 
-  // 2. Validate fixedSlots (Mục 5)
-  const fixedT1 = (fixedSlots || []).filter((s) => s.team === 1).map((s) => s.playerId);
-  const fixedT2 = (fixedSlots || []).filter((s) => s.team === 2).map((s) => s.playerId);
-
-  if (fixedT1.length > 2 || fixedT2.length > 2) {
-    return [];
-  }
-  const fixedList = [...fixedT1, ...fixedT2];
-  const fixedSet = new Set(fixedList);
-  if (fixedSet.size !== fixedList.length) {
-    return []; // Trùng người cố định
-  }
-  for (const fid of fixedSet) {
-    if (!availableIdSet.has(fid)) {
-      return []; // Người cố định không có sẵn
+  // 2. Validate fixedSlots (Mục 0.3: fixedSlots trỏ tới người không khả dụng -> bỏ slot đó coi là AUTO)
+  const validFixedSlots: FixedSlot[] = [];
+  const seenFixedIds = new Set<string>();
+  let countT1 = 0;
+  let countT2 = 0;
+  if (fixedSlots) {
+    for (const slot of fixedSlots) {
+      if (availableIdSet.has(slot.playerId) && !seenFixedIds.has(slot.playerId)) {
+        if (slot.team === 1 && countT1 < 2) {
+          seenFixedIds.add(slot.playerId);
+          validFixedSlots.push(slot);
+          countT1++;
+        } else if (slot.team === 2 && countT2 < 2) {
+          seenFixedIds.add(slot.playerId);
+          validFixedSlots.push(slot);
+          countT2++;
+        }
+      }
     }
   }
+
+  const fixedT1 = validFixedSlots.filter((s) => s.team === 1).map((s) => s.playerId);
+  const fixedT2 = validFixedSlots.filter((s) => s.team === 2).map((s) => s.playerId);
+  const fixedList = [...fixedT1, ...fixedT2];
+  const fixedSet = new Set(fixedList);
 
   const neededT1 = 2 - fixedT1.length;
   const neededT2 = 2 - fixedT2.length;
@@ -1020,64 +993,170 @@ export function planAllCourts(
   });
 
   for (const court of activeCourts) {
-    // Nếu sân đã có nextUp bị khóa bởi Host, tính real debugScore và giữ chỗ người trong đó (Mục 11)
+    // 0.2 & Mục 11: Nếu sân đã có nextUp bị khóa bởi Host
     if (court.nextUp && court.nextUp.isLockedByHost) {
-      court.nextUp.team1.forEach((id) => reservedPlayerIds.add(id));
-      court.nextUp.team2.forEach((id) => reservedPlayerIds.add(id));
+      const isDoubles = court.nextUp.type === 'DOUBLES';
+      const isComplete = isDoubles
+        ? court.nextUp.team1.length === 2 && court.nextUp.team2.length === 2
+        : court.nextUp.team1.length === 1 && court.nextUp.team2.length === 1;
 
-      let debugScore: MatchScoreBreakdown;
-      let penalty = 0;
+      const allPlayerIds = [...court.nextUp.team1, ...court.nextUp.team2];
+      const allActiveAndAvailable =
+        isComplete &&
+        allPlayerIds.every((pid) => {
+          const p = state.players.find((pl) => pl.id === pid);
+          return p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid);
+        });
 
-      if (court.nextUp.type === 'DOUBLES') {
-        const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
-        const p2 = state.players.find((p) => p.id === court.nextUp!.team1[1]);
-        const p3 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
-        const p4 = state.players.find((p) => p.id === court.nextUp!.team2[1]);
-        if (p1 && p2 && p3 && p4) {
-          debugScore = calculateDoublesScore(
-            p1,
-            p2,
-            p3,
-            p4,
-            court.id,
-            state,
-            state.settings.weights,
-            state.players.filter((p) => p.status === 'ACTIVE')
-          );
-          penalty = debugScore.totalPenalty;
+      if (isComplete && allActiveAndAvailable) {
+        allPlayerIds.forEach((id) => reservedPlayerIds.add(id));
+
+        let debugScore: MatchScoreBreakdown;
+        let penalty = 0;
+
+        if (isDoubles) {
+          const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
+          const p2 = state.players.find((p) => p.id === court.nextUp!.team1[1]);
+          const p3 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
+          const p4 = state.players.find((p) => p.id === court.nextUp!.team2[1]);
+          if (p1 && p2 && p3 && p4) {
+            debugScore = calculateDoublesScore(
+              p1,
+              p2,
+              p3,
+              p4,
+              court.id,
+              state,
+              state.settings.weights,
+              state.players.filter((p) => p.status === 'ACTIVE')
+            );
+            penalty = debugScore.totalPenalty;
+          } else {
+            debugScore = createEmptyBreakdown();
+          }
         } else {
-          debugScore = createEmptyBreakdown();
+          const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
+          const p2 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
+          if (p1 && p2) {
+            const eligible = state.players.filter((p) => p.status === 'ACTIVE' && !p.noSingles);
+            debugScore = calculateSinglesScore(p1, p2, state, state.settings.weights, eligible);
+            penalty = debugScore.totalPenalty;
+          } else {
+            debugScore = createEmptyBreakdown();
+          }
         }
-      } else {
-        const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
-        const p2 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
-        if (p1 && p2) {
-          const eligible = state.players.filter((p) => p.status === 'ACTIVE' && !p.noSingles);
-          debugScore = calculateSinglesScore(p1, p2, state, state.settings.weights, eligible);
-          penalty = debugScore.totalPenalty;
-        } else {
-          debugScore = createEmptyBreakdown();
-        }
+
+        result[court.id] = {
+          status: 'OK',
+          proposals: [
+            {
+              lineup: court.nextUp,
+              debugScore,
+              penalty,
+              relaxed: false,
+              relaxedReasons: [],
+            },
+          ],
+          selectedIndex: 0,
+        };
+        continue;
       }
 
-      result[court.id] = {
-        status: 'OK',
-        proposals: [
-          {
-            lineup: court.nextUp,
-            debugScore,
-            penalty,
-            relaxed: false,
-            relaxedReasons: [],
-          },
-        ],
-        selectedIndex: 0,
-      };
-      continue;
+      // 0.2: Next Up ĐÃ KHÓA nhưng thiếu người (hoặc có người không còn khả dụng):
+      // Coi các slot còn lại là fixedSlots, điền chỗ trống bằng người khả dụng và vẫn giữ trạng thái khóa
+      const lockedFixedSlots: FixedSlot[] = [];
+      court.nextUp.team1.forEach((pid) => {
+        const p = state.players.find((pl) => pl.id === pid);
+        if (p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid)) {
+          lockedFixedSlots.push({ playerId: pid, team: 1 });
+        }
+      });
+      court.nextUp.team2.forEach((pid) => {
+        const p = state.players.find((pl) => pl.id === pid);
+        if (p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid)) {
+          lockedFixedSlots.push({ playerId: pid, team: 2 });
+        }
+      });
+
+      const available = getValidAvailablePlayersForCourt(
+        court,
+        state.courts,
+        state.players,
+        reservedPlayerIds,
+        state.settings
+      );
+
+      if (isDoubles) {
+        const proposals = generateDoublesProposals(
+          court.id,
+          available,
+          state,
+          state.settings.weights,
+          seed,
+          lockedFixedSlots
+        );
+
+        if (proposals.length > 0) {
+          const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % proposals.length;
+          const lockedProposals = proposals.map((p) => ({
+            ...p,
+            lineup: { ...p.lineup, isLockedByHost: true },
+          }));
+          const chosen = lockedProposals[selectedIndex];
+          chosen.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+          chosen.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+
+          result[court.id] = {
+            status: 'OK',
+            proposals: lockedProposals,
+            selectedIndex,
+          };
+          continue;
+        } else {
+          result[court.id] = {
+            status: 'WAIT',
+            reason: 'Thiếu người khả dụng để hoàn thành lượt xếp đôi đã khóa',
+          };
+          continue;
+        }
+      } else {
+        const proposals = generateSinglesProposals(
+          available,
+          state,
+          state.settings.weights,
+          seed,
+          lockedFixedSlots
+        );
+
+        if (proposals.length > 0) {
+          const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % proposals.length;
+          const lockedProposals = proposals.map((p) => ({
+            ...p,
+            lineup: { ...p.lineup, isLockedByHost: true },
+          }));
+          const chosen = lockedProposals[selectedIndex];
+          chosen.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+          chosen.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+
+          result[court.id] = {
+            status: 'OK',
+            proposals: lockedProposals,
+            selectedIndex,
+          };
+          continue;
+        } else {
+          result[court.id] = {
+            status: 'WAIT',
+            reason: 'Thiếu người khả dụng để hoàn thành lượt xếp đơn đã khóa',
+          };
+          continue;
+        }
+      }
     }
 
     // Trích xuất fixedSlots từ nextUp hiện tại của sân nếu có slot MANUAL (Mục 5)
     let fixedSlots: FixedSlot[] | undefined = undefined;
+    let hasUnlockedManualSlot = false;
     if (court.nextUp && !court.nextUp.isLockedByHost && court.nextUp.slotSource) {
       const extracted: FixedSlot[] = [];
       court.nextUp.team1.forEach((pid) => {
@@ -1092,6 +1171,7 @@ export function planAllCourts(
       });
       if (extracted.length > 0) {
         fixedSlots = extracted;
+        hasUnlockedManualSlot = true;
       }
     }
 
@@ -1103,6 +1183,102 @@ export function planAllCourts(
       reservedPlayerIds,
       state.settings
     );
+
+    // ==========================================
+    // 0.1: FORCED MATCH TYPE (forcedType hoặc unlocked nextUp có MANUAL slot)
+    // ==========================================
+    let forcedMatchType: MatchType | null = null;
+    if (court.forcedType != null) {
+      forcedMatchType = court.forcedType;
+    } else if (hasUnlockedManualSlot && court.nextUp) {
+      forcedMatchType = court.nextUp.type;
+    }
+
+    if (forcedMatchType !== null) {
+      if (forcedMatchType === 'DOUBLES') {
+        if (available.length < 4) {
+          result[court.id] = {
+            status: 'WAIT',
+            reason:
+              court.currentMatch !== null
+                ? 'Chưa đủ người cho lượt sau'
+                : 'Cần ít nhất 4 người cho trận đôi',
+          };
+          continue;
+        }
+
+        const doublesProposals = generateDoublesProposals(
+          court.id,
+          available,
+          state,
+          state.settings.weights,
+          seed,
+          fixedSlots
+        );
+
+        if (doublesProposals.length === 0) {
+          result[court.id] = {
+            status: 'WAIT',
+            reason: 'Không tìm thấy tổ hợp hợp lệ cho trận đôi',
+          };
+          continue;
+        }
+
+        // Không dùng mixDebt, không cập nhật simMixDebt
+        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
+        const topProposal = doublesProposals[selectedIndex];
+        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+
+        result[court.id] = {
+          status: 'OK',
+          proposals: doublesProposals,
+          selectedIndex,
+        };
+        continue;
+      } else {
+        // forcedMatchType === 'SINGLES'
+        if (available.length < 2) {
+          result[court.id] = {
+            status: 'WAIT',
+            reason:
+              court.currentMatch !== null
+                ? 'Chưa đủ người cho lượt sau'
+                : 'Không đủ người chơi hợp lệ cho sân đơn',
+          };
+          continue;
+        }
+
+        const singlesProposals = generateSinglesProposals(
+          available,
+          state,
+          state.settings.weights,
+          seed,
+          fixedSlots
+        );
+
+        if (singlesProposals.length === 0) {
+          result[court.id] = {
+            status: 'WAIT',
+            reason: 'Không tìm thấy tổ hợp hợp lệ cho sân đơn',
+          };
+          continue;
+        }
+
+        // Không dùng mixDebt, không cập nhật simMixDebt
+        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
+        const topProposal = singlesProposals[selectedIndex];
+        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+
+        result[court.id] = {
+          status: 'OK',
+          proposals: singlesProposals,
+          selectedIndex,
+        };
+        continue;
+      }
+    }
 
     // ==========================================
     // CASE A: POLICY === 'SINGLES_ONLY' (Mục 1)

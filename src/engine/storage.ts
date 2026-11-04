@@ -7,7 +7,6 @@ import type {
 import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
 import {
   createDefaultCourts,
-  createInitialSessionState,
   CURRENT_SCHEMA_VERSION,
   DEFAULT_SETTINGS,
 } from './sessionReducer';
@@ -15,129 +14,199 @@ import { buildStatsFromHistory, createEmptyStats } from './statsManager';
 
 export const STORAGE_KEY_V2 = 'badminton_court_session_v2';
 export const STORAGE_KEY_V1 = 'badminton_court_session_v1';
+export const CORRUPT_BACKUP_PREFIX = 'badminton_court_session_corrupt_';
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+export type LoadStatus = 'OK' | 'EMPTY' | 'CORRUPT_BACKED_UP' | 'CORRUPT_NO_BACKUP';
+let lastLoadStatus: LoadStatus = 'EMPTY';
+
+export function getLastLoadStatus(): LoadStatus {
+  return lastLoadStatus;
+}
+
+export function setLastLoadStatus(status: LoadStatus): void {
+  lastLoadStatus = status;
+}
 
 /**
- * Hàm di chuyển schema (Data Migration) từ các phiên bản cũ lên phiên bản mới nhất
+ * Chỉ giữ tối đa maxKeep key 'badminton_court_session_corrupt_*' mới nhất (Mục F)
+ */
+export function pruneCorruptBackups(maxKeep = 2): void {
+  try {
+    const corruptKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CORRUPT_BACKUP_PREFIX)) {
+        corruptKeys.push(k);
+      }
+    }
+    if (corruptKeys.length <= maxKeep) return;
+
+    // Sắp xếp giảm dần theo timestamp
+    corruptKeys.sort((a, b) => {
+      const tsA = Number(a.slice(CORRUPT_BACKUP_PREFIX.length)) || 0;
+      const tsB = Number(b.slice(CORRUPT_BACKUP_PREFIX.length)) || 0;
+      return tsB - tsA;
+    });
+
+    for (let i = maxKeep; i < corruptKeys.length; i++) {
+      localStorage.removeItem(corruptKeys[i]);
+    }
+  } catch (err) {
+    console.error('Lỗi khi dọn dẹp bản sao corrupt:', err);
+  }
+}
+
+/**
+ * Lấy bản sao hỏng mới nhất để tải về hoặc xuất file
+ */
+export function getLatestCorruptBackup(): { key: string; raw: string } | null {
+  try {
+    const corruptKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CORRUPT_BACKUP_PREFIX)) {
+        corruptKeys.push(k);
+      }
+    }
+    if (corruptKeys.length === 0) return null;
+    corruptKeys.sort((a, b) => {
+      const tsA = Number(a.slice(CORRUPT_BACKUP_PREFIX.length)) || 0;
+      const tsB = Number(b.slice(CORRUPT_BACKUP_PREFIX.length)) || 0;
+      return tsB - tsA;
+    });
+    const key = corruptKeys[0];
+    const raw = localStorage.getItem(key);
+    return raw ? { key, raw } : null;
+  } catch {
+    return null;
+  }
+}
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let storageErrorFlag = false;
+type StorageErrorListener = (hasError: boolean) => void;
+const storageErrorListeners = new Set<StorageErrorListener>();
+
+export function getStorageError(): boolean {
+  return storageErrorFlag;
+}
+
+export function setStorageError(val: boolean): void {
+  storageErrorFlag = val;
+  storageErrorListeners.forEach((l) => l(val));
+}
+
+export function subscribeStorageError(listener: StorageErrorListener): () => void {
+  storageErrorListeners.add(listener);
+  return () => storageErrorListeners.delete(listener);
+}
+
+/**
+ * Hàm di chuyển schema (Data Migration) từ các phiên bản cũ lên phiên bản mới nhất (Mục 0.20)
+ * - Đảm bảo court-1..3 tồn tại (court-3 có isActive = false)
+ * - Chuẩn hóa assignedPool trỏ tới sân không tồn tại về 'ALL'
+ * - Thiết lập forcedType: null nếu chưa có
+ * - Tái tạo stats từ history nếu stats rỗng và history có dữ liệu
  */
 export function migrateSessionState(raw: any): BadmintonSessionState {
-  if (!raw || typeof raw !== 'object') {
-    return createInitialSessionState();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Dữ liệu buổi chơi không phải là một đối tượng hợp lệ.');
+  }
+  if (!Array.isArray(raw.players) || !Array.isArray(raw.courts)) {
+    throw new Error('Dữ liệu buổi chơi thiếu mảng players hoặc courts.');
   }
 
-  // Nếu là Schema Version 2 hoàn chỉnh
-  if (raw.schemaVersion === CURRENT_SCHEMA_VERSION && Array.isArray(raw.players)) {
-    return {
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      players: raw.players.map((p: any) => ({
-        ...p,
-        assignedPool: String(p.assignedPool || 'ALL'),
-        singlesCount: p.singlesCount ?? 0,
-        noSingles: Boolean(p.noSingles),
-        joinedAt: p.joinedAt ?? Date.now(),
-      })),
-      courts: (raw.courts || createDefaultCourts(2)).map((c: any) => ({
-        ...c,
-        id: String(c.id),
-        policy: c.policy || 'MIX',
-      })),
-      history: Array.isArray(raw.history) ? raw.history : [],
-      pairRules: Array.isArray(raw.pairRules) ? raw.pairRules : [],
-      settings: {
-        ...DEFAULT_SETTINGS,
-        ...(raw.settings || {}),
-        weights: {
-          ...DEFAULT_PENALTY_WEIGHTS,
-          ...(raw.settings?.weights || {}),
-        },
-      },
-      stats: raw.stats || createEmptyStats(),
-      mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
-      readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
-      autoSinglesSnooze: raw.autoSinglesSnooze || {},
-      courtPlanIndex: raw.courtPlanIndex || {},
-      undoStack: Array.isArray(raw.undoStack) ? raw.undoStack.slice(0, 30) : [],
-      redoStack: Array.isArray(raw.redoStack) ? raw.redoStack.slice(0, 30) : [],
-    };
-  }
-
-  // Migration từ v1 hoặc dữ liệu cũ
-  const players: Player[] = (raw.players || []).map((p: any) => ({
-    id: String(p.id),
-    name: p.name || 'Người chơi',
-    sex: p.sex || 'M',
-    rank: p.rank || 'tb',
-    status: p.status || 'ACTIVE',
-    assignedPool: p.assignedPool === 'ALL' ? 'ALL' : String(p.assignedPool),
-    gamesPlayed: Number(p.gamesPlayed) || 0,
-    virtualGamesOffset: Number(p.virtualGamesOffset) || 0,
-    waitStreak: Number(p.waitStreak) || 0,
-    lastPlayedAt: Number(p.lastPlayedAt) || 0,
-    singlesCount: 0,
-    noSingles: false,
-    joinedAt: Date.now(),
-  }));
-
-  const courts: Court[] = (raw.courts || createDefaultCourts(2)).map((c: any) => {
-    let currentMatch = null;
-    if (c.currentMatch) {
-      currentMatch = {
-        type: 'DOUBLES' as const,
-        team1: c.currentMatch.team1,
-        team2: c.currentMatch.team2,
-        slotSource: {
-          [c.currentMatch.team1[0]]: 'AUTO' as const,
-          [c.currentMatch.team1[1]]: 'AUTO' as const,
-          [c.currentMatch.team2[0]]: 'AUTO' as const,
-          [c.currentMatch.team2[1]]: 'AUTO' as const,
-        },
-        startedAt: c.currentMatch.startedAt || Date.now(),
-        id: c.currentMatch.id,
-      };
-    }
-
-    let nextUp = null;
-    if (c.nextUp) {
-      nextUp = {
-        type: 'DOUBLES' as const,
-        team1: c.nextUp.team1,
-        team2: c.nextUp.team2,
-        slotSource: {
-          [c.nextUp.team1[0]]: 'AUTO' as const,
-          [c.nextUp.team1[1]]: 'AUTO' as const,
-          [c.nextUp.team2[0]]: 'AUTO' as const,
-          [c.nextUp.team2[1]]: 'AUTO' as const,
-        },
-        isLockedByHost: Boolean(c.nextUp.isLockedByHost),
-      };
-    }
-
-    return {
-      id: String(c.id),
-      name: c.name || `Sân ${c.id}`,
-      isActive: Boolean(c.isActive ?? true),
-      policy: 'MIX' as const,
-      currentMatch,
-      nextUp,
-    };
-  });
-
-  const history: MatchHistory[] = (raw.history || []).map((h: any) => ({
+  // 1. History
+  const history: MatchHistory[] = (Array.isArray(raw.history) ? raw.history : []).map((h: any) => ({
     id: String(h.id),
     courtId: String(h.courtId),
     type: h.type || 'DOUBLES',
-    team1: h.team1,
-    team2: h.team2,
+    team1: h.team1 || [],
+    team2: h.team2 || [],
     slotSource: h.slotSource || {},
     startedAt: Number(h.startedAt) || Date.now(),
     endedAt: Number(h.endedAt) || Date.now(),
     durationMinutes: Number(h.durationMinutes) || 15,
   }));
 
-  const stats = raw.stats && Object.keys(raw.stats.lastMatchOfPlayer || {}).length > 0
-    ? raw.stats
-    : buildStatsFromHistory(history);
+  // 2. Ensure court-1..3 exist (court-3 has isActive = false)
+  const defaultCourts = createDefaultCourts(3);
+  const rawCourtsList: any[] = Array.isArray(raw.courts) ? raw.courts : [];
+  const courtMap = new Map<string, any>();
+  for (const c of rawCourtsList) {
+    if (c && c.id !== undefined) {
+      courtMap.set(String(c.id), c);
+    }
+  }
+
+  const courts: Court[] = defaultCourts.map((def) => {
+    const existing = courtMap.get(def.id);
+    if (!existing) {
+      return def;
+    }
+    const currentMatch = existing.currentMatch || null;
+    const nextUp = existing.nextUp || null;
+
+    return {
+      id: def.id,
+      name: existing.name || def.name,
+      isActive: existing.isActive !== undefined ? Boolean(existing.isActive) : def.isActive,
+      policy: existing.policy || 'MIX',
+      forcedType: existing.forcedType !== undefined ? existing.forcedType : null,
+      currentMatch,
+      nextUp,
+    };
+  });
+
+  // Giữ lại các sân khác nếu có
+  for (const [id, c] of courtMap.entries()) {
+    if (!courts.some((fc) => fc.id === id)) {
+      courts.push({
+        id,
+        name: c.name || `Sân ${id}`,
+        isActive: Boolean(c.isActive ?? true),
+        policy: c.policy || 'MIX',
+        forcedType: c.forcedType !== undefined ? c.forcedType : null,
+        currentMatch: c.currentMatch || null,
+        nextUp: c.nextUp || null,
+      });
+    }
+  }
+
+  const validCourtIds = new Set(courts.map((c) => c.id));
+
+  // 3. Players: normalize assignedPool pointing to non-existent court to 'ALL'
+  const players: Player[] = (Array.isArray(raw.players) ? raw.players : []).map((p: any) => {
+    const rawPool = String(p.assignedPool ?? 'ALL');
+    const assignedPool = (rawPool === 'ALL' || validCourtIds.has(rawPool)) ? rawPool : 'ALL';
+
+    return {
+      id: String(p.id),
+      name: p.name || 'Người chơi',
+      sex: p.sex || 'M',
+      rank: p.rank || 'tb',
+      status: p.status || 'ACTIVE',
+      assignedPool,
+      gamesPlayed: Number(p.gamesPlayed) || 0,
+      virtualGamesOffset: Number(p.virtualGamesOffset) || 0,
+      waitStreak: Number(p.waitStreak) || 0,
+      lastPlayedAt: Number(p.lastPlayedAt) || 0,
+      singlesCount: Number(p.singlesCount) || 0,
+      noSingles: Boolean(p.noSingles),
+      joinedAt: Number(p.joinedAt) || Date.now(),
+    };
+  });
+
+  // 4. Stats: rebuild stats from history if stats empty and history has entries
+  const isStatsEmpty =
+    !raw.stats ||
+    (Object.keys(raw.stats.lastMatchOfPlayer || {}).length === 0 &&
+      Object.keys(raw.stats.partnerCount || {}).length === 0);
+
+  const stats =
+    history.length > 0 && isStatsEmpty
+      ? buildStatsFromHistory(history)
+      : raw.stats || createEmptyStats();
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -154,24 +223,100 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
       },
     },
     stats,
-    mixDebt: { doubles: 0, singles: 0 },
-    readyQueue: [],
-    autoSinglesSnooze: {},
-    courtPlanIndex: {},
-    undoStack: [],
+    mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
+    readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
+    autoSinglesSnooze: raw.autoSinglesSnooze || {},
+    courtPlanIndex: raw.courtPlanIndex || {},
+    undoStack:
+      raw.schemaVersion === CURRENT_SCHEMA_VERSION && Array.isArray(raw.undoStack)
+        ? raw.undoStack.slice(0, 5)
+        : [],
     redoStack: [],
   };
 }
 
 /**
- * Lưu dữ liệu tức thì không debounce (dùng cho tests hoặc khi đóng tab)
+ * Kiểm tra và chuyển đổi dữ liệu khi người dùng Import JSON (Mục B):
+ * - Từ chối nếu JSON không phải object có mảng players và courts.
+ * - Không trả buổi trống khi dữ liệu lạ.
+ */
+export function validateAndMigrateImport(json: string):
+  | { ok: true; state: BadmintonSessionState }
+  | { ok: false; error: string } {
+  if (!json || typeof json !== 'string' || !json.trim()) {
+    return { ok: false, error: 'Chuỗi JSON không được để trống.' };
+  }
+  let parsed: any;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e: any) {
+    return { ok: false, error: `JSON không hợp lệ: ${e?.message || 'Lỗi cú pháp'}` };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error: 'Dữ liệu không hợp lệ: Phải là một đối tượng JSON.',
+    };
+  }
+
+  if (!Array.isArray(parsed.players) || !Array.isArray(parsed.courts)) {
+    return {
+      ok: false,
+      error: 'Dữ liệu không hợp lệ: Cần chứa mảng người chơi (players) và mảng sân (courts).',
+    };
+  }
+
+  try {
+    const migrated = migrateSessionState(parsed);
+    return { ok: true, state: migrated };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Không thể chuyển đổi dữ liệu buổi chơi.' };
+  }
+}
+
+/**
+ * Lưu dữ liệu tức thì không debounce (Mục 0.18):
+ * - Không lưu redoStack
+ * - Giới hạn tối đa 5 bước undoStack
+ * - Bắt QuotaExceededError: thử lại không lưu undoStack
+ * - Đặt storageError flag
  */
 export function saveSessionImmediate(state: BadmintonSessionState): void {
+  const stateToSave = {
+    ...state,
+    undoStack: (state.undoStack || []).slice(0, 5),
+    redoStack: [],
+  };
+
   try {
-    const serialized = JSON.stringify(state);
+    const serialized = JSON.stringify(stateToSave);
     localStorage.setItem(STORAGE_KEY_V2, serialized);
-  } catch (e) {
+    setStorageError(false);
+  } catch (e: any) {
+    const isQuota =
+      e?.name === 'QuotaExceededError' ||
+      e?.code === 22 ||
+      e?.code === 1014 ||
+      (e?.message && /quota/i.test(e.message));
+
+    if (isQuota) {
+      try {
+        const retryState = {
+          ...stateToSave,
+          undoStack: [],
+        };
+        localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(retryState));
+        setStorageError(false);
+        return;
+      } catch (retryErr) {
+        console.error('Lỗi quota localStorage ngay cả khi bỏ undoStack:', retryErr);
+        setStorageError(true);
+        return;
+      }
+    }
     console.error('Lỗi lưu session vào localStorage:', e);
+    setStorageError(true);
   }
 }
 
@@ -189,20 +334,40 @@ export function debouncedSaveSession(state: BadmintonSessionState, delayMs = 300
 }
 
 /**
- * Đọc dữ liệu từ localStorage và tự động migrate nếu là version cũ
+ * Đọc dữ liệu từ localStorage và tự động migrate nếu là version cũ (Mục 0.19):
+ * - Khi JSON bị hỏng, sao chép raw sang badminton_court_session_corrupt_<timestamp> trước khi trả null
  */
-export function loadSession(): BadmintonSessionState | null {
+export function loadSession(now: number = Date.now()): BadmintonSessionState | null {
+  let raw: string | null = null;
   try {
-    let raw = localStorage.getItem(STORAGE_KEY_V2);
+    raw = localStorage.getItem(STORAGE_KEY_V2);
     if (!raw) {
       raw = localStorage.getItem(STORAGE_KEY_V1);
     }
-    if (!raw) return null;
+    if (!raw) {
+      lastLoadStatus = 'EMPTY';
+      return null;
+    }
 
     const parsed = JSON.parse(raw);
-    return migrateSessionState(parsed);
+    const result = migrateSessionState(parsed);
+    lastLoadStatus = 'OK';
+    return result;
   } catch (e) {
     console.error('Lỗi khi tải dữ liệu từ localStorage:', e);
+    if (raw) {
+      try {
+        pruneCorruptBackups(1);
+        localStorage.setItem(`${CORRUPT_BACKUP_PREFIX}${now}`, raw);
+        pruneCorruptBackups(2);
+        lastLoadStatus = 'CORRUPT_BACKED_UP';
+      } catch (backupErr) {
+        console.error('Không thể lưu bản sao corrupt vào localStorage:', backupErr);
+        lastLoadStatus = 'CORRUPT_NO_BACKUP';
+      }
+    } else {
+      lastLoadStatus = 'CORRUPT_NO_BACKUP';
+    }
     return null;
   }
 }
@@ -222,3 +387,99 @@ export function clearSession(): void {
     console.error('Lỗi khi xóa localStorage:', e);
   }
 }
+
+// ====================================================================
+// QUẢN LÝ LƯU TRỮ QUYẾT TOÁN (PAID STATUS) & LỊCH SỬ BUỔI ĐÁNH (ARCHIVE)
+// ====================================================================
+
+export const STORAGE_KEY_PAID_PLAYERS = 'badminton_paid_players';
+export const STORAGE_KEY_ARCHIVED_SESSIONS = 'badminton_archived_sessions';
+
+export interface ArchivedSessionSummary {
+  id: string;
+  date: string;
+  createdAt: number;
+  totalGames: number;
+  totalCost: number;
+  totalPlayers: number;
+  sessionData: BadmintonSessionState;
+}
+
+export function getPaidPlayerIds(): string[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(STORAGE_KEY_PAID_PLAYERS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePaidPlayerIds(ids: string[]): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY_PAID_PLAYERS, JSON.stringify(ids));
+  } catch (e) {
+    console.error('Lỗi khi lưu danh sách đã đóng tiền:', e);
+  }
+}
+
+export function getArchivedSessions(): ArchivedSessionSummary[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(STORAGE_KEY_ARCHIVED_SESSIONS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveArchivedSessions(sessions: ArchivedSessionSummary[]): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const trimmed = sessions.slice(0, 20);
+    localStorage.setItem(STORAGE_KEY_ARCHIVED_SESSIONS, JSON.stringify(trimmed));
+  } catch (e) {
+    console.error('Lỗi khi lưu danh sách buổi lưu trữ:', e);
+  }
+}
+
+export function archiveCurrentSession(
+  state: BadmintonSessionState,
+  totalCost: number = 0
+): ArchivedSessionSummary {
+  const existing = getArchivedSessions();
+  const summary: ArchivedSessionSummary = {
+    id: `archive_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    date: new Date().toISOString(),
+    createdAt: Date.now(),
+    totalGames: state.history.length,
+    totalCost,
+    totalPlayers: state.players.length,
+    sessionData: JSON.parse(JSON.stringify(state)),
+  };
+
+  const updated = [summary, ...existing].slice(0, 20);
+  saveArchivedSessions(updated);
+  return summary;
+}
+
+export function deleteArchivedSession(id: string): void {
+  const existing = getArchivedSessions();
+  const updated = existing.filter((s) => s.id !== id);
+  saveArchivedSessions(updated);
+}
+
+export function clearAllArchivedSessions(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(STORAGE_KEY_ARCHIVED_SESSIONS);
+  } catch (e) {
+    console.error('Lỗi khi xóa toàn bộ buổi lưu trữ:', e);
+  }
+}
+

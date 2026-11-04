@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import type {
   BadmintonRank,
+  BadmintonSessionState,
   CourtPolicy,
   CourtPlanMap,
   Lineup,
@@ -8,7 +9,7 @@ import type {
   Player,
   SessionSettings,
 } from '../types/badminton';
-import { planAllCourts, selectCourtPlans } from './matchmaker';
+import { selectCourtPlans } from './matchmaker';
 import {
   badmintonReducer,
   createInitialSessionState,
@@ -16,11 +17,32 @@ import {
   type RuleConflictInfo,
 } from './sessionReducer';
 import {
+  archiveCurrentSession,
   clearSession,
   debouncedSaveSession,
+  getStorageError,
   loadSession,
   saveSessionImmediate,
+  subscribeStorageError,
+  validateAndMigrateImport,
 } from './storage';
+
+/**
+ * Hook cập nhật timestamp mỗi 60 giây (Mục 0.15)
+ * Dùng cho timer trận đấu, tính duration và tính toán kế hoạch sân đồng bộ
+ */
+export function useNowMinute(): number {
+  const [nowMinute, setNowMinute] = useState(() => Math.floor(Date.now() / 60000) * 60000);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMinute(Math.floor(Date.now() / 60000) * 60000);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return nowMinute;
+}
 
 export function useBadmintonSession() {
   const [state, dispatch] = useReducer(badmintonReducer, null, () => {
@@ -28,18 +50,40 @@ export function useBadmintonSession() {
     return saved ?? createInitialSessionState();
   });
 
+  const [storageError, setStorageError] = useState(() => getStorageError());
+  const nowMinute = useNowMinute();
+
+  // Đăng ký nhận sự kiện lỗi lưu trữ
+  useEffect(() => {
+    return subscribeStorageError((hasErr) => setStorageError(hasErr));
+  }, []);
+
   // Tự động lưu vào localStorage có debounce 300ms
   useEffect(() => {
     debouncedSaveSession(state);
   }, [state]);
 
-  // Đảm bảo lưu tức thì khi tab đóng hoặc reload
+  // Mục 0.16: Lưu tức thì khi visibilitychange (document.hidden), pagehide và beforeunload
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const handleSave = () => {
       saveSessionImmediate(state);
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleSave();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleSave);
+    window.addEventListener('pagehide', handleSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleSave);
+      window.removeEventListener('pagehide', handleSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [state]);
 
   // --- ACTIONS ---
@@ -54,18 +98,18 @@ export function useBadmintonSession() {
     []
   );
 
-  const endMatch = useCallback((courtId: string) => {
+  const endMatch = useCallback((courtId: string, expectedMatchId?: string) => {
     dispatch({
       type: 'END_MATCH',
-      payload: { courtId, now: Date.now() },
+      payload: { courtId, now: Date.now(), expectedMatchId },
     });
   }, []);
 
   const endAndStartMatch = useCallback(
-    (courtId: string, nextLineup?: Lineup) => {
+    (courtId: string, nextLineup?: Lineup, expectedMatchId?: string) => {
       dispatch({
         type: 'END_AND_START',
-        payload: { courtId, now: Date.now(), nextLineup },
+        payload: { courtId, now: Date.now(), nextLineup, expectedMatchId },
       });
     },
     []
@@ -192,17 +236,20 @@ export function useBadmintonSession() {
     dispatch({ type: 'EDIT_RANK', payload: { playerId, rank } });
   }, []);
 
-  const addCourt = useCallback((name?: string, policy?: CourtPolicy) => {
-    dispatch({ type: 'ADD_COURT', payload: { name, policy } });
-  }, []);
-
-  const updateCourt = useCallback((courtId: string, updates: { name?: string; policy?: CourtPolicy; isActive?: boolean }) => {
-    dispatch({ type: 'UPDATE_COURT', payload: { courtId, updates } });
-  }, []);
-
-  const removeCourt = useCallback((courtId: string) => {
-    dispatch({ type: 'REMOVE_COURT', payload: { courtId } });
-  }, []);
+  const updateCourt = useCallback(
+    (
+      courtId: string,
+      updates: {
+        name?: string;
+        policy?: CourtPolicy;
+        isActive?: boolean;
+        forcedType?: 'DOUBLES' | 'SINGLES' | null;
+      }
+    ) => {
+      dispatch({ type: 'UPDATE_COURT', payload: { courtId, updates } });
+    },
+    []
+  );
 
   const addPairRule = useCallback((rule: PairRule | (Omit<PairRule, 'id'> & { id?: string })) => {
     dispatch({ type: 'ADD_PAIR_RULE', payload: { rule } });
@@ -236,8 +283,12 @@ export function useBadmintonSession() {
   }, []);
 
   const newSessionKeepPlayers = useCallback(() => {
+    // Tự động lưu snapshot buổi vừa kết thúc vào Archive (nếu có ít nhất 1 trận đấu đã hoàn thành)
+    if (state.history.length > 0) {
+      archiveCurrentSession(state);
+    }
     dispatch({ type: 'NEW_SESSION_KEEP_PLAYERS', payload: { now: Date.now() } });
-  }, []);
+  }, [state]);
 
   const undo = useCallback(() => {
     dispatch({ type: 'UNDO' });
@@ -252,13 +303,42 @@ export function useBadmintonSession() {
     dispatch({ type: 'RESET_SESSION' });
   }, []);
 
-  // Lập kế hoạch cho toàn bộ các sân
-  const planCourts = useCallback(
-    (seed = 42): CourtPlanMap => {
-      return planAllCourts(state, Date.now(), seed);
+  // Mục 0.17: Export / Import JSON
+  const exportSession = useCallback((): string => {
+    return JSON.stringify(state, null, 2);
+  }, [state]);
+
+  const importSession = useCallback(
+    (json: string): { ok: true } | { ok: false; error: string } => {
+      const res = validateAndMigrateImport(json);
+      if (!res.ok) {
+        return res;
+      }
+
+      // Trước khi LOAD_STATE, lưu bản sao buổi hiện tại vào key 'badminton_court_session_before_import' (try/catch)
+      try {
+        localStorage.setItem(
+          'badminton_court_session_before_import',
+          JSON.stringify(state)
+        );
+      } catch (backupErr) {
+        console.warn('Không thể lưu bản sao buổi chơi trước khi import:', backupErr);
+      }
+
+      dispatch({ type: 'LOAD_STATE', payload: res.state });
+      return { ok: true };
     },
     [state]
   );
+
+  const loadCloudState = useCallback((cloudState: BadmintonSessionState) => {
+    dispatch({ type: 'LOAD_STATE', payload: cloudState });
+  }, []);
+
+  // Selector tính toán kế hoạch sân (Mục 0.15)
+  const courtPlans = useMemo<CourtPlanMap>(() => {
+    return selectCourtPlans(state, nowMinute);
+  }, [state, nowMinute]);
 
   const ruleConflicts = useMemo<RuleConflictInfo[]>(() => {
     return selectRuleConflicts(state);
@@ -278,6 +358,9 @@ export function useBadmintonSession() {
     canUndo: state.undoStack.length > 0,
     canRedo: state.redoStack.length > 0,
     ruleConflicts,
+    courtPlans,
+    nowMinute,
+    storageError,
     // Actions
     startMatch,
     endMatch,
@@ -297,9 +380,7 @@ export function useBadmintonSession() {
     updatePlayer,
     removePlayer,
     editRank,
-    addCourt,
     updateCourt,
-    removeCourt,
     addPairRule,
     removePairRule,
     updateSettings,
@@ -309,7 +390,9 @@ export function useBadmintonSession() {
     undo,
     redo,
     resetSession,
-    planCourts,
+    exportSession,
+    importSession,
+    loadCloudState,
   };
 }
 
