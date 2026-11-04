@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type {
   BadmintonRank,
-  Court,
   CourtPolicy,
   CourtPlanMap,
   Lineup,
@@ -9,10 +8,12 @@ import type {
   Player,
   SessionSettings,
 } from '../types/badminton';
-import { planAllCourts } from './matchmaker';
+import { planAllCourts, selectCourtPlans } from './matchmaker';
 import {
   badmintonReducer,
   createInitialSessionState,
+  selectRuleConflicts,
+  type RuleConflictInfo,
 } from './sessionReducer';
 import {
   clearSession,
@@ -60,16 +61,27 @@ export function useBadmintonSession() {
     });
   }, []);
 
+  const endAndStartMatch = useCallback(
+    (courtId: string, nextLineup?: Lineup) => {
+      dispatch({
+        type: 'END_AND_START',
+        payload: { courtId, now: Date.now(), nextLineup },
+      });
+    },
+    []
+  );
+
   const swapPlayers = useCallback(
     (
       courtId: string,
       target: 'CURRENT' | 'NEXT_UP',
       slot1: { team: 1 | 2; index: number },
-      slot2: { team: 1 | 2; index: number } | { playerId: string }
+      slot2: { team: 1 | 2; index: number } | { playerId: string },
+      baseLineup?: Lineup
     ) => {
       dispatch({
         type: 'SWAP_PLAYERS',
-        payload: { courtId, target, slot1, slot2 },
+        payload: { courtId, target, slot1, slot2, baseLineup },
       });
     },
     []
@@ -81,11 +93,12 @@ export function useBadmintonSession() {
       target: 'CURRENT' | 'NEXT_UP',
       team: 1 | 2,
       index: number,
-      playerId: string
+      playerId: string,
+      baseLineup?: Lineup
     ) => {
       dispatch({
         type: 'SET_MANUAL_SLOT',
-        payload: { courtId, target, team, index, playerId },
+        payload: { courtId, target, team, index, playerId, baseLineup },
       });
     },
     []
@@ -103,6 +116,10 @@ export function useBadmintonSession() {
 
   const clearNextUp = useCallback((courtId: string) => {
     dispatch({ type: 'CLEAR_NEXT_UP', payload: { courtId } });
+  }, []);
+
+  const cycleNextUpProposal = useCallback((courtId: string) => {
+    dispatch({ type: 'CYCLE_NEXT_UP_PROPOSAL', payload: { courtId } });
   }, []);
 
   const enqueueReadyQueue = useCallback(
@@ -146,6 +163,23 @@ export function useBadmintonSession() {
     []
   );
 
+  const addPlayers = useCallback(
+    (
+      playersData: Array<
+        Omit<
+          Player,
+          'gamesPlayed' | 'virtualGamesOffset' | 'waitStreak' | 'lastPlayedAt' | 'singlesCount'
+        >
+      >
+    ) => {
+      dispatch({
+        type: 'ADD_PLAYERS',
+        payload: { players: playersData, now: Date.now() },
+      });
+    },
+    []
+  );
+
   const updatePlayer = useCallback((player: Partial<Player> & { id: string }) => {
     dispatch({ type: 'UPDATE_PLAYER', payload: { player } });
   }, []);
@@ -162,7 +196,7 @@ export function useBadmintonSession() {
     dispatch({ type: 'ADD_COURT', payload: { name, policy } });
   }, []);
 
-  const updateCourt = useCallback((courtId: string, updates: Partial<Court>) => {
+  const updateCourt = useCallback((courtId: string, updates: { name?: string; policy?: CourtPolicy; isActive?: boolean }) => {
     dispatch({ type: 'UPDATE_COURT', payload: { courtId, updates } });
   }, []);
 
@@ -170,7 +204,7 @@ export function useBadmintonSession() {
     dispatch({ type: 'REMOVE_COURT', payload: { courtId } });
   }, []);
 
-  const addPairRule = useCallback((rule: Omit<PairRule, 'id'>) => {
+  const addPairRule = useCallback((rule: PairRule | (Omit<PairRule, 'id'> & { id?: string })) => {
     dispatch({ type: 'ADD_PAIR_RULE', payload: { rule } });
   }, []);
 
@@ -197,6 +231,14 @@ export function useBadmintonSession() {
     [state.settings.autoSinglesSnoozeMin]
   );
 
+  const deleteHistoryMatch = useCallback((matchId: string) => {
+    dispatch({ type: 'DELETE_HISTORY_MATCH', payload: { matchId } });
+  }, []);
+
+  const newSessionKeepPlayers = useCallback(() => {
+    dispatch({ type: 'NEW_SESSION_KEEP_PLAYERS', payload: { now: Date.now() } });
+  }, []);
+
   const undo = useCallback(() => {
     dispatch({ type: 'UNDO' });
   }, []);
@@ -218,6 +260,10 @@ export function useBadmintonSession() {
     [state]
   );
 
+  const ruleConflicts = useMemo<RuleConflictInfo[]>(() => {
+    return selectRuleConflicts(state);
+  }, [state]);
+
   return {
     state,
     players: state.players,
@@ -231,19 +277,23 @@ export function useBadmintonSession() {
     autoSinglesSnooze: state.autoSinglesSnooze,
     canUndo: state.undoStack.length > 0,
     canRedo: state.redoStack.length > 0,
+    ruleConflicts,
     // Actions
     startMatch,
     endMatch,
+    endAndStartMatch,
     swapPlayers,
     setManualSlot,
     setNextUp,
     clearNextUp,
+    cycleNextUpProposal,
     enqueueReadyQueue,
     dequeueReadyQueue,
     reorderReadyQueue,
     pausePlayer,
     resumePlayer,
     addPlayer,
+    addPlayers,
     updatePlayer,
     removePlayer,
     editRank,
@@ -254,9 +304,13 @@ export function useBadmintonSession() {
     removePairRule,
     updateSettings,
     snoozeAutoSingles,
+    deleteHistoryMatch,
+    newSessionKeepPlayers,
     undo,
     redo,
     resetSession,
     planCourts,
   };
 }
+
+export { selectCourtPlans, selectRuleConflicts };

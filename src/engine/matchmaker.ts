@@ -1263,16 +1263,17 @@ export function planAllCourts(
         continue;
       }
 
-      const topProposal = singlesProposals[0];
+      const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
+      const chosenProposal = singlesProposals[selectedIndex];
 
       if (autoSinglesMode === 'ASK') {
-        // (Mục 3: RESERVE CHO NEEDS_CONFIRM để sân khác không đề xuất chồng người)
-        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+        // (Mục 3: RESERVE CHO NEEDS_CONFIRM theo phương án đang được chọn)
+        chosenProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+        chosenProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
 
         result[court.id] = {
           status: 'NEEDS_CONFIRM',
-          proposal: topProposal,
+          proposal: chosenProposal,
           reason: `Còn ${available.length} người chờ, bạn có muốn xếp trận ĐƠN không?`,
         };
         continue;
@@ -1283,13 +1284,13 @@ export function planAllCourts(
       simMixDebt.singles += state.settings.matchMix.singles;
       simMixDebt.singles -= 1;
 
-      topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-      topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+      chosenProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
+      chosenProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
 
       result[court.id] = {
         status: 'OK',
         proposals: singlesProposals,
-        selectedIndex: 0,
+        selectedIndex,
       };
       continue;
     }
@@ -1442,3 +1443,15 @@ export function generateSuggestedMatch(
   }
   return null;
 }
+
+/**
+ * Selector thuần tính toán kế hoạch xếp sân cho UI (gọi planAllCourts, không lưu tự động vào state)
+ */
+export function selectCourtPlans(
+  state: BadmintonSessionState,
+  now: number,
+  seed: number = 42
+): CourtPlanMap {
+  return planAllCourts(state, now, seed);
+}
+

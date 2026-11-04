@@ -71,6 +71,7 @@ export interface Lineup {
   team2: Team;
   /** Nguồn gốc vị trí của từng người: do thuật toán ghép ('AUTO') hay Host gán tay ('MANUAL') */
   slotSource: Record<string, 'AUTO' | 'MANUAL'>;
+  id?: string;
 }
 
 export type CourtPolicy = 'MIX' | 'DOUBLES_ONLY' | 'SINGLES_ONLY';
