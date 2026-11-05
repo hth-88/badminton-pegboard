@@ -151,10 +151,16 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
     const plan = planAllCourts(state, 2000, 42);
     const courtPlan = plan['court-1'];
 
-    // Sân đang đánh không được hiển thị popup hỏi đơn cho lượt sau
-    expect(courtPlan.status).toBe('WAIT');
-    if (courtPlan.status === 'WAIT') {
-      expect(courtPlan.reason).toBe('Chưa đủ người cho lượt sau');
+    // Sân đang đánh: Nhờ tính năng MỤC 1 (Luôn gợi ý Next Up dự kiến gồm người trên sân),
+    // 2 người rảnh (p5, p6) kết hợp 2 người trên sân tạo thành trận Đôi dự kiến
+    // và KHÔNG BAO GIỜ bị NEEDS_CONFIRM hỏi đơn gây phiền khi sân đang đánh.
+    expect(courtPlan.status).toBe('OK');
+    if (courtPlan.status === 'OK') {
+      expect(courtPlan.proposals[0].isProjectedFromCurrentMatch).toBe(true);
+      const topPlayers = [...courtPlan.proposals[0].lineup.team1, ...courtPlan.proposals[0].lineup.team2];
+      // 2 người ngoài (p5, p6) phải được ưu tiên vào sân vì đang nghỉ
+      expect(topPlayers).toContain('p5');
+      expect(topPlayers).toContain('p6');
     }
   });
 

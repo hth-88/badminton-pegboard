@@ -226,6 +226,7 @@ export interface MatchProposal {
   penalty: number;
   relaxed: boolean;
   relaxedReasons: string[];
+  isProjectedFromCurrentMatch?: boolean;
 }
 
 export type CourtPlanStatus =

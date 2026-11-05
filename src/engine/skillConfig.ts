@@ -193,3 +193,21 @@ export function compareRanks(r1: BadmintonRank, r2: BadmintonRank): number {
 export function formatSkillScore(score: number): string {
   return score % 1 === 0 ? score.toFixed(0) : score.toFixed(1);
 }
+
+/**
+ * Nâng trình độ lên 1 bậc (nếu chưa chạm trần tbk)
+ */
+export function stepRankUp(current: BadmintonRank): BadmintonRank {
+  const idx = ORDERED_RANKS.indexOf(current);
+  if (idx === -1 || idx >= ORDERED_RANKS.length - 1) return current;
+  return ORDERED_RANKS[idx + 1];
+}
+
+/**
+ * Hạ trình độ xuống 1 bậc (nếu chưa chạm đáy newbie)
+ */
+export function stepRankDown(current: BadmintonRank): BadmintonRank {
+  const idx = ORDERED_RANKS.indexOf(current);
+  if (idx <= 0) return current;
+  return ORDERED_RANKS[idx - 1];
+}

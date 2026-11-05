@@ -380,6 +380,9 @@ export function App() {
                   onResumePlayer={(pId) =>
                     guardAction(() => resumePlayer(pId))
                   }
+                  onEditRank={(id, rank) =>
+                    guardAction(() => editRank(id, rank))
+                  }
                   onTriggerUndoToast={(msg) => setUndoToastMessage(msg)}
                   onShowWarningToast={(msg) => setWarningToastMessage(msg)}
                 />
@@ -393,6 +396,7 @@ export function App() {
           <QueueTab
             players={players}
             courts={courts}
+            maleBonus={settings.maleBonus}
             onAddPlayer={(data) => guardAction(() => addPlayer(data))}
             onAddPlayers={(list) => guardAction(() => addPlayers(list))}
             onPausePlayer={(id) => guardAction(() => pausePlayer(id))}

@@ -8,9 +8,11 @@ import {
   ClipboardPaste,
   AlertCircle,
   X,
+  Minus,
+  Plus,
 } from 'lucide-react';
 import type { BadmintonRank, Court, Player, Sex } from '../types/badminton';
-import { ORDERED_RANKS, RANK_METADATA } from '../engine/skillConfig';
+import { getEffectiveSkill, ORDERED_RANKS, RANK_METADATA, stepRankDown, stepRankUp } from '../engine/skillConfig';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
 import { SAMPLE_16_PLAYERS } from '../data/samplePlayers';
 import { vibrateSuccess } from '../utils/vibrate';
@@ -19,6 +21,7 @@ import { parsePasteLines } from '../utils/parsePasteLines';
 interface QueueTabProps {
   players: Player[];
   courts: Court[];
+  maleBonus?: number;
   onAddPlayer: (
     playerData: Omit<
       Player,
@@ -43,6 +46,7 @@ interface QueueTabProps {
 export const QueueTab: React.FC<QueueTabProps> = ({
   players,
   courts,
+  maleBonus = 1.5,
   onAddPlayer,
   onAddPlayers,
   onPausePlayer,
@@ -53,6 +57,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addMode, setAddMode] = useState<'SINGLE' | 'PASTE'>('SINGLE');
+  const [pickerPlayer, setPickerPlayer] = useState<Player | null>(null);
 
   // Single form state
   const [newName, setNewName] = useState('');
@@ -191,38 +196,25 @@ export const QueueTab: React.FC<QueueTabProps> = ({
           activePlayers.map((player) => {
             const isPlaying = playingPlayerIds.has(player.id);
             const rankMeta = RANK_METADATA[player.rank];
+            const effectiveSkill = getEffectiveSkill(player.rank, player.sex, maleBonus);
 
             return (
               <div
                 key={player.id}
-                className={`p-3 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                className={`p-3 rounded-2xl border transition space-y-2 ${
                   isPlaying
                     ? 'bg-slate-900/40 border-slate-800/80'
                     : 'bg-slate-900/90 hover:bg-slate-850 border-slate-800 shadow-sm'
                 }`}
               >
-                {/* Info */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm text-slate-100 truncate">
+                {/* HÀNG 1: Tên người chơi & Thống kê số trận/nghỉ */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                    <span className="font-bold text-sm sm:text-base text-slate-100 truncate">
                       {player.name}
                     </span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                        player.sex === 'M'
-                          ? 'bg-sky-950 text-sky-300'
-                          : 'bg-pink-950 text-pink-300'
-                      }`}
-                    >
-                      {player.sex === 'M' ? 'Nam' : 'Nữ'}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-                    >
-                      {rankMeta.code}
-                    </span>
                     {isPlaying && (
-                      <span className="text-[10px] font-bold px-2 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1">
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1 shrink-0">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         Đang đánh
                       </span>
@@ -230,80 +222,117 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   </div>
 
                   {/* Priority stats */}
-                  <div className="flex items-center gap-2.5 text-xs text-slate-400 mt-1">
-                    <span>
-                      Đã đánh: <strong className="text-slate-200">{player.gamesPlayed}</strong>
-                      {player.virtualGamesOffset > 0 && (
-                        <span className="text-amber-400 text-[11px]"> (+{player.virtualGamesOffset} bù)</span>
-                      )}
-                    </span>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0 font-medium">
+                    <span>{player.gamesPlayed} trận</span>
                     <span>•</span>
                     <span className={player.waitStreak > 1 ? 'text-emerald-400 font-semibold' : ''}>
-                      Chờ: <strong>{player.waitStreak}</strong> lượt
+                      Nghỉ {player.waitStreak}
                     </span>
-                    {player.noSingles && (
-                      <>
-                        <span>•</span>
-                        <span className="text-slate-500 text-[11px]">Không đơn</span>
-                      </>
+                    {player.virtualGamesOffset > 0 && (
+                      <span className="text-amber-400 text-[10px]">(+{player.virtualGamesOffset})</span>
                     )}
                   </div>
                 </div>
 
-                {/* Actions & Quick Config */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Sửa trình độ */}
-                  <select
-                    value={player.rank}
-                    onChange={(e) => onEditRank(player.id, e.target.value as BadmintonRank)}
-                    aria-label={`Trình độ của ${player.name}`}
-                    className="bg-slate-800 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1.5 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    {ORDERED_RANKS.map((r) => (
-                      <option key={r} value={r}>
-                        {RANK_METADATA[r].code} ({RANK_METADATA[r].name})
-                      </option>
-                    ))}
-                  </select>
+                {/* HÀNG 2: Cụm nút bấm thao tác nhanh gọn cho Mobile */}
+                <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/50 flex-wrap">
+                  {/* Stepper trình độ [-] [Badge (XX.Xđ)] [+] */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        vibrateSuccess();
+                        onEditRank(player.id, stepRankDown(player.rank));
+                      }}
+                      title="Hạ 1 bậc trình độ"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
 
-                  {/* Gán sân (Pool) */}
-                  <select
-                    value={player.assignedPool}
-                    onChange={(e) => onUpdatePlayer({ id: player.id, assignedPool: e.target.value })}
-                    aria-label={`Gán sân cho ${player.name}`}
-                    className="bg-slate-800 text-slate-200 text-xs font-semibold rounded-lg px-1.5 py-1.5 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 hidden sm:block"
-                  >
-                    <option value="ALL">Tất cả sân</option>
-                    {courts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    <button
+                      type="button"
+                      onClick={() => setPickerPlayer(player)}
+                      title="Bấm để chọn nhanh 1 trong 12 trình độ"
+                      className={`px-2 py-1 rounded-lg text-xs font-black tracking-wide flex items-center gap-1 border border-transparent shadow-sm ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
+                    >
+                      <span>{rankMeta.code}</span>
+                      <span className="text-[10px] opacity-80 font-normal">
+                        ({effectiveSkill.toFixed(1)}đ)
+                      </span>
+                    </button>
 
-                  {/* Tạm nghỉ */}
-                  <button
-                    onClick={() => onPausePlayer(player.id)}
-                    title="Tạm nghỉ (đi muộn / về sớm / nghỉ giải lao)"
-                    aria-label={`Tạm nghỉ cho ${player.name}`}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition"
-                  >
-                    <UserX className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        vibrateSuccess();
+                        onEditRank(player.id, stepRankUp(player.rank));
+                      }}
+                      title="Tăng 1 bậc trình độ"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
-                  {/* Xóa người */}
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`Bạn có chắc muốn xóa "${player.name}"?`)) {
-                        onRemovePlayer(player.id);
-                      }
-                    }}
-                    title="Xóa người chơi"
-                    aria-label={`Xóa người chơi ${player.name}`}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {/* Cụm Toggle Nam/Nữ, Gán Sân, Tạm Nghỉ, Xóa */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Toggle Nam/Nữ 1 chạm */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        vibrateSuccess();
+                        onUpdatePlayer({ id: player.id, sex: player.sex === 'M' ? 'F' : 'M' });
+                      }}
+                      title={`Bấm để chuyển sang ${player.sex === 'M' ? 'Nữ' : 'Nam'}`}
+                      className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border ${
+                        player.sex === 'M'
+                          ? 'bg-sky-950/80 border-sky-600/40 text-sky-300 hover:bg-sky-900/80'
+                          : 'bg-pink-950/80 border-pink-600/40 text-pink-300 hover:bg-pink-900/80'
+                      }`}
+                    >
+                      <span>{player.sex === 'M' ? '♂ Nam' : '♀ Nữ'}</span>
+                    </button>
+
+                    {/* Gán sân (Pool) - ẩn trên màn hình quá nhỏ */}
+                    <select
+                      value={player.assignedPool}
+                      onChange={(e) => onUpdatePlayer({ id: player.id, assignedPool: e.target.value })}
+                      aria-label={`Gán sân cho ${player.name}`}
+                      className="bg-slate-800 text-slate-200 text-xs font-semibold rounded-lg px-1.5 py-1 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 hidden md:block"
+                    >
+                      <option value="ALL">Tất cả sân</option>
+                      {courts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Tạm nghỉ */}
+                    <button
+                      onClick={() => onPausePlayer(player.id)}
+                      title="Tạm nghỉ (đi muộn / về sớm / nghỉ giải lao)"
+                      aria-label={`Tạm nghỉ cho ${player.name}`}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition"
+                    >
+                      <UserX className="w-4 h-4" />
+                    </button>
+
+                    {/* Xóa người */}
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Bạn có chắc muốn xóa "${player.name}"?`)) {
+                          onRemovePlayer(player.id);
+                        }
+                      }}
+                      title="Xóa người chơi"
+                      aria-label={`Xóa người chơi ${player.name}`}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -616,6 +645,60 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL CHỌN TRÌNH ĐỘ NHANH (12 RANKS - GRID 4x3 CHUẨN MOBILE) */}
+      {pickerPlayer && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 max-w-sm w-full shadow-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
+                  <span>Trình độ:</span>
+                  <span className="text-emerald-400">{pickerPlayer.name}</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Giới tính: {pickerPlayer.sex === 'M' ? 'Nam' : 'Nữ'} (Bù Nam: +{maleBonus.toFixed(1)}đ)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerPlayer(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {ORDERED_RANKS.map((r) => {
+                const meta = RANK_METADATA[r];
+                const isSelected = pickerPlayer.rank === r;
+                const eff = getEffectiveSkill(r, pickerPlayer.sex, maleBonus);
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      vibrateSuccess();
+                      onEditRank(pickerPlayer.id, r);
+                      setPickerPlayer(null);
+                    }}
+                    className={`p-2 rounded-xl text-center border transition flex flex-col items-center justify-center active:scale-95 ${
+                      isSelected
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/50 bg-emerald-950/60'
+                        : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className={`text-xs font-black px-1.5 py-0.5 rounded ${meta.badgeBg} ${meta.badgeText}`}>
+                      {meta.code}
+                    </span>
+                    <span className="text-[10px] text-slate-400 mt-1 font-mono">{eff.toFixed(1)}đ</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

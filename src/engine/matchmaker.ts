@@ -21,6 +21,7 @@ import {
   getPartnerCount,
   isRecentOpponent,
   isRecentPartner,
+  recordCompletedMatch,
 } from './statsManager';
 
 /**
@@ -973,6 +974,77 @@ export function generateDoublesProposals(
  * - (Mục 11) Tính real debugScore cho locked nextUp.
  * - (Mục 13) Sử dụng courtPlanIndex để chọn proposal ổn định.
  */
+/**
+ * Helper giả lập trạng thái người chơi và thống kê sau khi kết thúc trận hiện tại của sân
+ * Dùng để luôn gợi ý trước trận sau (Next Up) kể cả khi hàng chờ không đủ người (Mục 1)
+ */
+function buildProjectedEnvironment(
+  court: Court,
+  available: Player[],
+  state: BadmintonSessionState,
+  now: number
+): {
+  projectedAvailable: Player[];
+  projectedState: BadmintonSessionState;
+  currentMatchPlayerIdSet: Set<string>;
+} | null {
+  if (!court.currentMatch) return null;
+
+  const currentMatchPlayerIds = [...court.currentMatch.team1, ...court.currentMatch.team2];
+  const currentMatchPlayerIdSet = new Set(currentMatchPlayerIds);
+
+  const activeCourtPlayers: Player[] = [];
+  for (const pid of currentMatchPlayerIds) {
+    const p = state.players.find((pl) => pl.id === pid);
+    if (p && p.status === 'ACTIVE') {
+      activeCourtPlayers.push({
+        ...p,
+        gamesPlayed: p.gamesPlayed + 1,
+        waitStreak: 0,
+        lastPlayedAt: now,
+        singlesCount: court.currentMatch.type === 'SINGLES' ? p.singlesCount + 1 : p.singlesCount,
+      });
+    }
+  }
+
+  // available (người đang rảnh) được giữ nguyên để có waitStreak cao hơn -> ưu tiên chọn trước
+  // activeCourtPlayers (người trên sân) được đưa vào sau với waitStreak = 0, gamesPlayed cao hơn
+  const projectedAvailable = [...available, ...activeCourtPlayers];
+
+  // Giả lập trận đấu hiện tại vừa xong
+  const simulatedMatchHistory: MatchHistory = {
+    id: court.currentMatch.id ?? `sim_${court.id}_${now}`,
+    courtId: court.id,
+    type: court.currentMatch.type,
+    team1: [...court.currentMatch.team1],
+    team2: [...court.currentMatch.team2],
+    slotSource: court.currentMatch.slotSource ? { ...court.currentMatch.slotSource } : {},
+    startedAt: court.currentMatch.startedAt,
+    endedAt: now,
+    durationMinutes: Math.max(1, Math.round((now - court.currentMatch.startedAt) / 60000)),
+  };
+
+  const projectedStats = recordCompletedMatch(state.stats, simulatedMatchHistory);
+
+  const playerMap = new Map(state.players.map((p) => [p.id, p]));
+  for (const simP of activeCourtPlayers) {
+    playerMap.set(simP.id, simP);
+  }
+
+  const projectedState: BadmintonSessionState = {
+    ...state,
+    players: Array.from(playerMap.values()),
+    stats: projectedStats,
+    history: [simulatedMatchHistory, ...state.history],
+  };
+
+  return {
+    projectedAvailable,
+    projectedState,
+    currentMatchPlayerIdSet,
+  };
+}
+
 export function planAllCourts(
   state: BadmintonSessionState,
   now: number,
@@ -1196,7 +1268,41 @@ export function planAllCourts(
 
     if (forcedMatchType !== null) {
       if (forcedMatchType === 'DOUBLES') {
-        if (available.length < 4) {
+        let doublesProposals = available.length >= 4
+          ? generateDoublesProposals(
+              court.id,
+              available,
+              state,
+              state.settings.weights,
+              seed,
+              fixedSlots
+            )
+          : [];
+        let isProjected = false;
+        let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
+
+        if (doublesProposals.length === 0 && court.currentMatch !== null) {
+          projEnv = buildProjectedEnvironment(court, available, state, now);
+          if (projEnv && projEnv.projectedAvailable.length >= 4) {
+            const projProposals = generateDoublesProposals(
+              court.id,
+              projEnv.projectedAvailable,
+              projEnv.projectedState,
+              state.settings.weights,
+              seed,
+              fixedSlots
+            );
+            if (projProposals.length > 0) {
+              doublesProposals = projProposals.map((p) => ({
+                ...p,
+                isProjectedFromCurrentMatch: true,
+              }));
+              isProjected = true;
+            }
+          }
+        }
+
+        if (doublesProposals.length === 0) {
           result[court.id] = {
             status: 'WAIT',
             reason:
@@ -1207,28 +1313,19 @@ export function planAllCourts(
           continue;
         }
 
-        const doublesProposals = generateDoublesProposals(
-          court.id,
-          available,
-          state,
-          state.settings.weights,
-          seed,
-          fixedSlots
-        );
-
-        if (doublesProposals.length === 0) {
-          result[court.id] = {
-            status: 'WAIT',
-            reason: 'Không tìm thấy tổ hợp hợp lệ cho trận đôi',
-          };
-          continue;
-        }
-
         // Không dùng mixDebt, không cập nhật simMixDebt
         const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
         const topProposal = doublesProposals[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+        topProposal.lineup.team1.forEach((id) => {
+          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+            reservedPlayerIds.add(id);
+          }
+        });
+        topProposal.lineup.team2.forEach((id) => {
+          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+            reservedPlayerIds.add(id);
+          }
+        });
 
         result[court.id] = {
           status: 'OK',
@@ -1238,7 +1335,39 @@ export function planAllCourts(
         continue;
       } else {
         // forcedMatchType === 'SINGLES'
-        if (available.length < 2) {
+        let singlesProposals = available.length >= 2
+          ? generateSinglesProposals(
+              available,
+              state,
+              state.settings.weights,
+              seed,
+              fixedSlots
+            )
+          : [];
+        let isProjected = false;
+        let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
+
+        if (singlesProposals.length === 0 && court.currentMatch !== null) {
+          projEnv = buildProjectedEnvironment(court, available, state, now);
+          if (projEnv && projEnv.projectedAvailable.length >= 2) {
+            const projProposals = generateSinglesProposals(
+              projEnv.projectedAvailable,
+              projEnv.projectedState,
+              state.settings.weights,
+              seed,
+              fixedSlots
+            );
+            if (projProposals.length > 0) {
+              singlesProposals = projProposals.map((p) => ({
+                ...p,
+                isProjectedFromCurrentMatch: true,
+              }));
+              isProjected = true;
+            }
+          }
+        }
+
+        if (singlesProposals.length === 0) {
           result[court.id] = {
             status: 'WAIT',
             reason:
@@ -1249,27 +1378,19 @@ export function planAllCourts(
           continue;
         }
 
-        const singlesProposals = generateSinglesProposals(
-          available,
-          state,
-          state.settings.weights,
-          seed,
-          fixedSlots
-        );
-
-        if (singlesProposals.length === 0) {
-          result[court.id] = {
-            status: 'WAIT',
-            reason: 'Không tìm thấy tổ hợp hợp lệ cho sân đơn',
-          };
-          continue;
-        }
-
         // Không dùng mixDebt, không cập nhật simMixDebt
         const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
         const topProposal = singlesProposals[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+        topProposal.lineup.team1.forEach((id) => {
+          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+            reservedPlayerIds.add(id);
+          }
+        });
+        topProposal.lineup.team2.forEach((id) => {
+          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+            reservedPlayerIds.add(id);
+          }
+        });
 
         result[court.id] = {
           status: 'OK',
@@ -1284,26 +1405,42 @@ export function planAllCourts(
     // CASE A: POLICY === 'SINGLES_ONLY' (Mục 1)
     // ==========================================
     if (court.policy === 'SINGLES_ONLY') {
-      if (available.length < 2) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Không đủ người chơi hợp lệ cho sân đơn',
-        };
-        continue;
-      }
+      let singlesProposals = available.length >= 2
+        ? generateSinglesProposals(
+            available,
+            state,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          )
+        : [];
+      let isProjected = false;
+      let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
 
-      const singlesProposals = generateSinglesProposals(
-        available,
-        state,
-        state.settings.weights,
-        seed,
-        fixedSlots
-      );
+      if (singlesProposals.length === 0 && court.currentMatch !== null) {
+        projEnv = buildProjectedEnvironment(court, available, state, now);
+        if (projEnv && projEnv.projectedAvailable.length >= 2) {
+          const projProposals = generateSinglesProposals(
+            projEnv.projectedAvailable,
+            projEnv.projectedState,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          );
+          if (projProposals.length > 0) {
+            singlesProposals = projProposals.map((p) => ({
+              ...p,
+              isProjectedFromCurrentMatch: true,
+            }));
+            isProjected = true;
+          }
+        }
+      }
 
       if (singlesProposals.length === 0) {
         result[court.id] = {
           status: 'WAIT',
-          reason: 'Không tìm thấy tổ hợp hợp lệ cho sân đơn',
+          reason: 'Không đủ người chơi hợp lệ cho sân đơn',
         };
         continue;
       }
@@ -1316,8 +1453,16 @@ export function planAllCourts(
       // Chọn proposal theo courtPlanIndex (Mục 13)
       const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
       const topProposal = singlesProposals[selectedIndex];
-      topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-      topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+      topProposal.lineup.team1.forEach((id) => {
+        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+          reservedPlayerIds.add(id);
+        }
+      });
+      topProposal.lineup.team2.forEach((id) => {
+        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+          reservedPlayerIds.add(id);
+        }
+      });
 
       result[court.id] = {
         status: 'OK',
@@ -1331,30 +1476,47 @@ export function planAllCourts(
     // CASE B: POLICY === 'DOUBLES_ONLY' (Mục 1)
     // ==========================================
     if (court.policy === 'DOUBLES_ONLY') {
-      if (available.length < 4) {
+      let doublesProposals = available.length >= 4
+        ? generateDoublesProposals(
+            court.id,
+            available,
+            state,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          )
+        : [];
+      let isProjected = false;
+      let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
+
+      if (doublesProposals.length === 0 && court.currentMatch !== null) {
+        projEnv = buildProjectedEnvironment(court, available, state, now);
+        if (projEnv && projEnv.projectedAvailable.length >= 4) {
+          const projProposals = generateDoublesProposals(
+            court.id,
+            projEnv.projectedAvailable,
+            projEnv.projectedState,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          );
+          if (projProposals.length > 0) {
+            doublesProposals = projProposals.map((p) => ({
+              ...p,
+              isProjectedFromCurrentMatch: true,
+            }));
+            isProjected = true;
+          }
+        }
+      }
+
+      if (doublesProposals.length === 0) {
         result[court.id] = {
           status: 'WAIT',
           reason:
             court.currentMatch !== null
               ? 'Chưa đủ người cho lượt sau'
               : `Sân chỉ đánh đôi nhưng chỉ có ${available.length} người`,
-        };
-        continue;
-      }
-
-      const doublesProposals = generateDoublesProposals(
-        court.id,
-        available,
-        state,
-        state.settings.weights,
-        seed,
-        fixedSlots
-      );
-
-      if (doublesProposals.length === 0) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Không tìm thấy tổ hợp hợp lệ cho sân đôi',
         };
         continue;
       }
@@ -1366,8 +1528,16 @@ export function planAllCourts(
 
       const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
       const topProposal = doublesProposals[selectedIndex];
-      topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-      topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+      topProposal.lineup.team1.forEach((id) => {
+        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+          reservedPlayerIds.add(id);
+        }
+      });
+      topProposal.lineup.team2.forEach((id) => {
+        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
+          reservedPlayerIds.add(id);
+        }
+      });
 
       result[court.id] = {
         status: 'OK',
@@ -1380,6 +1550,121 @@ export function planAllCourts(
     // ==========================================
     // CASE C: POLICY === 'MIX'
     // ==========================================
+    // Sân đang bận (currentMatch !== null) mà rảnh ở ngoài dưới 4 người -> Tạo dự kiến (Mục 1)
+    if (available.length < 4 && court.currentMatch !== null) {
+      const projEnv = buildProjectedEnvironment(court, available, state, now);
+      if (projEnv && projEnv.projectedAvailable.length >= 2) {
+        if (projEnv.projectedAvailable.length >= 4) {
+          const debtD = simMixDebt.doubles + state.settings.matchMix.doubles;
+          const debtS = simMixDebt.singles + state.settings.matchMix.singles;
+          const preferredType: MatchType = debtS > debtD ? 'SINGLES' : 'DOUBLES';
+
+          if (preferredType === 'DOUBLES') {
+            const doublesProposals = generateDoublesProposals(
+              court.id,
+              projEnv.projectedAvailable,
+              projEnv.projectedState,
+              state.settings.weights,
+              seed,
+              fixedSlots
+            );
+            if (doublesProposals.length > 0) {
+              const marked = doublesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
+              simMixDebt.doubles += state.settings.matchMix.doubles;
+              simMixDebt.singles += state.settings.matchMix.singles;
+              simMixDebt.doubles -= 1;
+
+              const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
+              const topProposal = marked[selectedIndex];
+              topProposal.lineup.team1.forEach((id) => {
+                if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+              });
+              topProposal.lineup.team2.forEach((id) => {
+                if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+              });
+
+              result[court.id] = {
+                status: 'OK',
+                proposals: marked,
+                selectedIndex,
+              };
+              continue;
+            }
+          }
+
+          // preferredType === 'SINGLES' hoặc doubles không tìm được
+          const singlesProposals = generateSinglesProposals(
+            projEnv.projectedAvailable,
+            projEnv.projectedState,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          );
+          if (singlesProposals.length > 0) {
+            const marked = singlesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
+            simMixDebt.doubles += state.settings.matchMix.doubles;
+            simMixDebt.singles += state.settings.matchMix.singles;
+            simMixDebt.singles -= 1;
+
+            const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
+            const topProposal = marked[selectedIndex];
+            topProposal.lineup.team1.forEach((id) => {
+              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+            });
+            topProposal.lineup.team2.forEach((id) => {
+              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+            });
+
+            result[court.id] = {
+              status: 'OK',
+              proposals: marked,
+              selectedIndex,
+            };
+            continue;
+          }
+        } else {
+          // projEnv có 2 hoặc 3 người -> có thể lập đơn
+          const singlesProposals = generateSinglesProposals(
+            projEnv.projectedAvailable,
+            projEnv.projectedState,
+            state.settings.weights,
+            seed,
+            fixedSlots
+          );
+          if (singlesProposals.length > 0) {
+            const marked = singlesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
+            simMixDebt.doubles += state.settings.matchMix.doubles;
+            simMixDebt.singles += state.settings.matchMix.singles;
+            simMixDebt.singles -= 1;
+
+            const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
+            const topProposal = marked[selectedIndex];
+            topProposal.lineup.team1.forEach((id) => {
+              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+            });
+            topProposal.lineup.team2.forEach((id) => {
+              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
+            });
+
+            result[court.id] = {
+              status: 'OK',
+              proposals: marked,
+              selectedIndex,
+            };
+            continue;
+          }
+        }
+      }
+
+      // Nếu không lập được phương án dự kiến
+      result[court.id] = {
+        status: 'WAIT',
+        reason: 'Chưa đủ người cho lượt sau',
+      };
+      continue;
+    }
+
+    // Sân trống mà còn dưới 2 người
     if (available.length < 2) {
       result[court.id] = {
         status: 'WAIT',
@@ -1388,17 +1673,9 @@ export function planAllCourts(
       continue;
     }
 
-    // Khi còn dưới 4 người (2 hoặc 3 người):
-    // (Mục 2: CHỈ HỎI KHI SÂN TRỐNG. Sân đang đánh mà không đủ 4 người -> WAIT 'Chưa đủ người cho lượt sau')
+    // Sân trống mà còn dưới 4 người (2 hoặc 3 người):
+    // (Mục 2: CHỈ HỎI KHI SÂN TRỐNG)
     if (available.length < 4) {
-      if (court.currentMatch !== null) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Chưa đủ người cho lượt sau',
-        };
-        continue;
-      }
-
       // Sân đang trống (currentMatch === null):
       const autoSinglesMode = state.settings.autoSingles;
       if (autoSinglesMode === 'OFF') {

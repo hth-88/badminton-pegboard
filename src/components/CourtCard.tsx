@@ -12,15 +12,18 @@ import {
   Power,
   ChevronRight,
   UserCheck,
+  Minus,
+  Plus,
 } from 'lucide-react';
 import type {
+  BadmintonRank,
   BadmintonSessionState,
   Court,
   CourtPlanStatus,
   Lineup,
   Player,
 } from '../types/badminton';
-import { getEffectiveSkill, RANK_METADATA } from '../engine/skillConfig';
+import { getEffectiveSkill, RANK_METADATA, stepRankDown, stepRankUp } from '../engine/skillConfig';
 import { describeLineup, validateLineup } from '../engine/validateLineup';
 import { SlotSheet } from './SlotSheet';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
@@ -59,6 +62,7 @@ interface CourtCardProps {
   ) => void;
   onSnoozeAutoSingles: (courtId: string, queueSize: number) => void;
   onResumePlayer: (playerId: string) => void;
+  onEditRank?: (playerId: string, rank: BadmintonRank) => void;
   onTriggerUndoToast: (message: string) => void;
   onShowWarningToast?: (message: string) => void;
 }
@@ -77,6 +81,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   onUpdateCourt,
   onSnoozeAutoSingles,
   onResumePlayer,
+  onEditRank,
   onTriggerUndoToast,
   onShowWarningToast,
 }) => {
@@ -115,7 +120,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
         return `Không thể vào sân: Người chơi "${p.name}" đang ở trạng thái Tạm nghỉ.`;
       }
     }
-    const issues = validateLineup(lineup, state, court.id);
+    const issues = validateLineup(lineup, state, court.id, { target: 'NEXT_UP' });
     const block = issues.find((i) => i.severity === 'BLOCK');
     if (block) {
       return `Không thể vào sân: ${block.message}`;
@@ -282,6 +287,108 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     onTriggerUndoToast(`Đã bắt đầu trận trên ${court.name}`);
   };
 
+  // Đảo cặp cho Next Up (khi là DOUBLES)
+  const handleRotateNextUpPairings = (lineup: Lineup) => {
+    const allIds = [...lineup.team1, ...lineup.team2];
+    if (new Set(allIds).size !== 4) return;
+    const [A, B, C, D] = [...allIds].sort();
+
+    const aInTeam1 = lineup.team1.includes(A);
+    const aTeamNum: 1 | 2 = aInTeam1 ? 1 : 2;
+    const oppTeamNum: 1 | 2 = aInTeam1 ? 2 : 1;
+    const aTeam = aInTeam1 ? lineup.team1 : lineup.team2;
+    const oppTeam = aInTeam1 ? lineup.team2 : lineup.team1;
+    const aIdx = aTeam.indexOf(A);
+    const partnerIdx = aIdx === 0 ? 1 : 0;
+    const currentPartner = aTeam[partnerIdx];
+
+    let currentMode: 0 | 1 | 2 = 0;
+    if (currentPartner === C) currentMode = 1;
+    else if (currentPartner === D) currentMode = 2;
+    else currentMode = 0;
+
+    const nextMode: 0 | 1 | 2 = ((currentMode + 1) % 3) as 0 | 1 | 2;
+    const targetPartner = nextMode === 0 ? B : nextMode === 1 ? C : D;
+    const oppPartnerIdx = oppTeam.indexOf(targetPartner);
+
+    if (oppPartnerIdx !== -1) {
+      vibrateSuccess();
+      onSwapPlayers(
+        court.id,
+        'NEXT_UP',
+        { team: aTeamNum, index: partnerIdx },
+        { team: oppTeamNum, index: oppPartnerIdx },
+        lineup
+      );
+      onTriggerUndoToast(`Đã đảo cặp lượt sau sang thế ${nextMode + 1}/3`);
+    }
+  };
+
+  // Cân kèo cho Next Up (khi là DOUBLES)
+  const handleAutoBalanceNextUpPairings = (lineup: Lineup) => {
+    const allIds = [...lineup.team1, ...lineup.team2];
+    if (new Set(allIds).size !== 4) return;
+
+    const [A, B, C, D] = [...allIds].sort();
+    const pA = getPlayer(A);
+    const pB = getPlayer(B);
+    const pC = getPlayer(C);
+    const pD = getPlayer(D);
+    if (!pA || !pB || !pC || !pD) return;
+
+    const bonus = state.settings?.maleBonus ?? 1.5;
+    const sA = getEffectiveSkill(pA.rank, pA.sex, bonus);
+    const sB = getEffectiveSkill(pB.rank, pB.sex, bonus);
+    const sC = getEffectiveSkill(pC.rank, pC.sex, bonus);
+    const sD = getEffectiveSkill(pD.rank, pD.sex, bonus);
+
+    const diff0 = Math.abs(sA + sB - (sC + sD));
+    const diff1 = Math.abs(sA + sC - (sB + sD));
+    const diff2 = Math.abs(sA + sD - (sB + sC));
+
+    const aInTeam1 = lineup.team1.includes(A);
+    const aTeamNum: 1 | 2 = aInTeam1 ? 1 : 2;
+    const oppTeamNum: 1 | 2 = aInTeam1 ? 2 : 1;
+    const aTeam = aInTeam1 ? lineup.team1 : lineup.team2;
+    const oppTeam = aInTeam1 ? lineup.team2 : lineup.team1;
+    const aIdx = aTeam.indexOf(A);
+    const partnerIdx = aIdx === 0 ? 1 : 0;
+    const currentPartner = aTeam[partnerIdx];
+
+    let currentMode: 0 | 1 | 2 = 0;
+    if (currentPartner === C) currentMode = 1;
+    else if (currentPartner === D) currentMode = 2;
+    else currentMode = 0;
+
+    const diffs = [diff0, diff1, diff2];
+    const minDiff = Math.min(...diffs);
+
+    if (Math.abs(diffs[currentMode] - minDiff) < 0.001) {
+      vibrateSuccess();
+      onTriggerUndoToast('Đội hình lượt sau đã ở trạng thái cân bằng nhất!');
+      return;
+    }
+
+    let bestMode: 0 | 1 | 2 = 0;
+    if (Math.abs(diff0 - minDiff) < 0.001) bestMode = 0;
+    else if (Math.abs(diff1 - minDiff) < 0.001) bestMode = 1;
+    else bestMode = 2;
+
+    const targetPartner = bestMode === 0 ? B : bestMode === 1 ? C : D;
+    const oppPartnerIdx = oppTeam.indexOf(targetPartner);
+    if (oppPartnerIdx !== -1) {
+      vibrateSuccess();
+      onSwapPlayers(
+        court.id,
+        'NEXT_UP',
+        { team: aTeamNum, index: partnerIdx },
+        { team: oppTeamNum, index: oppPartnerIdx },
+        lineup
+      );
+      onTriggerUndoToast(`Đã cân cặp lượt sau (lệch ${minDiff.toFixed(1)}đ)`);
+    }
+  };
+
   // Render thẻ người chơi (Mobile-First chuẩn điện thoại)
   const renderPlayerBadge = (
     playerId: string,
@@ -293,7 +400,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
       return (
         <button
           onClick={onClick}
-          className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-dashed border-slate-600 text-slate-400 text-xs w-full transition text-left min-h-[44px]"
+          className="flex items-center justify-between p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-dashed border-slate-600 text-slate-400 text-xs w-full transition text-left min-h-[40px]"
         >
           <span>Trống (Bấm để chọn)</span>
           <ChevronRight className="w-3.5 h-3.5" />
@@ -308,33 +415,67 @@ export const CourtCard: React.FC<CourtCardProps> = ({
       : 'bg-pink-950/75 border-pink-500/40 text-pink-50 hover:border-pink-400/60';
 
     return (
-      <button
+      <div
         onClick={onClick}
-        className={`flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-xl border text-left transition w-full group min-h-[44px] ${genderTheme}`}
+        className={`flex items-center justify-between gap-1.5 p-1.5 sm:p-2 rounded-xl border text-left transition w-full group min-h-[40px] cursor-pointer ${genderTheme}`}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <span className="font-bold text-sm sm:text-base leading-tight break-words">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+          <span className="font-bold text-xs sm:text-sm leading-tight truncate">
             {player.name}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span
-            className={`text-xs font-black px-2 py-0.5 rounded-md tracking-wide ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-          >
-            {rankMeta.code}
           </span>
           {source === 'MANUAL' && (
             <span
               title="Xếp tay cố định"
-              className="flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-900/80 text-blue-200 border border-blue-600/60"
+              className="flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.2 rounded bg-blue-900/80 text-blue-200 border border-blue-600/60 shrink-0"
             >
               <Lock className="w-2.5 h-2.5" />
               <span>Tay</span>
             </span>
           )}
         </div>
-      </button>
+
+        {/* Cụm Stepper Rank [-] [Badge] [+] (Mobile-friendly, stopPropagation) */}
+        <div
+          className="flex items-center gap-0.5 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onEditRank && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                vibrateSuccess();
+                onEditRank(player.id, stepRankDown(player.rank));
+              }}
+              title="Hạ 1 bậc trình độ"
+              className="w-5 h-6 rounded flex items-center justify-center bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition active:scale-95 text-xs"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+          )}
+
+          <span
+            className={`text-[11px] font-black px-1.5 py-0.5 rounded tracking-wide select-none ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
+          >
+            {rankMeta.code}
+          </span>
+
+          {onEditRank && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                vibrateSuccess();
+                onEditRank(player.id, stepRankUp(player.rank));
+              }}
+              title="Tăng 1 bậc trình độ"
+              className="w-5 h-6 rounded flex items-center justify-center bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition active:scale-95 text-xs"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -656,6 +797,17 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
                 return (
                   <div>
+                    {/* Projected from current match banner */}
+                    {proposal.isProjectedFromCurrentMatch && (
+                      <div className="mb-2 px-2.5 py-1 rounded-xl bg-purple-950/40 border border-purple-700/50 text-purple-300 text-[11px] font-bold flex items-center justify-between gap-1.5">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                          <span>Dự kiến (Gồm người đang trên sân)</span>
+                        </span>
+                        <span className="text-[10px] opacity-75 font-normal">Tự đảo cặp sau trận</span>
+                      </div>
+                    )}
+
                     {/* Relaxed banner */}
                     {proposal.relaxed && proposal.relaxedReasons.length > 0 && (
                       <div className="mb-2 px-2.5 py-1.5 rounded-xl bg-amber-950/30 border border-amber-700/40 text-amber-300 text-[11px] font-medium flex items-center gap-1.5">
@@ -665,7 +817,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     )}
 
                     {/* Next Up Teams Grid */}
-                    <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-3">
+                    <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-2">
                       {/* Team 1 */}
                       <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
                         <span className="text-[10px] font-bold text-slate-500 block">
@@ -678,11 +830,11 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                               lineup.slotSource?.[pid] || 'AUTO',
                               () =>
                                 setSlotSheetTarget({
-                                  target: 'NEXT_UP',
-                                  team: 1,
-                                  index: idx,
-                                  baseLineup: lineup,
-                                })
+                                   target: 'NEXT_UP',
+                                   team: 1,
+                                   index: idx,
+                                   baseLineup: lineup,
+                                 })
                             )}
                           </div>
                         ))}
@@ -709,21 +861,70 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                               lineup.slotSource?.[pid] || 'AUTO',
                               () =>
                                 setSlotSheetTarget({
-                                  target: 'NEXT_UP',
-                                  team: 2,
-                                  index: idx,
-                                  baseLineup: lineup,
-                                })
+                                   target: 'NEXT_UP',
+                                   team: 2,
+                                   index: idx,
+                                   baseLineup: lineup,
+                                 })
                             )}
                           </div>
                         ))}
                       </div>
                     </div>
 
+                    {/* Skill diff description cho Next Up */}
+                    {(() => {
+                      const desc = describeLineup(lineup, state);
+                      const colorClass =
+                        desc.label === 'Cân kèo'
+                          ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/50'
+                          : desc.label === 'Lệch nhẹ'
+                          ? 'bg-amber-950/40 text-amber-300 border-amber-800/50'
+                          : 'bg-rose-950/40 text-rose-300 border-rose-800/50';
+
+                      return (
+                        <div
+                          className={`mb-2 px-2.5 py-1 rounded-xl border flex items-center justify-between text-[11px] font-medium ${colorClass}`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span className="font-bold">{desc.label}</span>
+                          </div>
+                          <span className="text-[10px] opacity-80">
+                            Chênh: {desc.diff}đ ({desc.team1Skill} vs {desc.team2Skill})
+                          </span>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Nút Đảo cặp & Cân kèo cho Next Up nếu là trận Đôi */}
+                    {lineup.type === 'DOUBLES' && lineup.team1.length === 2 && lineup.team2.length === 2 && (
+                      <div className="flex items-center gap-1.5 mb-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleRotateNextUpPairings(lineup)}
+                          title="Đảo cặp cho lượt sau"
+                          className="flex-1 py-1.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition flex items-center justify-center gap-1"
+                        >
+                          <Shuffle className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Đảo cặp</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAutoBalanceNextUpPairings(lineup)}
+                          title="Tự động xếp cặp cân nhất cho lượt sau"
+                          className="flex-1 py-1.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-800/40 font-semibold text-xs transition flex items-center justify-center gap-1"
+                        >
+                          <Scale className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Cân kèo</span>
+                        </button>
+                      </div>
+                    )}
+
                     {/* Vào sân button hoặc Hướng dẫn nếu sân đang bận */}
                     {court.currentMatch ? (
                       <div className="py-2.5 px-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-400 italic">
-                        Bấm &quot;Kết thúc &amp; Vào lượt mới&quot; ở trên để đẩy {lineup.type === 'SINGLES' ? '2' : '4'} người này vào sân
+                        Bấm &quot;KẾT THÚC &amp; VÀO LƯỢT MỚI&quot; ở trên để đẩy {lineup.type === 'SINGLES' ? '2' : '4'} người này vào sân
                       </div>
                     ) : (
                       <button
