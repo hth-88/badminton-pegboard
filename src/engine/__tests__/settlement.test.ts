@@ -366,4 +366,39 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     const res = calculateSettlement(players, settings, [], customDate);
     expect(res.zaloMessage).toContain(`🏸 TỔNG KẾT CHI PHÍ CẦU LÔNG (${customDate}) 🏸`);
   });
+
+  it('13. Tùy chọn hideZeroCostPlayers: ẩn người 0đ (0 trận) khỏi tin Zalo', () => {
+    const players = [
+      makePlayer('p1', 'Tuấn', 'M', 4),
+      makePlayer('p2', 'Nghỉ Ở Nhà', 'M', 0),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 60000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      zeroGamesPolicy: 'FREE',
+    };
+
+    // Khi hideZeroCostPlayers: true
+    const resHidden = calculateSettlement(players, settings, [], undefined, {
+      hideZeroCostPlayers: true,
+    });
+    expect(resHidden.zaloMessage).toContain('Tuấn');
+    expect(resHidden.zaloMessage).not.toContain('Nghỉ Ở Nhà');
+
+    // Khi không ẩn (mặc định)
+    const resDefault = calculateSettlement(players, settings);
+    expect(resDefault.zaloMessage).toContain('Tuấn');
+    expect(resDefault.zaloMessage).toContain('Nghỉ Ở Nhà');
+  });
+
+  it('14. Kiểm tra cấu hình giá mặc định chuẩn CLB', () => {
+    expect(DEFAULT_SETTLEMENT_SETTINGS.courtHourlyRate).toBe(160000);
+    expect(DEFAULT_SETTLEMENT_SETTINGS.shuttlePrice).toBe(30000);
+    expect(DEFAULT_SETTLEMENT_SETTINGS.extraCost).toBe(0);
+  });
 });

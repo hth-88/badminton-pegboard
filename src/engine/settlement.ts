@@ -49,18 +49,18 @@ export interface SettlementSettings {
 export const DEFAULT_SETTLEMENT_SETTINGS: SettlementSettings = {
   courtCostMode: 'HOURLY',
   courtCostDirect: 0,
-  courtHourlyRate: 90000,
+  courtHourlyRate: 160000,
   courtHours: 2,
 
   shuttleCostMode: 'BY_SHUTTLE',
   shuttleCostDirect: 0,
   shuttleCount: 6,
-  shuttlePrice: 22000,
+  shuttlePrice: 30000,
   shuttleTubeCount: 0,
   shuttleTubePrice: 250000,
 
-  extraCost: 30000,
-  extraCostNote: 'Nước uống',
+  extraCost: 0,
+  extraCostNote: 'Nước uống / Phụ phí',
 
   splitMode: 'EQUAL',
   genderRatioMalePercent: 60,
@@ -163,7 +163,8 @@ export function calculateSettlement(
   allPlayers: Player[],
   settings: SettlementSettings = DEFAULT_SETTLEMENT_SETTINGS,
   _history: MatchHistory[] = [],
-  dateStr?: string
+  dateStr?: string,
+  options?: { hideZeroCostPlayers?: boolean }
 ): SettlementCalculationResult {
   const { courtCost, shuttleCost, extraCost, totalCost } = calculateTotalCosts(settings);
 
@@ -415,6 +416,7 @@ export function calculateSettlement(
     players: resultItems,
     settings,
     dateStr,
+    hideZeroCostPlayers: options?.hideZeroCostPlayers,
   });
 
   return {
@@ -447,8 +449,9 @@ export function generateZaloSettlementMessage(data: {
   players: PlayerSettlementItem[];
   settings: SettlementSettings;
   dateStr?: string;
+  hideZeroCostPlayers?: boolean;
 }): string {
-  const { totalCost, courtCost, shuttleCost, extraCost, surplus, shortfall = 0, players, settings, dateStr } = data;
+  const { totalCost, courtCost, shuttleCost, extraCost, surplus, shortfall = 0, players, settings, dateStr, hideZeroCostPlayers } = data;
   const displayDate = dateStr || new Date().toLocaleDateString('vi-VN');
 
   const lines: string[] = [];
@@ -469,7 +472,11 @@ export function generateZaloSettlementMessage(data: {
   lines.push('----------------------------------------');
   lines.push('💰 DANH SÁCH ĐÓNG TIỀN:');
 
-  players.forEach((p, idx) => {
+  const displayPlayers = hideZeroCostPlayers
+    ? players.filter((p) => p.roundedAmount > 0)
+    : players;
+
+  displayPlayers.forEach((p, idx) => {
     const amountStr = p.roundedAmount === 0 ? 'Miễn phí' : formatVND(p.roundedAmount);
     const noteStr = p.discountNote ? ` (${p.discountNote})` : '';
     lines.push(`${idx + 1}. ${p.name}: ${amountStr}${noteStr}`);

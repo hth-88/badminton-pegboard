@@ -64,12 +64,18 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   onResetSession,
 }) => {
   const [subTab, setSubTab] = useState<'CALC' | 'EQUITY'>('CALC');
+  const [hideZeroCostInZalo, setHideZeroCostInZalo] = useState(true);
   const [settings, setSettings] = useState<SettlementSettings>(() => {
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem('badminton_settlement_settings');
       if (saved) {
         try {
-          return { ...DEFAULT_SETTLEMENT_SETTINGS, ...JSON.parse(saved) };
+          const parsed = JSON.parse(saved);
+          // Tự động nâng cấp giá cũ sang giá thực chiến mới (160k/h, 30k/quả, 0đ phụ phí)
+          if (parsed.courtHourlyRate === 90000) parsed.courtHourlyRate = 160000;
+          if (parsed.shuttlePrice === 22000) parsed.shuttlePrice = 30000;
+          if (parsed.extraCost === 30000 && parsed.extraCostNote === 'Nước uống') parsed.extraCost = 0;
+          return { ...DEFAULT_SETTLEMENT_SETTINGS, ...parsed };
         } catch {
           // Fallback
         }
@@ -183,8 +189,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
   // Tính toán quyết toán
   const settlementResult = useMemo(() => {
-    return calculateSettlement(players, settings, history);
-  }, [players, settings, history]);
+    return calculateSettlement(players, settings, history, undefined, {
+      hideZeroCostPlayers: hideZeroCostInZalo,
+    });
+  }, [players, settings, history, hideZeroCostInZalo]);
 
   // Sao chép tin nhắn Zalo
   const handleCopyZalo = async () => {
@@ -267,15 +275,35 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           {/* 1. NHẬP CHI PHÍ BUỔI ĐÁNH */}
           {/* ========================================================= */}
           <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-            <h3 className="font-bold text-sm text-slate-200 flex items-center justify-between">
-              <span className="flex items-center gap-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                 <Coins className="w-4 h-4 text-emerald-400" />
                 <span>1. Chi phí buổi chơi</span>
-              </span>
-              <span className="text-emerald-400 font-black text-base">
-                {formatVND(settlementResult.totalCost)}
-              </span>
-            </h3>
+              </h3>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrateSuccess();
+                    updateSettings({
+                      courtHourlyRate: 160000,
+                      shuttlePrice: 30000,
+                      extraCost: 0,
+                      extraCostNote: 'Nước uống / Phụ phí',
+                      genderRatioMalePercent: 60,
+                      genderRatioFemalePercent: 40,
+                    });
+                  }}
+                  title="Đặt lại mức giá mặc định CLB (160k/h, 30k/quả, 0đ phụ phí)"
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline decoration-dotted transition"
+                >
+                  Đặt lại giá chuẩn CLB
+                </button>
+                <span className="text-emerald-400 font-black text-base">
+                  {formatVND(settlementResult.totalCost)}
+                </span>
+              </div>
+            </div>
 
             {/* A. Tiền sân */}
             <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2.5 text-xs">
@@ -511,26 +539,86 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
             {/* Chi tiết cho Gender Ratio */}
             {settings.splitMode === 'GENDER_RATIO' && (
-              <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between text-slate-300 font-semibold">
-                  <span>Tỉ lệ đóng tiền Nam vs Nữ:</span>
-                  <span className="text-emerald-400 font-bold">
-                    Nam {settings.genderRatioMalePercent}% - Nữ {settings.genderRatioFemalePercent}%
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-slate-200">
+                  <span className="font-semibold text-xs text-slate-300">Tỷ lệ đóng tiền:</span>
+                  <span className="text-emerald-400 font-extrabold text-sm sm:text-base font-mono">
+                    Nam: {settings.genderRatioMalePercent}% — Nữ: {settings.genderRatioFemalePercent}%
                   </span>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => updateSettings({ genderRatioMalePercent: 60, genderRatioFemalePercent: 40 })}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium"
-                  >
-                    60 / 40
-                  </button>
-                  <button
-                    onClick={() => updateSettings({ genderRatioMalePercent: 55, genderRatioFemalePercent: 45 })}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium"
-                  >
-                    55 / 45
-                  </button>
+
+                {/* Live Cost Preview for Male vs Female */}
+                {(() => {
+                  const sampleMale = settlementResult.players.find(
+                    (p) => p.sex === 'M' && !p.isDiscounted && p.roundedAmount > 0
+                  );
+                  const sampleFemale = settlementResult.players.find(
+                    (p) => p.sex === 'F' && !p.isDiscounted && p.roundedAmount > 0
+                  );
+                  return (
+                    <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
+                      <span>Mức thu dự tính (đủ trận):</span>
+                      <span className="font-bold">
+                        <span className="text-sky-300">Nam ~{formatVND(sampleMale?.roundedAmount ?? 0)}</span>
+                        <span className="text-slate-500 mx-1.5">•</span>
+                        <span className="text-pink-300">Nữ ~{formatVND(sampleFemale?.roundedAmount ?? 0)}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {/* Range Slider cho Tỷ lệ Nam/Nữ */}
+                <div className="space-y-1">
+                  <input
+                    type="range"
+                    min={30}
+                    max={80}
+                    step={1}
+                    value={settings.genderRatioMalePercent}
+                    onChange={(e) => {
+                      const m = Number(e.target.value);
+                      updateSettings({
+                        genderRatioMalePercent: m,
+                        genderRatioFemalePercent: 100 - m,
+                      });
+                    }}
+                    className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>Nam 30%</span>
+                    <span>Nam 55%</span>
+                    <span>Nam 60%</span>
+                    <span>Nam 80%</span>
+                  </div>
+                </div>
+
+                {/* Quick preset buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[11px] text-slate-400 font-medium mr-1">Chọn nhanh:</span>
+                  {[
+                    { m: 55, f: 45, label: '55 / 45' },
+                    { m: 60, f: 40, label: '60 / 40' },
+                    { m: 65, f: 35, label: '65 / 35' },
+                    { m: 70, f: 30, label: '70 / 30' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() =>
+                        updateSettings({
+                          genderRatioMalePercent: preset.m,
+                          genderRatioFemalePercent: preset.f,
+                        })
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                        settings.genderRatioMalePercent === preset.m
+                          ? 'bg-emerald-600 text-white shadow'
+                          : 'bg-slate-800 hover:bg-slate-750 text-slate-300'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -714,8 +802,18 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </table>
             </div>
 
-            {/* Nút Sao chép tin nhắn Zalo */}
-            <div className="pt-2">
+            {/* Nút Sao chép tin nhắn Zalo & Toggle ẩn 0 trận */}
+            <div className="pt-2 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 font-medium px-1 select-none hover:text-white transition">
+                <input
+                  type="checkbox"
+                  checked={hideZeroCostInZalo}
+                  onChange={(e) => setHideZeroCostInZalo(e.target.checked)}
+                  className="w-4 h-4 rounded bg-slate-800 accent-emerald-500 cursor-pointer"
+                />
+                <span>Ẩn người 0 trận (Miễn phí) khỏi bảng thu tiền gửi Zalo</span>
+              </label>
+
               <button
                 onClick={handleCopyZalo}
                 className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"

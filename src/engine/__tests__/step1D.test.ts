@@ -286,9 +286,9 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
   });
 
   // =========================================================================
-  // Test f: REMOVE_PLAYER người đang đánh hoặc đã có trận -> return state; người mới thêm -> xóa sạch
+  // Test f: REMOVE_PLAYER chặn người đang đánh; người đã có trận nhưng ngoài sân hoặc người mới -> xóa sạch khỏi buổi
   // =========================================================================
-  it('f) REMOVE_PLAYER người đang đánh hoặc đã có trận -> state không đổi; người mới thêm -> xóa sạch', () => {
+  it('f) REMOVE_PLAYER chặn người đang đánh; người đã có trận hoặc mới thêm ngoài sân -> xóa sạch khỏi buổi', () => {
     let state = createInitialSessionState();
     state.players = [
       createMockPlayer('pPlaying', 'Playing Player'),
@@ -299,12 +299,12 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     state.courts[0].currentMatch = {
       type: 'SINGLES',
       team1: ['pPlaying'],
-      team2: ['pPlayed'],
-      slotSource: { pPlaying: 'AUTO', pPlayed: 'AUTO' },
+      team2: ['pOther'],
+      slotSource: { pPlaying: 'AUTO', pOther: 'AUTO' },
       startedAt: 1000,
     };
 
-    // 1. Thử xóa người đang trong currentMatch -> state không đổi
+    // 1. Thử xóa người đang trong currentMatch -> chặn, state không đổi
     const stateBefore1 = state;
     const stateAfter1 = badmintonReducer(state, {
       type: 'REMOVE_PLAYER',
@@ -312,16 +312,15 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     });
     expect(stateAfter1).toBe(stateBefore1);
 
-    // 2. Thử xóa người đã có gamesPlayed > 0 -> state không đổi
-    const stateBefore2 = state;
+    // 2. Xóa người đã có gamesPlayed > 0 nhưng đang ngoài sân (rút khỏi buổi hôm nay) -> xóa thành công
     const stateAfter2 = badmintonReducer(state, {
       type: 'REMOVE_PLAYER',
       payload: { playerId: 'pPlayed' },
     });
-    expect(stateAfter2).toBe(stateBefore2);
+    expect(stateAfter2.players.some((p) => p.id === 'pPlayed')).toBe(false);
 
     // 3. Xóa người mới thêm (chưa đánh trận nào, không đang đánh) -> xóa thành công
-    const stateAfter3 = badmintonReducer(state, {
+    const stateAfter3 = badmintonReducer(stateAfter2, {
       type: 'REMOVE_PLAYER',
       payload: { playerId: 'pNew' },
     });

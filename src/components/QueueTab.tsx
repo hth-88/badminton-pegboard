@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   UserPlus,
-  UserX,
   PlayCircle,
   Trash2,
   Sparkles,
@@ -10,13 +9,25 @@ import {
   X,
   Minus,
   Plus,
+  Star,
+  Coffee,
+  UserMinus,
+  Users,
 } from 'lucide-react';
 import type { BadmintonRank, Court, Player, Sex } from '../types/badminton';
 import { getEffectiveSkill, ORDERED_RANKS, RANK_METADATA, stepRankDown, stepRankUp } from '../engine/skillConfig';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
 import { SAMPLE_16_PLAYERS } from '../data/samplePlayers';
-import { vibrateSuccess } from '../utils/vibrate';
+import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 import { parsePasteLines } from '../utils/parsePasteLines';
+import {
+  type ClubMember,
+  getClubRoster,
+  upsertClubMember,
+  deleteClubMember,
+  isClubMember,
+  syncClubMemberRank,
+} from '../engine/clubRosterStorage';
 
 interface QueueTabProps {
   players: Player[];
@@ -56,8 +67,186 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   onRemovePlayer,
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addMode, setAddMode] = useState<'SINGLE' | 'PASTE'>('SINGLE');
+  const [addMode, setAddMode] = useState<'ROSTER' | 'SINGLE' | 'PASTE'>('ROSTER');
   const [pickerPlayer, setPickerPlayer] = useState<Player | null>(null);
+
+  // Sổ thành viên CLB & điểm danh
+  const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster());
+  const [selectedRosterIds, setSelectedRosterIds] = useState<Set<string>>(new Set());
+  const [showRosterAddInline, setShowRosterAddInline] = useState(false);
+  const [rosterNewName, setRosterNewName] = useState('');
+  const [rosterNewSex, setRosterNewSex] = useState<Sex>('M');
+  const [rosterNewRank, setRosterNewRank] = useState<BadmintonRank>('tb');
+
+  // Mở modal thêm người kèm chuẩn bị danh sách điểm danh CLB
+  const handleOpenAddModal = (mode: 'ROSTER' | 'SINGLE' | 'PASTE' = 'ROSTER') => {
+    const currentRoster = getClubRoster();
+    setClubRoster(currentRoster);
+    const inSessionNames = new Set(players.map((p) => p.name.trim().toLowerCase()));
+    const initialSelected = new Set<string>();
+    currentRoster.forEach((m) => {
+      if (!inSessionNames.has(m.name.trim().toLowerCase())) {
+        initialSelected.add(m.id);
+      }
+    });
+    setSelectedRosterIds(initialSelected);
+    setAddMode(mode);
+    setShowAddModal(true);
+  };
+
+  // Toggle hoặc lưu người chơi vào Sổ CLB
+  const handleToggleClubMember = (player: Player) => {
+    const isMember = isClubMember(player.name, clubRoster);
+    if (isMember) {
+      if (
+        window.confirm(
+          `"${player.name}" đang là thành viên trong Sổ CLB.\nBạn có muốn cập nhật trình độ hiện tại (${RANK_METADATA[player.rank].code}) vào Sổ CLB không?`
+        )
+      ) {
+        syncClubMemberRank(player.name, player.rank);
+        setClubRoster(getClubRoster());
+        vibrateSuccess();
+      }
+    } else {
+      upsertClubMember({
+        name: player.name,
+        sex: player.sex,
+        rank: player.rank,
+        noSingles: player.noSingles,
+      });
+      setClubRoster(getClubRoster());
+      vibrateSuccess();
+    }
+  };
+
+  // Rút người chơi khỏi buổi hôm nay (Vắng mặt)
+  const handleWithdrawPlayer = (player: Player) => {
+    const isPlaying = playingPlayerIds.has(player.id);
+    if (isPlaying) {
+      vibrateWarning();
+      alert(
+        `Không thể rút người chơi "${player.name}" vì đang thi đấu trên sân. Vui lòng kết thúc trận hoặc đổi người ra trước.`
+      );
+      return;
+    }
+    const isMember = isClubMember(player.name, clubRoster);
+    const confirmMsg =
+      player.gamesPlayed > 0
+        ? `Xác nhận rút "${player.name}" khỏi buổi hôm nay?\n(Người này đã đánh ${player.gamesPlayed} trận. Khi rút sẽ không còn trong danh sách và bảng tính tiền.${
+            isMember
+              ? ' Thông tin trong Sổ CLB vẫn được giữ nguyên để điểm danh lần sau.'
+              : ''
+          })`
+        : `Xóa "${player.name}" khỏi danh sách buổi hôm nay?`;
+    if (window.confirm(confirmMsg)) {
+      vibrateWarning();
+      onRemovePlayer(player.id);
+    }
+  };
+
+  // Đổi trình độ và tự đồng bộ vào Sổ CLB nếu là thành viên
+  const handleEditRankAndSync = (playerId: string, rank: BadmintonRank) => {
+    onEditRank(playerId, rank);
+    const p = players.find((pl) => pl.id === playerId);
+    if (p) {
+      syncClubMemberRank(p.name, rank);
+      setClubRoster(getClubRoster());
+    }
+  };
+
+  // Thêm thành viên mới vào Sổ CLB
+  const handleAddMemberToRoster = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rosterNewName.trim()) return;
+    upsertClubMember({
+      name: rosterNewName.trim(),
+      sex: rosterNewSex,
+      rank: rosterNewRank,
+      noSingles: false,
+    });
+    setRosterNewName('');
+    const updated = getClubRoster();
+    setClubRoster(updated);
+    setShowRosterAddInline(false);
+    vibrateSuccess();
+  };
+
+  // Xóa thành viên khỏi Sổ CLB
+  const handleDeleteFromRoster = (id: string, name: string) => {
+    if (window.confirm(`Xóa vĩnh viễn "${name}" khỏi Sổ Thành Viên CLB?`)) {
+      deleteClubMember(id);
+      setClubRoster(getClubRoster());
+      setSelectedRosterIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      vibrateWarning();
+    }
+  };
+
+  // Toggle chọn điểm danh 1 thành viên
+  const toggleSelectRosterMember = (id: string) => {
+    setSelectedRosterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Danh sách tên đang trong buổi chơi
+  const inSessionNames = useMemo(() => {
+    return new Set(players.map((p) => p.name.trim().toLowerCase()));
+  }, [players]);
+
+  // Chọn tất cả thành viên chưa có mặt
+  const handleSelectAllRoster = () => {
+    const next = new Set<string>();
+    clubRoster.forEach((m) => {
+      if (!inSessionNames.has(m.name.trim().toLowerCase())) {
+        next.add(m.id);
+      }
+    });
+    setSelectedRosterIds(next);
+  };
+
+  const handleDeselectAllRoster = () => {
+    setSelectedRosterIds(new Set());
+  };
+
+  // Đưa các thành viên đã chọn vào buổi hôm nay
+  const handleImportRosterMembers = () => {
+    const selectedMembers = clubRoster.filter(
+      (m) => selectedRosterIds.has(m.id) && !inSessionNames.has(m.name.trim().toLowerCase())
+    );
+    if (selectedMembers.length === 0) {
+      setShowAddModal(false);
+      return;
+    }
+    vibrateSuccess();
+    const now = Date.now();
+    const playersToImport: Player[] = selectedMembers.map((m, i) => ({
+      id: `p_roster_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+      name: m.name,
+      sex: m.sex,
+      rank: m.rank,
+      status: 'ACTIVE',
+      assignedPool: 'ALL',
+      noSingles: Boolean(m.noSingles),
+      gamesPlayed: 0,
+      virtualGamesOffset: 0,
+      waitStreak: 0,
+      lastPlayedAt: 0,
+      singlesCount: 0,
+      joinedAt: now,
+    }));
+    onAddPlayers(playersToImport);
+    setShowAddModal(false);
+  };
 
   // Single form state
   const [newName, setNewName] = useState('');
@@ -155,13 +344,22 @@ export const QueueTab: React.FC<QueueTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Nút thêm người */}
+          {/* Nút Điểm danh thành viên CLB */}
           <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow"
+            onClick={() => handleOpenAddModal('ROSTER')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition shadow-sm"
+          >
+            <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+            <span>Điểm danh CLB</span>
+          </button>
+
+          {/* Nút thêm khách */}
+          <button
+            onClick={() => handleOpenAddModal('SINGLE')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Thêm người</span>
+            <span>Thêm khách</span>
           </button>
 
           {/* Nút nạp 16 người mẫu */}
@@ -171,7 +369,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-600/40 rounded-xl text-xs font-semibold transition"
             >
               <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Nạp 16 người mẫu</span>
+              <span>16 mẫu</span>
             </button>
           )}
         </div>
@@ -197,6 +395,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             const isPlaying = playingPlayerIds.has(player.id);
             const rankMeta = RANK_METADATA[player.rank];
             const effectiveSkill = getEffectiveSkill(player.rank, player.sex, maleBonus);
+            const isMember = isClubMember(player.name, clubRoster);
 
             return (
               <div
@@ -209,7 +408,27 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               >
                 {/* HÀNG 1: Tên người chơi & Thống kê số trận/nghỉ */}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                    {/* Nút Ngôi sao thành viên CLB */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleClubMember(player)}
+                      title={
+                        isMember
+                          ? 'Thành viên CLB cố định (Bấm để cập nhật trình độ)'
+                          : 'Bấm để lưu người này vào Sổ thành viên CLB cố định'
+                      }
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 transition shrink-0"
+                    >
+                      <Star
+                        className={`w-4 h-4 ${
+                          isMember
+                            ? 'text-amber-400 fill-amber-400'
+                            : 'text-slate-600 hover:text-amber-400'
+                        }`}
+                      />
+                    </button>
+
                     <span className="font-bold text-sm sm:text-base text-slate-100 truncate">
                       {player.name}
                     </span>
@@ -242,7 +461,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       type="button"
                       onClick={() => {
                         vibrateSuccess();
-                        onEditRank(player.id, stepRankDown(player.rank));
+                        handleEditRankAndSync(player.id, stepRankDown(player.rank));
                       }}
                       title="Hạ 1 bậc trình độ"
                       className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
@@ -266,7 +485,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       type="button"
                       onClick={() => {
                         vibrateSuccess();
-                        onEditRank(player.id, stepRankUp(player.rank));
+                        handleEditRankAndSync(player.id, stepRankUp(player.rank));
                       }}
                       title="Tăng 1 bậc trình độ"
                       className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
@@ -275,7 +494,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     </button>
                   </div>
 
-                  {/* Cụm Toggle Nam/Nữ, Gán Sân, Tạm Nghỉ, Xóa */}
+                  {/* Cụm Toggle Nam/Nữ, Gán Sân, Tạm Nghỉ, Rút khỏi buổi */}
                   <div className="flex items-center gap-1 shrink-0">
                     {/* Toggle Nam/Nữ 1 chạm */}
                     <button
@@ -309,28 +528,24 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       ))}
                     </select>
 
-                    {/* Tạm nghỉ */}
+                    {/* Tạm nghỉ (vẫn đi đánh hôm nay nhưng đang giải lao/đến muộn) */}
                     <button
                       onClick={() => onPausePlayer(player.id)}
-                      title="Tạm nghỉ (đi muộn / về sớm / nghỉ giải lao)"
+                      title="Tạm nghỉ giải lao / uống nước (vẫn tham gia buổi hôm nay)"
                       aria-label={`Tạm nghỉ cho ${player.name}`}
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition"
                     >
-                      <UserX className="w-4 h-4" />
+                      <Coffee className="w-4 h-4" />
                     </button>
 
-                    {/* Xóa người */}
+                    {/* Vắng mặt / Rút khỏi buổi hôm nay (xóa khỏi danh sách & bảng tính tiền) */}
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Bạn có chắc muốn xóa "${player.name}"?`)) {
-                          onRemovePlayer(player.id);
-                        }
-                      }}
-                      title="Xóa người chơi"
-                      aria-label={`Xóa người chơi ${player.name}`}
+                      onClick={() => handleWithdrawPlayer(player)}
+                      title="Vắng mặt / Rút khỏi buổi hôm nay (xóa hoàn toàn khỏi danh sách & bảng tính tiền)"
+                      aria-label={`Rút ${player.name} khỏi buổi hôm nay`}
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <UserMinus className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -374,15 +589,12 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   <span>Đánh lại</span>
                 </button>
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Xóa người chơi "${player.name}"?`)) {
-                      onRemovePlayer(player.id);
-                    }
-                  }}
-                  aria-label={`Xóa người chơi ${player.name}`}
+                  onClick={() => handleWithdrawPlayer(player)}
+                  title="Vắng mặt / Rút khỏi buổi hôm nay (xóa hoàn toàn khỏi danh sách & bảng tính tiền)"
+                  aria-label={`Rút ${player.name} khỏi buổi hôm nay`}
                   className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <UserMinus className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -409,33 +621,261 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             </div>
 
             {/* Mode Switcher */}
-            <div className="grid grid-cols-2 gap-2 my-3 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <div className="grid grid-cols-3 gap-1.5 my-3 bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setAddMode('ROSTER')}
+                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
+                  addMode === 'ROSTER'
+                    ? 'bg-slate-800 text-amber-300 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                <span className="truncate">Thành viên CLB</span>
+              </button>
               <button
                 onClick={() => setAddMode('SINGLE')}
-                className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
                   addMode === 'SINGLE'
                     ? 'bg-slate-800 text-emerald-400 shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Nhập từng người
+                <UserPlus className="w-3.5 h-3.5" />
+                <span className="truncate">Khách lẻ</span>
               </button>
               <button
                 onClick={() => setAddMode('PASTE')}
-                className={`py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
                   addMode === 'PASTE'
                     ? 'bg-slate-800 text-emerald-400 shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <ClipboardPaste className="w-3.5 h-3.5" />
-                <span>Dán nhanh (Quick Paste)</span>
+                <span className="truncate">Dán Zalo</span>
               </button>
             </div>
 
             {/* Mode Content */}
             <div className="flex-1 overflow-y-auto space-y-4 py-1">
-              {addMode === 'SINGLE' ? (
+              {addMode === 'ROSTER' ? (
+                <div className="space-y-3">
+                  {/* Top Bar inside Roster tab */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/80">
+                    <div className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-amber-400" />
+                      <span>Sổ CLB: {clubRoster.length} người</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllRoster}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px]"
+                      >
+                        Chọn tất cả
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeselectAllRoster}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition text-[11px]"
+                      >
+                        Bỏ chọn
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRosterAddInline(!showRosterAddInline)}
+                        className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition text-[11px] font-bold"
+                      >
+                        {showRosterAddInline ? 'Đóng' : '+ Thêm vào Sổ'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Form thêm nhanh thành viên mới vào Sổ CLB */}
+                  {showRosterAddInline && (
+                    <form
+                      onSubmit={handleAddMemberToRoster}
+                      className="p-3 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-2.5 animate-in fade-in"
+                    >
+                      <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                        <span>Thêm thành viên cố định mới vào Sổ CLB</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Tên thành viên..."
+                          value={rosterNewName}
+                          onChange={(e) => setRosterNewName(e.target.value)}
+                          className="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setRosterNewSex('M')}
+                            className={`py-1.5 rounded-lg text-xs font-bold border transition ${
+                              rosterNewSex === 'M'
+                                ? 'bg-sky-950 border-sky-500 text-sky-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            Nam
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRosterNewSex('F')}
+                            className={`py-1.5 rounded-lg text-xs font-bold border transition ${
+                              rosterNewSex === 'F'
+                                ? 'bg-pink-950 border-pink-500 text-pink-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            Nữ
+                          </button>
+                        </div>
+                        <select
+                          value={rosterNewRank}
+                          onChange={(e) => setRosterNewRank(e.target.value as BadmintonRank)}
+                          className="bg-slate-800 border border-slate-700 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        >
+                          {ORDERED_RANKS.map((r) => (
+                            <option key={r} value={r}>
+                              {RANK_METADATA[r].code} ({RANK_METADATA[r].name})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowRosterAddInline(false)}
+                          className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:bg-slate-800"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow"
+                        >
+                          Lưu vào Sổ
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {/* Danh sách thành viên trong Sổ CLB để điểm danh */}
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                    {clubRoster.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-6">
+                        Sổ thành viên trống. Bấm &quot;+ Thêm vào Sổ&quot; để thêm thành viên CLB.
+                      </p>
+                    ) : (
+                      clubRoster.map((member) => {
+                        const inSession = inSessionNames.has(member.name.trim().toLowerCase());
+                        const isSelected = selectedRosterIds.has(member.id);
+                        const meta = RANK_METADATA[member.rank];
+
+                        return (
+                          <div
+                            key={member.id}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition ${
+                              inSession
+                                ? 'bg-slate-950/40 border-slate-800/50 opacity-60'
+                                : isSelected
+                                ? 'bg-amber-950/20 border-amber-500/40'
+                                : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-850'
+                            }`}
+                          >
+                            <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                disabled={inSession}
+                                checked={inSession ? true : isSelected}
+                                onChange={() => !inSession && toggleSelectRosterMember(member.id)}
+                                className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 disabled:opacity-50"
+                              />
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="text-sm font-semibold text-slate-200 truncate">
+                                  {member.name}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badgeBg} ${meta.badgeText}`}
+                                >
+                                  {meta.code}
+                                </span>
+                                <span
+                                  className={`text-[10px] px-1 rounded ${
+                                    member.sex === 'M'
+                                      ? 'bg-sky-950 text-sky-400'
+                                      : 'bg-pink-950 text-pink-400'
+                                  }`}
+                                >
+                                  {member.sex === 'M' ? 'Nam' : 'Nữ'}
+                                </span>
+                              </div>
+                            </label>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {inSession ? (
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/40">
+                                  Đã có mặt
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteFromRoster(member.id, member.name)}
+                                  title="Xóa khỏi Sổ CLB"
+                                  className="p-1 rounded text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Bottom action button */}
+                  <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 text-xs font-semibold"
+                    >
+                      Đóng
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleImportRosterMembers}
+                      disabled={
+                        clubRoster.filter(
+                          (m) =>
+                            selectedRosterIds.has(m.id) &&
+                            !inSessionNames.has(m.name.trim().toLowerCase())
+                        ).length === 0
+                      }
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-lg transition flex items-center gap-1.5"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>
+                        Đưa vào buổi hôm nay (
+                        {
+                          clubRoster.filter(
+                            (m) =>
+                              selectedRosterIds.has(m.id) &&
+                              !inSessionNames.has(m.name.trim().toLowerCase())
+                          ).length
+                        }
+                        )
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ) : addMode === 'SINGLE' ? (
                 <form onSubmit={handleAddSinglePlayer} className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">

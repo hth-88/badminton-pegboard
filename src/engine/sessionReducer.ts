@@ -1051,20 +1051,20 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 12: REMOVE_PLAYER
+    // Mục 12: REMOVE_PLAYER (Nâng cấp: Bỏ chặn gamesPlayed > 0 để cho phép rút người vắng mặt khỏi buổi)
     case 'REMOVE_PLAYER': {
       const pid = action.payload.playerId;
       const target = baseNextState.players.find((p) => p.id === pid);
       if (!target) return state;
 
-      // Chỉ cho xóa khi không có trong currentMatch và gamesPlayed === 0
+      // Chỉ chặn khi người này đang trực tiếp ở trong trận đấu trên sân
       const inCurrentMatch = baseNextState.courts.some(
         (c) =>
           c.isActive &&
           c.currentMatch &&
           (c.currentMatch.team1.includes(pid) || c.currentMatch.team2.includes(pid))
       );
-      if (inCurrentMatch || target.gamesPlayed > 0) {
+      if (inCurrentMatch) {
         return state;
       }
 
