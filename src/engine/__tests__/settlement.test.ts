@@ -95,6 +95,40 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     expect(res.surplus).toBe(0);
   });
 
+  it('2b. GENDER_RATIO khi số lượng Nam và Nữ chênh lệch lớn (12 Nam, 4 Nữ): Nam luôn đóng nhiều hơn Nữ theo đúng tỷ lệ cá nhân', () => {
+    const players = [
+      ...Array.from({ length: 12 }, (_, i) => makePlayer(`m_${i}`, `Nam ${i + 1}`, 'M', 4)),
+      ...Array.from({ length: 4 }, (_, i) => makePlayer(`f_${i}`, `Nữ ${i + 1}`, 'F', 4)),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 880000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'GENDER_RATIO',
+      genderRatioMalePercent: 60,
+      genderRatioFemalePercent: 40,
+      discountUnderPlayed: false,
+    };
+
+    const res = calculateSettlement(players, settings);
+    expect(res.totalCost).toBe(880000);
+
+    const males = res.players.filter((p) => p.sex === 'M');
+    const females = res.players.filter((p) => p.sex === 'F');
+
+    // 12 Nam * 60 + 4 Nữ * 40 = 720 + 160 = 880 phần
+    // Mỗi Nam = 60/880 * 880.000 = 60.000đ
+    // Mỗi Nữ = 40/880 * 880.000 = 40.000đ
+    expect(males.every((p) => p.roundedAmount === 60000)).toBe(true);
+    expect(females.every((p) => p.roundedAmount === 40000)).toBe(true);
+    expect(res.totalCollected).toBe(880000);
+    expect(res.surplus).toBe(0);
+  });
+
   it('3. Nam đóng thêm cố định: Nam = Nữ + 20.000đ', () => {
     const players = [
       makePlayer('m1', 'Nam 1', 'M', 4),

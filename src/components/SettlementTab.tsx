@@ -541,7 +541,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
             {settings.splitMode === 'GENDER_RATIO' && (
               <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
                 <div className="flex items-center justify-between text-slate-200">
-                  <span className="font-semibold text-xs text-slate-300">Tỷ lệ đóng tiền:</span>
+                  <span className="font-semibold text-xs text-slate-300">Tỷ lệ mỗi cá nhân (1 Nam : 1 Nữ):</span>
                   <span className="text-emerald-400 font-extrabold text-sm sm:text-base font-mono">
                     Nam: {settings.genderRatioMalePercent}% — Nữ: {settings.genderRatioFemalePercent}%
                   </span>
@@ -557,7 +557,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   );
                   return (
                     <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
-                      <span>Mức thu dự tính (đủ trận):</span>
+                      <span>Mức thu 1 người (đủ trận):</span>
                       <span className="font-bold">
                         <span className="text-sky-300">Nam ~{formatVND(sampleMale?.roundedAmount ?? 0)}</span>
                         <span className="text-slate-500 mx-1.5">•</span>
@@ -620,6 +620,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     </button>
                   ))}
                 </div>
+                <p className="text-[10px] text-slate-500 pt-0.5">
+                  * Tỷ lệ tính theo từng người: 1 Nam = {settings.genderRatioMalePercent} phần, 1 Nữ = {settings.genderRatioFemalePercent} phần (Nam luôn đóng đúng mức quy định kể cả khi đông hơn Nữ).
+                </p>
               </div>
             )}
 

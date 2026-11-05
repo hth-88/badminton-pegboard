@@ -246,12 +246,9 @@ export function calculateSettlement(
       baseWeights[p.id] = 1;
     }
   } else if (effectiveSplitMode === 'GENDER_RATIO') {
-    // Tỉ lệ Nam / Nữ (ví dụ 60% / 40%)
-    // Tổng tỉ trọng Nam = malePercent, Nữ = femalePercent
-    const totalMalePercent = settings.genderRatioMalePercent || 50;
-    const totalFemalePercent = settings.genderRatioFemalePercent || 50;
-    const perMaleWeight = totalMalePercent / (malePaying.length || 1);
-    const perFemaleWeight = totalFemalePercent / (femalePaying.length || 1);
+    // Tỷ lệ trọng số trên mỗi CÁ NHÂN Nam so với mỗi CÁ NHÂN Nữ (VD: 1 Nam = 60 phần, 1 Nữ = 40 phần)
+    const perMaleWeight = Math.max(1, settings.genderRatioMalePercent || 50);
+    const perFemaleWeight = Math.max(1, settings.genderRatioFemalePercent || 50);
 
     for (const p of payingPlayers) {
       baseWeights[p.id] = p.sex === 'M' ? perMaleWeight : perFemaleWeight;
