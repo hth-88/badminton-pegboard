@@ -1,19 +1,24 @@
 import type {
   BadmintonSessionState,
   Court,
-  CourtPlanMap,
-  FixedSlot,
   Lineup,
   MatchHistory,
   MatchProposal,
   MatchScoreBreakdown,
   MatchType,
+  NextUpDraft,
   PairRule,
   PenaltyWeights,
   Player,
   SessionSettings,
   Team,
 } from '../types/badminton';
+import {
+  createEmptyNextUp,
+  isNextUpComplete,
+  nextUpMemberIds,
+  slotsToLineup,
+} from './nextUp';
 import { getEffectiveSkill } from './skillConfig';
 import {
   buildStatsFromHistory,
@@ -34,6 +39,39 @@ export function pseudoHash(str: string, seed: number): number {
     h = (h * 31 + str.charCodeAt(i)) >>> 0;
   }
   return h;
+}
+
+/**
+ * Key chuẩn hóa đối xứng cho một trận (không phụ thuộc thứ tự đội hay thứ tự người trong cặp)
+ */
+export function getLineupCanonicalKey(team1: string[], team2: string[]): string {
+  const t1 = [...team1].sort().join('+');
+  const t2 = [...team2].sort().join('+');
+  return [t1, t2].sort().join(' vs ');
+}
+
+/**
+ * Lấy canonical key cho một MatchProposal hoặc Lineup
+ */
+export function getProposalDedupeKey(lineup: Lineup): string {
+  if (lineup.type === 'SINGLES') {
+    return [lineup.team1[0], lineup.team2[0]].sort().join(' vs ');
+  }
+  return getLineupCanonicalKey(lineup.team1, lineup.team2);
+}
+
+/**
+ * Lấy canonical key cho một NextUpDraft (trả về null nếu chưa đủ người)
+ */
+export function getNextUpDedupeKey(nextUp: NextUpDraft): string | null {
+  if (!isNextUpComplete(nextUp)) return null;
+  if (nextUp.type === 'SINGLES') {
+    return [nextUp.slots[0]!, nextUp.slots[1]!].sort().join(' vs ');
+  }
+  return getLineupCanonicalKey(
+    [nextUp.slots[0]!, nextUp.slots[1]!],
+    [nextUp.slots[2]!, nextUp.slots[3]!]
+  );
 }
 
 /**
@@ -81,60 +119,7 @@ export function sortPlayersByWaitPriority(players: Player[]): Player[] {
   });
 }
 
-/**
- * Lọc danh sách người chơi hợp lệ cho một sân cụ thể:
- * - status === 'ACTIVE'
- * - Không đang đánh ở bất kỳ sân nào (currentMatch)
- * - (Mục 4) Chỉ coi là bận người thuộc:
- *   (a) currentMatch
- *   (b) nextUp ĐÃ KHÓA của sân khác (isLockedByHost === true)
- *   (c) nextUp có slot MANUAL của sân khác (đúng các slot MANUAL)
- *   nextUp chưa khóa và toàn AUTO bị bỏ qua và được tính lại.
- * - Không nằm trong tập reserved (đã gán cho sân trước trong cùng lượt planAllCourts)
- * - Nếu SPLIT_COURT: assignedPool === court.id hoặc assignedPool === 'ALL'
- */
-export function getValidAvailablePlayersForCourt(
-  court: Court,
-  courts: Court[],
-  players: Player[],
-  reservedPlayerIds: Set<string>,
-  settings: SessionSettings
-): Player[] {
-  const busyIds = new Set<string>();
 
-  for (const c of courts) {
-    if (c.isActive && c.currentMatch) {
-      c.currentMatch.team1.forEach((id) => busyIds.add(id));
-      c.currentMatch.team2.forEach((id) => busyIds.add(id));
-    }
-    // Sân khác có nextUp
-    if (c.id !== court.id && c.isActive && c.nextUp) {
-      if (c.nextUp.isLockedByHost) {
-        c.nextUp.team1.forEach((id) => busyIds.add(id));
-        c.nextUp.team2.forEach((id) => busyIds.add(id));
-      } else {
-        const slotSource = c.nextUp.slotSource || {};
-        for (const [pid, source] of Object.entries(slotSource)) {
-          if (source === 'MANUAL') {
-            busyIds.add(pid);
-          }
-        }
-      }
-    }
-  }
-
-  return players.filter((p) => {
-    if (p.status !== 'ACTIVE') return false;
-    if (busyIds.has(p.id)) return false;
-    if (reservedPlayerIds.has(p.id)) return false;
-
-    if (settings.courtMode === 'SPLIT_COURT') {
-      return p.assignedPool === court.id || p.assignedPool === 'ALL';
-    }
-
-    return true;
-  });
-}
 
 
 /**
@@ -397,16 +382,13 @@ export function calculateDoublesScore(
 }
 
 /**
- * Thuật toán ghép ĐƠN:
- * (Mục 5: hỗ trợ fixedSlots, giữ nguyên slotSource 'MANUAL' cho người cố định)
- * (Mục 9: waitPenalty chỉ duyệt eligiblePlayers)
+ * Thuật toán ghép ĐƠN
  */
 export function generateSinglesProposals(
   availablePlayers: Player[],
   state: BadmintonSessionState,
   weights: PenaltyWeights,
-  seed: number,
-  fixedSlots?: FixedSlot[]
+  seed: number
 ): MatchProposal[] {
   // Lọc người không từ chối đánh đơn
   const eligiblePlayers = availablePlayers.filter((p) => !p.noSingles);
@@ -414,116 +396,6 @@ export function generateSinglesProposals(
     return [];
   }
 
-  const playerMap = new Map(eligiblePlayers.map((p) => [p.id, p]));
-
-  // 0.3: fixedSlots trỏ tới người không khả dụng (PAUSED, đang đánh, khác pool, hoặc noSingles): bỏ slot đó (coi là AUTO) thay vì trả []
-  const validFixedSlots: FixedSlot[] = [];
-  const seenPlayerIds = new Set<string>();
-  if (fixedSlots) {
-    for (const slot of fixedSlots) {
-      if (playerMap.has(slot.playerId) && !seenPlayerIds.has(slot.playerId)) {
-        seenPlayerIds.add(slot.playerId);
-        validFixedSlots.push(slot);
-      }
-    }
-  }
-
-  // Nếu có validFixedSlots
-  if (validFixedSlots.length > 0) {
-    const fixedT1 = validFixedSlots.filter((s) => s.team === 1).slice(0, 1);
-    const fixedT2 = validFixedSlots.filter((s) => s.team === 2).slice(0, 1);
-
-    // Trường hợp cả 2 slot đều cố định
-    if (fixedT1.length === 1 && fixedT2.length === 1) {
-      const p1 = playerMap.get(fixedT1[0].playerId)!;
-      const p2 = playerMap.get(fixedT2[0].playerId)!;
-      const debugScore = calculateSinglesScore(p1, p2, state, weights, eligiblePlayers);
-      return [
-        {
-          lineup: {
-            type: 'SINGLES',
-            team1: [p1.id],
-            team2: [p2.id],
-            slotSource: { [p1.id]: 'MANUAL', [p2.id]: 'MANUAL' },
-          },
-          debugScore,
-          penalty: debugScore.totalPenalty,
-          relaxed: false,
-          relaxedReasons: [],
-        },
-      ];
-    }
-
-    // Trường hợp chỉ cố định Team 1
-    if (fixedT1.length === 1) {
-      const p1 = playerMap.get(fixedT1[0].playerId)!;
-      const candidates = sortPlayersByWaitPriority(
-        eligiblePlayers.filter((p) => p.id !== p1.id)
-      ).slice(0, 6);
-
-      const proposals: MatchProposal[] = [];
-      for (const p2 of candidates) {
-        const debugScore = calculateSinglesScore(p1, p2, state, weights, eligiblePlayers);
-        proposals.push({
-          lineup: {
-            type: 'SINGLES',
-            team1: [p1.id],
-            team2: [p2.id],
-            slotSource: { [p1.id]: 'MANUAL', [p2.id]: 'AUTO' },
-          },
-          debugScore,
-          penalty: debugScore.totalPenalty,
-          relaxed: false,
-          relaxedReasons: [],
-        });
-      }
-
-      proposals.sort((a, b) => {
-        if (a.penalty !== b.penalty) return a.penalty - b.penalty;
-        const hashA = pseudoHash(a.lineup.team1[0] + a.lineup.team2[0], seed);
-        const hashB = pseudoHash(b.lineup.team1[0] + b.lineup.team2[0], seed);
-        return hashA - hashB;
-      });
-
-      return proposals.slice(0, 5);
-    }
-
-    // Trường hợp chỉ cố định Team 2
-    if (fixedT2.length === 1) {
-      const p2 = playerMap.get(fixedT2[0].playerId)!;
-      const candidates = sortPlayersByWaitPriority(
-        eligiblePlayers.filter((p) => p.id !== p2.id)
-      ).slice(0, 6);
-
-      const proposals: MatchProposal[] = [];
-      for (const p1 of candidates) {
-        const debugScore = calculateSinglesScore(p1, p2, state, weights, eligiblePlayers);
-        proposals.push({
-          lineup: {
-            type: 'SINGLES',
-            team1: [p1.id],
-            team2: [p2.id],
-            slotSource: { [p1.id]: 'AUTO', [p2.id]: 'MANUAL' },
-          },
-          debugScore,
-          penalty: debugScore.totalPenalty,
-          relaxed: false,
-          relaxedReasons: [],
-        });
-      }
-
-      proposals.sort((a, b) => {
-        if (a.penalty !== b.penalty) return a.penalty - b.penalty;
-        const hashA = pseudoHash(a.lineup.team1[0] + a.lineup.team2[0], seed);
-        const hashB = pseudoHash(b.lineup.team1[0] + b.lineup.team2[0], seed);
-        return hashA - hashB;
-      });
-
-      return proposals.slice(0, 5);
-    }
-  }
-
-  // Không có fixedSlots: thuật toán chuẩn tự động
   const sorted = sortPlayersByWaitPriority(eligiblePlayers);
   const topK = sorted.slice(0, Math.min(6, sorted.length));
   const proposals: MatchProposal[] = [];
@@ -594,8 +466,7 @@ export function generateDoublesProposals(
   availablePlayers: Player[],
   state: BadmintonSessionState,
   weights: PenaltyWeights,
-  seed: number,
-  fixedSlots?: FixedSlot[]
+  _seed: number
 ): MatchProposal[] {
   if (availablePlayers.length < 4) {
     return [];
@@ -603,9 +474,8 @@ export function generateDoublesProposals(
 
   const sortedAvailable = sortPlayersByWaitPriority(availablePlayers);
   const availableIdSet = new Set(sortedAvailable.map((p) => p.id));
-  const playerMap = new Map(sortedAvailable.map((p) => [p.id, p]));
 
-  // 1. Phân loại và xử lý mâu thuẫn luật (Mục 8)
+  // 1. Phân loại và xử lý mâu thuẫn luật
   const activePairRules = state.pairRules.filter((r) => {
     const pA = state.players.find((p) => p.id === r.playerAId);
     const pB = state.players.find((p) => p.id === r.playerBId);
@@ -642,341 +512,164 @@ export function generateDoublesProposals(
     return !conflictPairKeys.has(key);
   });
 
-  // 2. Validate fixedSlots (Mục 0.3: fixedSlots trỏ tới người không khả dụng -> bỏ slot đó coi là AUTO)
-  const validFixedSlots: FixedSlot[] = [];
-  const seenFixedIds = new Set<string>();
-  let countT1 = 0;
-  let countT2 = 0;
-  if (fixedSlots) {
-    for (const slot of fixedSlots) {
-      if (availableIdSet.has(slot.playerId) && !seenFixedIds.has(slot.playerId)) {
-        if (slot.team === 1 && countT1 < 2) {
-          seenFixedIds.add(slot.playerId);
-          validFixedSlots.push(slot);
-          countT1++;
-        } else if (slot.team === 2 && countT2 < 2) {
-          seenFixedIds.add(slot.playerId);
-          validFixedSlots.push(slot);
-          countT2++;
-        }
-      }
+  // 2. Candidate pool: lấy tối đa 8 người rảnh ưu tiên cao nhất
+  const candidateIds = new Set<string>();
+  const baseK = Math.min(8, sortedAvailable.length);
+  for (let i = 0; i < baseK; i++) {
+    candidateIds.add(sortedAvailable[i].id);
+  }
+
+  // Kéo partner của LOCK_PARTNER vào candidate pool nếu 1 người trong candidate pool
+  for (const rule of effectiveLockRules) {
+    const freeA = availableIdSet.has(rule.playerAId);
+    const freeB = availableIdSet.has(rule.playerBId);
+    if (freeA && freeB) {
+      if (candidateIds.has(rule.playerAId)) candidateIds.add(rule.playerBId);
+      if (candidateIds.has(rule.playerBId)) candidateIds.add(rule.playerAId);
     }
   }
 
-  const fixedT1 = validFixedSlots.filter((s) => s.team === 1).map((s) => s.playerId);
-  const fixedT2 = validFixedSlots.filter((s) => s.team === 2).map((s) => s.playerId);
-  const fixedList = [...fixedT1, ...fixedT2];
-  const fixedSet = new Set(fixedList);
-
-  const neededT1 = 2 - fixedT1.length;
-  const neededT2 = 2 - fixedT2.length;
-  const neededTotal = neededT1 + neededT2;
-
-  const remainingAvailable = sortedAvailable.filter((p) => !fixedSet.has(p.id));
-  if (remainingAvailable.length < neededTotal) {
+  const candidatePlayers = sortedAvailable.filter((p) => candidateIds.has(p.id));
+  if (candidatePlayers.length < 4) {
     return [];
   }
 
-  // 3. Xây dựng candidate pool cho các slot còn thiếu
-  let candidateCombos: Player[][] = [];
-  if (neededTotal === 0) {
-    candidateCombos = [[]];
-  } else {
-    const candidateIds = new Set<string>();
-    const baseK = Math.min(8, remainingAvailable.length);
-    for (let i = 0; i < baseK; i++) {
-      candidateIds.add(remainingAvailable[i].id);
-    }
+  const candidateCombos = getCombinations(candidatePlayers, 4);
 
-    // Kéo partner của LOCK_PARTNER vào candidate pool nếu 1 người trong candidate pool
-    for (const rule of effectiveLockRules) {
-      const freeA = availableIdSet.has(rule.playerAId) && !fixedSet.has(rule.playerAId);
-      const freeB = availableIdSet.has(rule.playerBId) && !fixedSet.has(rule.playerBId);
-      if (freeA && freeB) {
-        if (candidateIds.has(rule.playerAId)) candidateIds.add(rule.playerBId);
-        if (candidateIds.has(rule.playerBId)) candidateIds.add(rule.playerAId);
-      }
-    }
-
-    const candidatePlayers = remainingAvailable.filter((p) => candidateIds.has(p.id));
-    if (candidatePlayers.length < neededTotal) {
-      return [];
-    }
-    candidateCombos = getCombinations(candidatePlayers, neededTotal);
-  }
-
-  // 4. Sinh tất cả các phương án xếp đội có thể cho mỗi tổ hợp
+  // 3. Sinh tất cả các phương án xếp đội có thể cho mỗi tổ hợp 4 người
   let foundProposals: MatchProposal[] = [];
   const seenLineupSignatures = new Set<string>();
 
-  // 3 Stages (Mục 8):
+  // 3 Stages:
   // Stage 0: Đầy đủ ràng buộc
-  // Stage 1: Cho phép bỏ qua LOCK_PARTNER (nới tách cặp/thiếu cặp), AVOID_PARTNER vẫn nghiêm ngặt
-  // Stage 2: Cho phép bỏ cả AVOID_PARTNER
+  // Stage 1: Bỏ qua LOCK_PARTNER (nới tách cặp/thiếu cặp), AVOID_PARTNER vẫn nghiêm ngặt
+  // Stage 2: Bỏ cả AVOID_PARTNER
   for (let stage = 0; stage < 3; stage++) {
-    for (const newCombo of candidateCombos) {
-      // Tạo các phương án phân bổ newCombo vào Team 1 và Team 2
-      const teamAssignments: Array<{ team1: Player[]; team2: Player[] }> = [];
+    for (const combo of candidateCombos) {
+      const [p0, p1, p2, p3] = combo;
 
-      if (neededTotal === 0) {
-        teamAssignments.push({
-          team1: fixedT1.map((id) => playerMap.get(id)!),
-          team2: fixedT2.map((id) => playerMap.get(id)!),
-        });
-      } else if (neededTotal === 1) {
-        if (neededT1 === 1) {
-          teamAssignments.push({
-            team1: [...fixedT1.map((id) => playerMap.get(id)!), newCombo[0]],
-            team2: fixedT2.map((id) => playerMap.get(id)!),
-          });
-        } else {
-          teamAssignments.push({
-            team1: fixedT1.map((id) => playerMap.get(id)!),
-            team2: [...fixedT2.map((id) => playerMap.get(id)!), newCombo[0]],
-          });
-        }
-      } else if (neededTotal === 2) {
-        if (neededT1 === 2) {
-          teamAssignments.push({
-            team1: [newCombo[0], newCombo[1]],
-            team2: fixedT2.map((id) => playerMap.get(id)!),
-          });
-        } else if (neededT2 === 2) {
-          teamAssignments.push({
-            team1: fixedT1.map((id) => playerMap.get(id)!),
-            team2: [newCombo[0], newCombo[1]],
-          });
-        } else {
-          const f1 = playerMap.get(fixedT1[0])!;
-          const f2 = playerMap.get(fixedT2[0])!;
-          teamAssignments.push({
-            team1: [f1, newCombo[0]],
-            team2: [f2, newCombo[1]],
-          });
-          teamAssignments.push({
-            team1: [f1, newCombo[1]],
-            team2: [f2, newCombo[0]],
-          });
-        }
-      } else if (neededTotal === 3) {
-        if (neededT1 === 1 && neededT2 === 2) {
-          const f1 = playerMap.get(fixedT1[0])!;
-          teamAssignments.push({
-            team1: [f1, newCombo[0]],
-            team2: [newCombo[1], newCombo[2]],
-          });
-          teamAssignments.push({
-            team1: [f1, newCombo[1]],
-            team2: [newCombo[0], newCombo[2]],
-          });
-          teamAssignments.push({
-            team1: [f1, newCombo[2]],
-            team2: [newCombo[0], newCombo[1]],
-          });
-        } else {
-          const f2 = playerMap.get(fixedT2[0])!;
-          teamAssignments.push({
-            team1: [newCombo[1], newCombo[2]],
-            team2: [f2, newCombo[0]],
-          });
-          teamAssignments.push({
-            team1: [newCombo[0], newCombo[2]],
-            team2: [f2, newCombo[1]],
-          });
-          teamAssignments.push({
-            team1: [newCombo[0], newCombo[1]],
-            team2: [f2, newCombo[2]],
-          });
-        }
-      } else if (neededTotal === 4) {
-        const [pA, pB, pC, pD] = newCombo;
-        teamAssignments.push({ team1: [pA, pB], team2: [pC, pD] });
-        teamAssignments.push({ team1: [pA, pC], team2: [pB, pD] });
-        teamAssignments.push({ team1: [pA, pD], team2: [pB, pC] });
-      }
+      // Đúng 4 người luôn sinh đủ 3 cách chia cặp:
+      const pairings = [
+        { team1: [p0, p1], team2: [p2, p3] },
+        { team1: [p0, p2], team2: [p1, p3] },
+        { team1: [p0, p3], team2: [p1, p2] },
+      ];
 
-      for (const assignment of teamAssignments) {
-        const [p1, p2] = assignment.team1;
-        const [p3, p4] = assignment.team2;
-        const quartet = [p1, p2, p3, p4];
-        const quartetIds = new Set(quartet.map((p) => p.id));
+      for (const { team1, team2 } of pairings) {
+        const pA = team1[0];
+        const pB = team1[1];
+        const pC = team2[0];
+        const pD = team2[1];
 
-        // Kiểm tra xem quartet có chứa người thuộc cặp mâu thuẫn luật không
-        let hasConflictInQuartet = false;
-        for (const key of conflictPairKeys) {
-          const [idA, idB] = key.split(':');
-          if (quartetIds.has(idA) || quartetIds.has(idB)) {
-            hasConflictInQuartet = true;
+        const relaxedReasons: string[] = [];
+        let valid = true;
+
+        if (stage === 0) {
+          // Check LOCK rules
+          for (const rule of effectiveLockRules) {
+            const inT1A = team1.some((p) => p.id === rule.playerAId);
+            const inT1B = team1.some((p) => p.id === rule.playerBId);
+            const inT2A = team2.some((p) => p.id === rule.playerAId);
+            const inT2B = team2.some((p) => p.id === rule.playerBId);
+            const inComboA = inT1A || inT2A;
+            const inComboB = inT1B || inT2B;
+
+            const freeA = availableIdSet.has(rule.playerAId);
+            const freeB = availableIdSet.has(rule.playerBId);
+
+            if (freeA && freeB) {
+              if (inComboA !== inComboB) {
+                valid = false;
+                break;
+              }
+              if (inComboA && inComboB) {
+                if (!((inT1A && inT1B) || (inT2A && inT2B))) {
+                  valid = false;
+                  break;
+                }
+              }
+            }
           }
+        } else if (stage >= 1) {
+          relaxedReasons.push('Bỏ qua khóa cặp đôi');
         }
 
-        // Kiểm tra LOCK_PARTNER ở cấp bộ 4 người (có 1 mà thiếu 1 khi cả 2 rảnh)
-        let violatesLockQuartet = false;
-        for (const rule of effectiveLockRules) {
-          const freeA = availableIdSet.has(rule.playerAId);
-          const freeB = availableIdSet.has(rule.playerBId);
-          if (freeA && freeB) {
-            const inA = quartetIds.has(rule.playerAId);
-            const inB = quartetIds.has(rule.playerBId);
-            if ((inA && !inB) || (!inA && inB)) {
-              violatesLockQuartet = true;
+        if (valid && stage < 2) {
+          // Check AVOID rules
+          for (const rule of avoidRules) {
+            const inT1A = team1.some((p) => p.id === rule.playerAId);
+            const inT1B = team1.some((p) => p.id === rule.playerBId);
+            const inT2A = team2.some((p) => p.id === rule.playerAId);
+            const inT2B = team2.some((p) => p.id === rule.playerBId);
+            if ((inT1A && inT1B) || (inT2A && inT2B)) {
+              valid = false;
               break;
             }
           }
+        } else if (stage === 2) {
+          relaxedReasons.push('Bỏ qua tránh cặp đôi');
         }
 
-        if (violatesLockQuartet && stage === 0) {
-          continue;
-        }
+        if (!valid) continue;
 
-        // Kiểm tra AVOID_PARTNER (cùng đội)
-        let violatesAvoidPartner = false;
-        for (const rule of avoidRules) {
-          const sameT1 =
-            (p1.id === rule.playerAId && p2.id === rule.playerBId) ||
-            (p1.id === rule.playerBId && p2.id === rule.playerAId);
-          const sameT2 =
-            (p3.id === rule.playerAId && p4.id === rule.playerBId) ||
-            (p3.id === rule.playerBId && p4.id === rule.playerAId);
-          if (sameT1 || sameT2) {
-            violatesAvoidPartner = true;
-            break;
-          }
-        }
-
-        // Kiểm tra LOCK_PARTNER (bị chia 2 đội)
-        let violatesLockSplit = false;
-        for (const rule of effectiveLockRules) {
-          const inT1A = p1.id === rule.playerAId || p2.id === rule.playerAId;
-          const inT1B = p1.id === rule.playerBId || p2.id === rule.playerBId;
-          const inT2A = p3.id === rule.playerAId || p4.id === rule.playerAId;
-          const inT2B = p3.id === rule.playerBId || p4.id === rule.playerBId;
-
-          if ((inT1A && inT2B) || (inT2A && inT1B)) {
-            violatesLockSplit = true;
-            break;
-          }
-        }
-
-        // Phân loại theo Stage
-        let relaxed = false;
-        const relaxedReasons: string[] = [];
-
-        if (stage === 0) {
-          if (violatesAvoidPartner || violatesLockSplit || violatesLockQuartet) {
-            continue;
-          }
-          if (hasConflictInQuartet) {
-            relaxed = true;
-            relaxedReasons.push('Luật mâu thuẫn: ưu tiên AVOID_PARTNER');
-          }
-        } else if (stage === 1) {
-          if (violatesAvoidPartner) {
-            continue;
-          }
-          relaxed = true;
-          relaxedReasons.push('Bỏ qua ràng buộc LOCK_PARTNER để đủ người');
-          if (hasConflictInQuartet) {
-            relaxedReasons.push('Luật mâu thuẫn: ưu tiên AVOID_PARTNER');
-          }
-        } else {
-          // stage 2: nới cả AVOID_PARTNER
-          relaxed = true;
-          if (violatesLockSplit || violatesLockQuartet) {
-            relaxedReasons.push('Bỏ qua ràng buộc LOCK_PARTNER để đủ người');
-          }
-          if (violatesAvoidPartner) {
-            relaxedReasons.push('Bỏ qua ràng buộc AVOID_PARTNER do kẹt người');
-          }
-          if (relaxedReasons.length === 0) {
-            relaxedReasons.push('Nới lỏng ràng buộc ở Stage 2');
-          }
-          if (hasConflictInQuartet) {
-            relaxedReasons.push('Luật mâu thuẫn: ưu tiên AVOID_PARTNER');
-          }
-        }
-
-        // Tránh trùng lặp phương án
-        const sig = `${[p1.id, p2.id].sort().join('-')}:${[p3.id, p4.id].sort().join('-')}`;
-        if (seenLineupSignatures.has(sig)) {
-          continue;
-        }
+        // Tránh trùng lặp
+        const sig = getLineupCanonicalKey(team1.map((p) => p.id), team2.map((p) => p.id));
+        if (seenLineupSignatures.has(sig)) continue;
         seenLineupSignatures.add(sig);
 
         const debugScore = calculateDoublesScore(
-          p1,
-          p2,
-          p3,
-          p4,
+          pA,
+          pB,
+          pC,
+          pD,
           courtId,
           state,
           weights,
           availablePlayers
         );
 
-        const slotSource: Record<string, 'AUTO' | 'MANUAL'> = {
-          [p1.id]: fixedSet.has(p1.id) ? 'MANUAL' : 'AUTO',
-          [p2.id]: fixedSet.has(p2.id) ? 'MANUAL' : 'AUTO',
-          [p3.id]: fixedSet.has(p3.id) ? 'MANUAL' : 'AUTO',
-          [p4.id]: fixedSet.has(p4.id) ? 'MANUAL' : 'AUTO',
-        };
-
         const lineup: Lineup = {
           type: 'DOUBLES',
-          team1: [p1.id, p2.id],
-          team2: [p3.id, p4.id],
-          slotSource,
+          team1: [pA.id, pB.id],
+          team2: [pC.id, pD.id],
+          slotSource: {
+            [pA.id]: 'AUTO',
+            [pB.id]: 'AUTO',
+            [pC.id]: 'AUTO',
+            [pD.id]: 'AUTO',
+          },
         };
 
         foundProposals.push({
           lineup,
           debugScore,
           penalty: debugScore.totalPenalty,
-          relaxed,
+          relaxed: stage > 0,
           relaxedReasons,
         });
       }
     }
 
-    // Chỉ sang stage sau khi stage trước không có phương án
     if (foundProposals.length > 0) {
       break;
     }
   }
 
-  // Sắp xếp deterministic: penalty tăng dần, tie-break bằng pseudoHash
   foundProposals.sort((a, b) => {
-    if (a.penalty !== b.penalty) return a.penalty - b.penalty;
-    const hashA = pseudoHash(
-      a.lineup.team1.join('-') + ':' + a.lineup.team2.join('-'),
-      seed
-    );
-    const hashB = pseudoHash(
-      b.lineup.team1.join('-') + ':' + b.lineup.team2.join('-'),
-      seed
-    );
-    return hashA - hashB;
+    if (Math.abs(a.penalty - b.penalty) > 1e-4) {
+      return a.penalty - b.penalty;
+    }
+    const sigA = getProposalDedupeKey(a.lineup);
+    const sigB = getProposalDedupeKey(b.lineup);
+    return sigA.localeCompare(sigB);
   });
 
-  return foundProposals.slice(0, 5);
+  return foundProposals.slice(0, 15);
 }
 
 /**
- * Thuật toán lập kế hoạch cho toàn bộ các sân (Pure Engine Function):
- * Thay thế generateSuggestedMatch bằng planAllCourts(state, now, seed)
- *
- * - (Mục 1) Tôn trọng tuyệt đối policy (SINGLES_ONLY chỉ đơn, DOUBLES_ONLY chỉ đôi, không fallback chéo).
- * - (Mục 2) Chỉ hỏi khi sân trống (court.currentMatch === null). Sân đang đánh mà thiếu người -> WAIT.
- * - (Mục 3) Proposal của NEEDS_CONFIRM đưa người vào reserved.
- * - (Mục 4) getValidAvailablePlayersForCourt chỉ coi bận người đang đánh hoặc locked nextUp / manual slot sân khác.
- * - (Mục 5) Truyền fixedSlots từ nextUp của từng sân.
- * - (Mục 7) Mô phỏng mixDebt cục bộ trong lượt plan.
- * - (Mục 11) Tính real debugScore cho locked nextUp.
- * - (Mục 13) Sử dụng courtPlanIndex để chọn proposal ổn định.
- */
-/**
  * Helper giả lập trạng thái người chơi và thống kê sau khi kết thúc trận hiện tại của sân
- * Dùng để luôn gợi ý trước trận sau (Next Up) kể cả khi hàng chờ không đủ người (Mục 1)
+ * Chỉ bổ sung người của currentMatch của CHÍNH sân này
  */
 function buildProjectedEnvironment(
   court: Court,
@@ -1007,11 +700,8 @@ function buildProjectedEnvironment(
     }
   }
 
-  // available (người đang rảnh) được giữ nguyên để có waitStreak cao hơn -> ưu tiên chọn trước
-  // activeCourtPlayers (người trên sân) được đưa vào sau với waitStreak = 0, gamesPlayed cao hơn
   const projectedAvailable = [...available, ...activeCourtPlayers];
 
-  // Giả lập trận đấu hiện tại vừa xong
   const simulatedMatchHistory: MatchHistory = {
     id: court.currentMatch.id ?? `sim_${court.id}_${now}`,
     courtId: court.id,
@@ -1045,811 +735,142 @@ function buildProjectedEnvironment(
   };
 }
 
-export function planAllCourts(
+/**
+ * Gợi ý Next Up cho duy nhất 1 sân cụ thể (P3).
+ * Chỉ tính cho ĐÚNG sân X, không ảnh hưởng hay ghi đè sân khác.
+ */
+export function suggestNextUpForCourt(
   state: BadmintonSessionState,
-  now: number,
-  seed: number = 42
-): CourtPlanMap {
-  const result: CourtPlanMap = {};
-  const reservedPlayerIds = new Set<string>();
+  courtId: string,
+  now: number = Date.now()
+): NextUpDraft | null {
+  const court = state.courts.find((c) => c.id === courtId);
+  if (!court || !court.isActive) return null;
 
-  // Bản sao mixDebt cục bộ để mô phỏng tuần tự qua các sân (Mục 7)
-  const simMixDebt = { ...state.mixDebt };
+  // 1. Tập người đang thi đấu ở bất kỳ sân nào (currentMatch)
+  const playingPlayerIds = new Set<string>();
+  for (const c of state.courts) {
+    if (c.isActive && c.currentMatch) {
+      c.currentMatch.team1.forEach((id) => playingPlayerIds.add(id));
+      c.currentMatch.team2.forEach((id) => playingPlayerIds.add(id));
+    }
+  }
 
-  // Lấy các sân active: ưu tiên duyệt các sân đang rảnh trước (currentMatch === null)
-  const activeCourts = [...state.courts.filter((c) => c.isActive)].sort((a, b) => {
-    const aFree = a.currentMatch === null ? 0 : 1;
-    const bFree = b.currentMatch === null ? 0 : 1;
-    if (aFree !== bFree) return aFree - bFree;
-    return a.id.localeCompare(b.id);
+  // 2. Tập người đã nằm trong Next Up của sân KHÁC (sân này đang gợi ý mới nên người cũ của sân này coi là rảnh)
+  const otherNextUpPlayerIds = new Set<string>();
+  for (const c of state.courts) {
+    if (c.id !== courtId && c.isActive && c.nextUp) {
+      nextUpMemberIds(c.nextUp).forEach((id) => otherNextUpPlayerIds.add(id));
+    }
+  }
+
+  // 3. Pool ban đầu: ACTIVE, không thi đấu ở bất kỳ sân nào, không nằm trong nextUp sân khác
+  const initialAvailable = state.players.filter((p) => {
+    if (p.status !== 'ACTIVE') return false;
+    if (playingPlayerIds.has(p.id)) return false;
+    if (otherNextUpPlayerIds.has(p.id)) return false;
+    if (state.settings.courtMode === 'SPLIT_COURT') {
+      return p.assignedPool === court.id || p.assignedPool === 'ALL';
+    }
+    return true;
   });
 
-  for (const court of activeCourts) {
-    // 0.2 & Mục 11: Nếu sân đã có nextUp bị khóa bởi Host
-    if (court.nextUp && court.nextUp.isLockedByHost) {
-      const isDoubles = court.nextUp.type === 'DOUBLES';
-      const isComplete = isDoubles
-        ? court.nextUp.team1.length === 2 && court.nextUp.team2.length === 2
-        : court.nextUp.team1.length === 1 && court.nextUp.team2.length === 1;
+  let matchType: MatchType = court.forcedType || (court.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES');
 
-      const allPlayerIds = [...court.nextUp.team1, ...court.nextUp.team2];
-      const allActiveAndAvailable =
-        isComplete &&
-        allPlayerIds.every((pid) => {
-          const p = state.players.find((pl) => pl.id === pid);
-          return p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid);
-        });
+  if (matchType !== 'SINGLES' && court.policy !== 'DOUBLES_ONLY' && initialAvailable.length < 4 && !court.currentMatch) {
+    const isSnoozed =
+      state.autoSinglesSnooze?.[court.id] &&
+      state.autoSinglesSnooze[court.id].untilTs > now;
 
-      if (isComplete && allActiveAndAvailable) {
-        allPlayerIds.forEach((id) => reservedPlayerIds.add(id));
+    if (!isSnoozed && (state.settings.autoSingles === 'AUTO' || state.settings.autoSingles === 'ASK')) {
+      matchType = 'SINGLES';
+    }
+  }
 
-        let debugScore: MatchScoreBreakdown;
-        let penalty = 0;
+  const neededCount = matchType === 'SINGLES' ? 2 : 4;
 
-        if (isDoubles) {
-          const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
-          const p2 = state.players.find((p) => p.id === court.nextUp!.team1[1]);
-          const p3 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
-          const p4 = state.players.find((p) => p.id === court.nextUp!.team2[1]);
-          if (p1 && p2 && p3 && p4) {
-            debugScore = calculateDoublesScore(
-              p1,
-              p2,
-              p3,
-              p4,
-              court.id,
-              state,
-              state.settings.weights,
-              state.players.filter((p) => p.status === 'ACTIVE')
-            );
-            penalty = debugScore.totalPenalty;
-          } else {
-            debugScore = createEmptyBreakdown();
-          }
-        } else {
-          const p1 = state.players.find((p) => p.id === court.nextUp!.team1[0]);
-          const p2 = state.players.find((p) => p.id === court.nextUp!.team2[0]);
-          if (p1 && p2) {
-            const eligible = state.players.filter((p) => p.status === 'ACTIVE' && !p.noSingles);
-            debugScore = calculateSinglesScore(p1, p2, state, state.settings.weights, eligible);
-            penalty = debugScore.totalPenalty;
-          } else {
-            debugScore = createEmptyBreakdown();
-          }
-        }
+  let effectiveAvailable = initialAvailable;
+  let effectiveState = state;
 
-        result[court.id] = {
-          status: 'OK',
-          proposals: [
-            {
-              lineup: court.nextUp,
-              debugScore,
-              penalty,
-              relaxed: false,
-              relaxedReasons: [],
-            },
-          ],
-          selectedIndex: 0,
-        };
-        continue;
-      }
-
-      // 0.2: Next Up ĐÃ KHÓA nhưng thiếu người (hoặc có người không còn khả dụng):
-      // Coi các slot còn lại là fixedSlots, điền chỗ trống bằng người khả dụng và vẫn giữ trạng thái khóa
-      const lockedFixedSlots: FixedSlot[] = [];
-      court.nextUp.team1.forEach((pid) => {
-        const p = state.players.find((pl) => pl.id === pid);
-        if (p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid)) {
-          lockedFixedSlots.push({ playerId: pid, team: 1 });
-        }
-      });
-      court.nextUp.team2.forEach((pid) => {
-        const p = state.players.find((pl) => pl.id === pid);
-        if (p && p.status === 'ACTIVE' && !reservedPlayerIds.has(pid)) {
-          lockedFixedSlots.push({ playerId: pid, team: 2 });
-        }
-      });
-
-      const available = getValidAvailablePlayersForCourt(
-        court,
-        state.courts,
-        state.players,
-        reservedPlayerIds,
-        state.settings
-      );
-
-      if (isDoubles) {
-        const proposals = generateDoublesProposals(
-          court.id,
-          available,
-          state,
-          state.settings.weights,
-          seed,
-          lockedFixedSlots
-        );
-
-        if (proposals.length > 0) {
-          const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % proposals.length;
-          const lockedProposals = proposals.map((p) => ({
-            ...p,
-            lineup: { ...p.lineup, isLockedByHost: true },
-          }));
-          const chosen = lockedProposals[selectedIndex];
-          chosen.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-          chosen.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-          result[court.id] = {
-            status: 'OK',
-            proposals: lockedProposals,
-            selectedIndex,
-          };
-          continue;
-        } else {
-          result[court.id] = {
-            status: 'WAIT',
-            reason: 'Thiếu người khả dụng để hoàn thành lượt xếp đôi đã khóa',
-          };
-          continue;
-        }
-      } else {
-        const proposals = generateSinglesProposals(
-          available,
-          state,
-          state.settings.weights,
-          seed,
-          lockedFixedSlots
-        );
-
-        if (proposals.length > 0) {
-          const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % proposals.length;
-          const lockedProposals = proposals.map((p) => ({
-            ...p,
-            lineup: { ...p.lineup, isLockedByHost: true },
-          }));
-          const chosen = lockedProposals[selectedIndex];
-          chosen.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-          chosen.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-          result[court.id] = {
-            status: 'OK',
-            proposals: lockedProposals,
-            selectedIndex,
-          };
-          continue;
-        } else {
-          result[court.id] = {
-            status: 'WAIT',
-            reason: 'Thiếu người khả dụng để hoàn thành lượt xếp đơn đã khóa',
-          };
-          continue;
-        }
+  if (effectiveAvailable.length < neededCount) {
+    if (court.currentMatch) {
+      const proj = buildProjectedEnvironment(court, initialAvailable, state, now);
+      if (proj) {
+        effectiveAvailable = proj.projectedAvailable;
+        effectiveState = proj.projectedState;
       }
     }
+  }
 
-    // Trích xuất fixedSlots từ nextUp hiện tại của sân nếu có slot MANUAL (Mục 5)
-    let fixedSlots: FixedSlot[] | undefined = undefined;
-    let hasUnlockedManualSlot = false;
-    if (court.nextUp && !court.nextUp.isLockedByHost && court.nextUp.slotSource) {
-      const extracted: FixedSlot[] = [];
-      court.nextUp.team1.forEach((pid) => {
-        if (court.nextUp!.slotSource[pid] === 'MANUAL') {
-          extracted.push({ playerId: pid, team: 1 });
-        }
-      });
-      court.nextUp.team2.forEach((pid) => {
-        if (court.nextUp!.slotSource[pid] === 'MANUAL') {
-          extracted.push({ playerId: pid, team: 2 });
-        }
-      });
-      if (extracted.length > 0) {
-        fixedSlots = extracted;
-        hasUnlockedManualSlot = true;
-      }
-    }
+  if (effectiveAvailable.length < neededCount) {
+    return null;
+  }
 
-    // 1. Lấy người chơi hợp lệ cho sân này (Mục 4)
-    const available = getValidAvailablePlayersForCourt(
-      court,
-      state.courts,
-      state.players,
-      reservedPlayerIds,
-      state.settings
+  let rawProposals: MatchProposal[] = [];
+  if (matchType === 'SINGLES') {
+    rawProposals = generateSinglesProposals(
+      effectiveAvailable,
+      effectiveState,
+      effectiveState.settings.weights,
+      42
     );
-
-    // ==========================================
-    // 0.1: FORCED MATCH TYPE (forcedType hoặc unlocked nextUp có MANUAL slot)
-    // ==========================================
-    let forcedMatchType: MatchType | null = null;
-    if (court.forcedType != null) {
-      forcedMatchType = court.forcedType;
-    } else if (hasUnlockedManualSlot && court.nextUp) {
-      forcedMatchType = court.nextUp.type;
-    }
-
-    if (forcedMatchType !== null) {
-      if (forcedMatchType === 'DOUBLES') {
-        let doublesProposals = available.length >= 4
-          ? generateDoublesProposals(
-              court.id,
-              available,
-              state,
-              state.settings.weights,
-              seed,
-              fixedSlots
-            )
-          : [];
-        let isProjected = false;
-        let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
-
-        if (doublesProposals.length === 0 && court.currentMatch !== null) {
-          projEnv = buildProjectedEnvironment(court, available, state, now);
-          if (projEnv && projEnv.projectedAvailable.length >= 4) {
-            const projProposals = generateDoublesProposals(
-              court.id,
-              projEnv.projectedAvailable,
-              projEnv.projectedState,
-              state.settings.weights,
-              seed,
-              fixedSlots
-            );
-            if (projProposals.length > 0) {
-              doublesProposals = projProposals.map((p) => ({
-                ...p,
-                isProjectedFromCurrentMatch: true,
-              }));
-              isProjected = true;
-            }
-          }
-        }
-
-        if (doublesProposals.length === 0) {
-          result[court.id] = {
-            status: 'WAIT',
-            reason:
-              court.currentMatch !== null
-                ? 'Chưa đủ người cho lượt sau'
-                : 'Cần ít nhất 4 người cho trận đôi',
-          };
-          continue;
-        }
-
-        // Không dùng mixDebt, không cập nhật simMixDebt
-        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
-        const topProposal = doublesProposals[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => {
-          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-            reservedPlayerIds.add(id);
-          }
-        });
-        topProposal.lineup.team2.forEach((id) => {
-          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-            reservedPlayerIds.add(id);
-          }
-        });
-
-        result[court.id] = {
-          status: 'OK',
-          proposals: doublesProposals,
-          selectedIndex,
-        };
-        continue;
-      } else {
-        // forcedMatchType === 'SINGLES'
-        let singlesProposals = available.length >= 2
-          ? generateSinglesProposals(
-              available,
-              state,
-              state.settings.weights,
-              seed,
-              fixedSlots
-            )
-          : [];
-        let isProjected = false;
-        let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
-
-        if (singlesProposals.length === 0 && court.currentMatch !== null) {
-          projEnv = buildProjectedEnvironment(court, available, state, now);
-          if (projEnv && projEnv.projectedAvailable.length >= 2) {
-            const projProposals = generateSinglesProposals(
-              projEnv.projectedAvailable,
-              projEnv.projectedState,
-              state.settings.weights,
-              seed,
-              fixedSlots
-            );
-            if (projProposals.length > 0) {
-              singlesProposals = projProposals.map((p) => ({
-                ...p,
-                isProjectedFromCurrentMatch: true,
-              }));
-              isProjected = true;
-            }
-          }
-        }
-
-        if (singlesProposals.length === 0) {
-          result[court.id] = {
-            status: 'WAIT',
-            reason:
-              court.currentMatch !== null
-                ? 'Chưa đủ người cho lượt sau'
-                : 'Không đủ người chơi hợp lệ cho sân đơn',
-          };
-          continue;
-        }
-
-        // Không dùng mixDebt, không cập nhật simMixDebt
-        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
-        const topProposal = singlesProposals[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => {
-          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-            reservedPlayerIds.add(id);
-          }
-        });
-        topProposal.lineup.team2.forEach((id) => {
-          if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-            reservedPlayerIds.add(id);
-          }
-        });
-
-        result[court.id] = {
-          status: 'OK',
-          proposals: singlesProposals,
-          selectedIndex,
-        };
-        continue;
-      }
-    }
-
-    // ==========================================
-    // CASE A: POLICY === 'SINGLES_ONLY' (Mục 1)
-    // ==========================================
-    if (court.policy === 'SINGLES_ONLY') {
-      let singlesProposals = available.length >= 2
-        ? generateSinglesProposals(
-            available,
-            state,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          )
-        : [];
-      let isProjected = false;
-      let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
-
-      if (singlesProposals.length === 0 && court.currentMatch !== null) {
-        projEnv = buildProjectedEnvironment(court, available, state, now);
-        if (projEnv && projEnv.projectedAvailable.length >= 2) {
-          const projProposals = generateSinglesProposals(
-            projEnv.projectedAvailable,
-            projEnv.projectedState,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          );
-          if (projProposals.length > 0) {
-            singlesProposals = projProposals.map((p) => ({
-              ...p,
-              isProjectedFromCurrentMatch: true,
-            }));
-            isProjected = true;
-          }
-        }
-      }
-
-      if (singlesProposals.length === 0) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Không đủ người chơi hợp lệ cho sân đơn',
-        };
-        continue;
-      }
-
-      // Cập nhật simMixDebt
-      simMixDebt.doubles += state.settings.matchMix.doubles;
-      simMixDebt.singles += state.settings.matchMix.singles;
-      simMixDebt.singles -= 1;
-
-      // Chọn proposal theo courtPlanIndex (Mục 13)
-      const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
-      const topProposal = singlesProposals[selectedIndex];
-      topProposal.lineup.team1.forEach((id) => {
-        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-          reservedPlayerIds.add(id);
-        }
-      });
-      topProposal.lineup.team2.forEach((id) => {
-        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-          reservedPlayerIds.add(id);
-        }
-      });
-
-      result[court.id] = {
-        status: 'OK',
-        proposals: singlesProposals,
-        selectedIndex,
-      };
-      continue;
-    }
-
-    // ==========================================
-    // CASE B: POLICY === 'DOUBLES_ONLY' (Mục 1)
-    // ==========================================
-    if (court.policy === 'DOUBLES_ONLY') {
-      let doublesProposals = available.length >= 4
-        ? generateDoublesProposals(
-            court.id,
-            available,
-            state,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          )
-        : [];
-      let isProjected = false;
-      let projEnv: ReturnType<typeof buildProjectedEnvironment> = null;
-
-      if (doublesProposals.length === 0 && court.currentMatch !== null) {
-        projEnv = buildProjectedEnvironment(court, available, state, now);
-        if (projEnv && projEnv.projectedAvailable.length >= 4) {
-          const projProposals = generateDoublesProposals(
-            court.id,
-            projEnv.projectedAvailable,
-            projEnv.projectedState,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          );
-          if (projProposals.length > 0) {
-            doublesProposals = projProposals.map((p) => ({
-              ...p,
-              isProjectedFromCurrentMatch: true,
-            }));
-            isProjected = true;
-          }
-        }
-      }
-
-      if (doublesProposals.length === 0) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason:
-            court.currentMatch !== null
-              ? 'Chưa đủ người cho lượt sau'
-              : `Sân chỉ đánh đôi nhưng chỉ có ${available.length} người`,
-        };
-        continue;
-      }
-
-      // Cập nhật simMixDebt
-      simMixDebt.doubles += state.settings.matchMix.doubles;
-      simMixDebt.singles += state.settings.matchMix.singles;
-      simMixDebt.doubles -= 1;
-
-      const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
-      const topProposal = doublesProposals[selectedIndex];
-      topProposal.lineup.team1.forEach((id) => {
-        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-          reservedPlayerIds.add(id);
-        }
-      });
-      topProposal.lineup.team2.forEach((id) => {
-        if (!isProjected || !projEnv?.currentMatchPlayerIdSet.has(id)) {
-          reservedPlayerIds.add(id);
-        }
-      });
-
-      result[court.id] = {
-        status: 'OK',
-        proposals: doublesProposals,
-        selectedIndex,
-      };
-      continue;
-    }
-
-    // ==========================================
-    // CASE C: POLICY === 'MIX'
-    // ==========================================
-    // Sân đang bận (currentMatch !== null) mà rảnh ở ngoài dưới 4 người -> Tạo dự kiến (Mục 1)
-    if (available.length < 4 && court.currentMatch !== null) {
-      const projEnv = buildProjectedEnvironment(court, available, state, now);
-      if (projEnv && projEnv.projectedAvailable.length >= 2) {
-        if (projEnv.projectedAvailable.length >= 4) {
-          const debtD = simMixDebt.doubles + state.settings.matchMix.doubles;
-          const debtS = simMixDebt.singles + state.settings.matchMix.singles;
-          const preferredType: MatchType = debtS > debtD ? 'SINGLES' : 'DOUBLES';
-
-          if (preferredType === 'DOUBLES') {
-            const doublesProposals = generateDoublesProposals(
-              court.id,
-              projEnv.projectedAvailable,
-              projEnv.projectedState,
-              state.settings.weights,
-              seed,
-              fixedSlots
-            );
-            if (doublesProposals.length > 0) {
-              const marked = doublesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
-              simMixDebt.doubles += state.settings.matchMix.doubles;
-              simMixDebt.singles += state.settings.matchMix.singles;
-              simMixDebt.doubles -= 1;
-
-              const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
-              const topProposal = marked[selectedIndex];
-              topProposal.lineup.team1.forEach((id) => {
-                if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-              });
-              topProposal.lineup.team2.forEach((id) => {
-                if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-              });
-
-              result[court.id] = {
-                status: 'OK',
-                proposals: marked,
-                selectedIndex,
-              };
-              continue;
-            }
-          }
-
-          // preferredType === 'SINGLES' hoặc doubles không tìm được
-          const singlesProposals = generateSinglesProposals(
-            projEnv.projectedAvailable,
-            projEnv.projectedState,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          );
-          if (singlesProposals.length > 0) {
-            const marked = singlesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
-            simMixDebt.doubles += state.settings.matchMix.doubles;
-            simMixDebt.singles += state.settings.matchMix.singles;
-            simMixDebt.singles -= 1;
-
-            const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
-            const topProposal = marked[selectedIndex];
-            topProposal.lineup.team1.forEach((id) => {
-              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-            });
-            topProposal.lineup.team2.forEach((id) => {
-              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-            });
-
-            result[court.id] = {
-              status: 'OK',
-              proposals: marked,
-              selectedIndex,
-            };
-            continue;
-          }
-        } else {
-          // projEnv có 2 hoặc 3 người -> có thể lập đơn
-          const singlesProposals = generateSinglesProposals(
-            projEnv.projectedAvailable,
-            projEnv.projectedState,
-            state.settings.weights,
-            seed,
-            fixedSlots
-          );
-          if (singlesProposals.length > 0) {
-            const marked = singlesProposals.map((p) => ({ ...p, isProjectedFromCurrentMatch: true }));
-            simMixDebt.doubles += state.settings.matchMix.doubles;
-            simMixDebt.singles += state.settings.matchMix.singles;
-            simMixDebt.singles -= 1;
-
-            const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % marked.length;
-            const topProposal = marked[selectedIndex];
-            topProposal.lineup.team1.forEach((id) => {
-              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-            });
-            topProposal.lineup.team2.forEach((id) => {
-              if (!projEnv.currentMatchPlayerIdSet.has(id)) reservedPlayerIds.add(id);
-            });
-
-            result[court.id] = {
-              status: 'OK',
-              proposals: marked,
-              selectedIndex,
-            };
-            continue;
-          }
-        }
-      }
-
-      // Nếu không lập được phương án dự kiến
-      result[court.id] = {
-        status: 'WAIT',
-        reason: 'Chưa đủ người cho lượt sau',
-      };
-      continue;
-    }
-
-    // Sân trống mà còn dưới 2 người
-    if (available.length < 2) {
-      result[court.id] = {
-        status: 'WAIT',
-        reason: 'Không đủ người chơi hợp lệ (cần ít nhất 2 người)',
-      };
-      continue;
-    }
-
-    // Sân trống mà còn dưới 4 người (2 hoặc 3 người):
-    // (Mục 2: CHỈ HỎI KHI SÂN TRỐNG)
-    if (available.length < 4) {
-      // Sân đang trống (currentMatch === null):
-      const autoSinglesMode = state.settings.autoSingles;
-      if (autoSinglesMode === 'OFF') {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Dưới 4 người và chế độ Tự động đánh đơn đang TẮT',
-        };
-        continue;
-      }
-
-      // Kiểm tra snooze
-      const snooze = state.autoSinglesSnooze[court.id];
-      if (
-        snooze &&
-        now < snooze.untilTs &&
-        snooze.queueSizeAtSnooze === available.length
-      ) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Đang tạm ẩn đề xuất đánh đơn',
-        };
-        continue;
-      }
-
-      const singlesProposals = generateSinglesProposals(
-        available,
-        state,
-        state.settings.weights,
-        seed,
-        fixedSlots
-      );
-
-      if (singlesProposals.length === 0) {
-        result[court.id] = {
-          status: 'WAIT',
-          reason: 'Không đủ người sẵn sàng đánh đơn (có người chọn không đánh đơn)',
-        };
-        continue;
-      }
-
-      const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
-      const chosenProposal = singlesProposals[selectedIndex];
-
-      if (autoSinglesMode === 'ASK') {
-        // (Mục 3: RESERVE CHO NEEDS_CONFIRM theo phương án đang được chọn)
-        chosenProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        chosenProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-        result[court.id] = {
-          status: 'NEEDS_CONFIRM',
-          proposal: chosenProposal,
-          reason: `Còn ${available.length} người chờ, bạn có muốn xếp trận ĐƠN không?`,
-        };
-        continue;
-      }
-
-      // autoSinglesMode === 'AUTO'
-      simMixDebt.doubles += state.settings.matchMix.doubles;
-      simMixDebt.singles += state.settings.matchMix.singles;
-      simMixDebt.singles -= 1;
-
-      chosenProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-      chosenProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-      result[court.id] = {
-        status: 'OK',
-        proposals: singlesProposals,
-        selectedIndex,
-      };
-      continue;
-    }
-
-    // Khi có >= 4 người trên sân MIX:
-    // Quyết định theo simMixDebt
-    const debtD = simMixDebt.doubles + state.settings.matchMix.doubles;
-    const debtS = simMixDebt.singles + state.settings.matchMix.singles;
-    const preferredType: MatchType = debtS > debtD ? 'SINGLES' : 'DOUBLES';
-
-    if (preferredType === 'SINGLES') {
-      const singlesProposals = generateSinglesProposals(
-        available,
-        state,
-        state.settings.weights,
-        seed,
-        fixedSlots
-      );
-      if (singlesProposals.length > 0) {
-        simMixDebt.doubles += state.settings.matchMix.doubles;
-        simMixDebt.singles += state.settings.matchMix.singles;
-        simMixDebt.singles -= 1;
-
-        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % singlesProposals.length;
-        const topProposal = singlesProposals[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-        result[court.id] = {
-          status: 'OK',
-          proposals: singlesProposals,
-          selectedIndex,
-        };
-        continue;
-      }
-      // Fallback sang DOUBLES: không trừ debt của loại bị bỏ qua (Mục 7)
-    }
-
-    // Thử DOUBLES
-    const doublesProposals = generateDoublesProposals(
+  } else {
+    rawProposals = generateDoublesProposals(
       court.id,
-      available,
-      state,
-      state.settings.weights,
-      seed,
-      fixedSlots
+      effectiveAvailable,
+      effectiveState,
+      effectiveState.settings.weights,
+      42
     );
+  }
 
-    if (doublesProposals.length > 0) {
-      simMixDebt.doubles += state.settings.matchMix.doubles;
-      simMixDebt.singles += state.settings.matchMix.singles;
-      simMixDebt.doubles -= 1;
+  if (rawProposals.length === 0) {
+    return null;
+  }
 
-      const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % doublesProposals.length;
-      const topProposal = doublesProposals[selectedIndex];
-      topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-      topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
-
-      result[court.id] = {
-        status: 'OK',
-        proposals: doublesProposals,
-        selectedIndex,
-      };
-      continue;
+  const uniqueProposals: MatchProposal[] = [];
+  const seenKeys = new Set<string>();
+  for (const p of rawProposals) {
+    const key = getProposalDedupeKey(p.lineup);
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      uniqueProposals.push(p);
     }
+  }
 
-    // Nếu DOUBLES không tìm được (do kẹt ràng buộc), fallback thử SINGLES nếu chưa thử
-    if (preferredType === 'DOUBLES') {
-      const fallbackSingles = generateSinglesProposals(
-        available,
-        state,
-        state.settings.weights,
-        seed,
-        fixedSlots
-      );
-      if (fallbackSingles.length > 0) {
-        simMixDebt.doubles += state.settings.matchMix.doubles;
-        simMixDebt.singles += state.settings.matchMix.singles;
-        simMixDebt.singles -= 1;
+  const n = uniqueProposals.length;
+  if (n === 0) return null;
 
-        const selectedIndex = (state.courtPlanIndex?.[court.id] ?? 0) % fallbackSingles.length;
-        const topProposal = fallbackSingles[selectedIndex];
-        topProposal.lineup.team1.forEach((id) => reservedPlayerIds.add(id));
-        topProposal.lineup.team2.forEach((id) => reservedPlayerIds.add(id));
+  const currentKey = getNextUpDedupeKey(court.nextUp);
+  let pickedIndex = ((court.suggestCursor || 0) % n + n) % n;
 
-        result[court.id] = {
-          status: 'OK',
-          proposals: fallbackSingles,
-          selectedIndex,
-        };
-        continue;
-      }
-    }
+  if (n > 1 && currentKey && getProposalDedupeKey(uniqueProposals[pickedIndex].lineup) === currentKey) {
+    pickedIndex = (pickedIndex + 1) % n;
+  }
 
-    result[court.id] = {
-      status: 'WAIT',
-      reason: 'Không tìm thấy tổ hợp hợp lệ thỏa mãn các ràng buộc',
+  const chosen = uniqueProposals[pickedIndex];
+  if (matchType === 'SINGLES') {
+    return {
+      type: 'SINGLES',
+      slots: [chosen.lineup.team1[0], chosen.lineup.team2[0]],
+      slotSource: ['AUTO', 'AUTO'],
     };
   }
 
-  return result;
+  return {
+    type: 'DOUBLES',
+    slots: [
+      chosen.lineup.team1[0],
+      chosen.lineup.team1[1],
+      chosen.lineup.team2[0],
+      chosen.lineup.team2[1],
+    ],
+    slotSource: ['AUTO', 'AUTO', 'AUTO', 'AUTO'],
+  };
 }
 
 /**
- * Hàm tương thích ngược (Backward-compatible helper) cho các bài test hoặc caller đơn lẻ
- * (Mục 12: nhận now, không đọc Date.now())
+ * Hàm tương thích ngược (Backward-compatible helper) cho các caller đơn lẻ
  */
 export function generateSuggestedMatch(
   courtId: number | string,
@@ -1865,10 +886,12 @@ export function generateSuggestedMatch(
     ...c,
     id: String(c.id),
     policy: c.policy || 'MIX',
+    nextUp: c.nextUp || createEmptyNextUp('DOUBLES'),
+    suggestCursor: c.suggestCursor || 0,
   }));
 
   const state: BadmintonSessionState = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     players,
     courts: normalizedCourts,
     history,
@@ -1878,33 +901,21 @@ export function generateSuggestedMatch(
     mixDebt: { doubles: 0, singles: 0 },
     readyQueue: [],
     autoSinglesSnooze: {},
-    courtPlanIndex: {},
     undoStack: [],
     redoStack: [],
   };
 
-  const plan = planAllCourts(state, now, 42);
-  const courtPlan = plan[cid] ?? Object.values(plan)[0];
-  if (courtPlan && courtPlan.status === 'OK' && courtPlan.proposals.length > 0) {
-    const top = courtPlan.proposals[0];
-    return {
-      courtId: cid,
-      team1: top.lineup.team1,
-      team2: top.lineup.team2,
-      debugScore: top.debugScore,
-    };
+  const draft = suggestNextUpForCourt(state, cid, now);
+  if (!draft || !isNextUpComplete(draft)) {
+    return null;
   }
-  return null;
-}
+  const lineup = slotsToLineup(draft);
+  if (!lineup) return null;
 
-/**
- * Selector thuần tính toán kế hoạch xếp sân cho UI (gọi planAllCourts, không lưu tự động vào state)
- */
-export function selectCourtPlans(
-  state: BadmintonSessionState,
-  now: number,
-  seed: number = 42
-): CourtPlanMap {
-  return planAllCourts(state, now, seed);
+  return {
+    courtId: cid,
+    team1: lineup.team1,
+    team2: lineup.team2,
+    debugScore: createEmptyBreakdown(),
+  };
 }
-

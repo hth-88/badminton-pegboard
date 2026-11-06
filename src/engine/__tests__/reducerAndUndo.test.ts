@@ -108,7 +108,7 @@ describe('Badminton Session Reducer & Undo/Redo Engine', () => {
     expect(state.undoStack.length).toBe(30);
   });
 
-  it('SWAP_PLAYERS và SET_MANUAL_SLOT đánh dấu slotSource thành MANUAL', () => {
+  it('SET_NEXT_UP_SLOT đánh dấu slotSource thành MANUAL', () => {
     let state = createInitialSessionState();
     state.courts = createDefaultCourts(1);
     state.players = [
@@ -117,35 +117,15 @@ describe('Badminton Session Reducer & Undo/Redo Engine', () => {
       makePlayer('p3', 'P3'),
       makePlayer('p4', 'P4'),
     ];
-    const lineup: Lineup = {
-      type: 'DOUBLES',
-      team1: ['p1', 'p2'],
-      team2: ['p3', 'p4'],
-      slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
-    };
 
     state = badmintonReducer(state, {
-      type: 'SET_NEXT_UP',
-      payload: { courtId: 'court-1', lineup },
-    });
-
-    // Đổi vị trí giữa p1 và p3
-    state = badmintonReducer(state, {
-      type: 'SWAP_PLAYERS',
-      payload: {
-        courtId: 'court-1',
-        target: 'NEXT_UP',
-        slot1: { team: 1, index: 0 },
-        slot2: { team: 2, index: 0 },
-      },
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
     });
 
     const nextUp = state.courts[0].nextUp;
-    expect(nextUp).not.toBeNull();
-    expect(nextUp?.team1[0]).toBe('p3');
-    expect(nextUp?.team2[0]).toBe('p1');
-    expect(nextUp?.slotSource['p1']).toBe('MANUAL');
-    expect(nextUp?.slotSource['p3']).toBe('MANUAL');
+    expect(nextUp.slots[0]).toBe('p1');
+    expect(nextUp.slotSource[0]).toBe('MANUAL');
   });
 
   it('SHARED_POOL: Nhóm đầu hàng readyQueue tự động đi vào sân khi trận kết thúc', () => {
@@ -197,7 +177,7 @@ describe('Badminton Session Reducer & Undo/Redo Engine', () => {
 
     // Trận trong readyQueue được tự động nâng thành nextUp của court-1
     expect(state.courts[0].nextUp).not.toBeNull();
-    expect(state.courts[0].nextUp?.team1).toEqual(['p5', 'p6']);
+    expect(state.courts[0].nextUp.slots.slice(0, 2)).toEqual(['p5', 'p6']);
     expect(state.readyQueue.length).toBe(0);
   });
 });

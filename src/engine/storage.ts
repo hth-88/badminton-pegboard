@@ -1,7 +1,10 @@
 import type {
   BadmintonSessionState,
   Court,
+  CourtPolicy,
   MatchHistory,
+  MatchType,
+  NextUpDraft,
   Player,
 } from '../types/badminton';
 import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
@@ -11,6 +14,51 @@ import {
   DEFAULT_SETTINGS,
 } from './sessionReducer';
 import { buildStatsFromHistory, createEmptyStats } from './statsManager';
+import { createEmptyNextUp } from './nextUp';
+
+function normalizeNextUp(
+  rawNextUp: any,
+  forcedType?: MatchType | null,
+  policy?: CourtPolicy
+): NextUpDraft {
+  const matchType: MatchType = forcedType || (policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES');
+  if (!rawNextUp || typeof rawNextUp !== 'object') {
+    return createEmptyNextUp(matchType);
+  }
+  if (Array.isArray(rawNextUp.slots) && Array.isArray(rawNextUp.slotSource)) {
+    return {
+      type: rawNextUp.type || matchType,
+      slots: rawNextUp.slots,
+      slotSource: rawNextUp.slotSource,
+    };
+  }
+  if (Array.isArray(rawNextUp.team1) && Array.isArray(rawNextUp.team2)) {
+    const type: MatchType = rawNextUp.type || matchType;
+    if (type === 'SINGLES') {
+      const s0 = rawNextUp.team1[0] ?? null;
+      const s1 = rawNextUp.team2[0] ?? null;
+      const src0 = s0 ? (rawNextUp.slotSource?.[s0] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
+      const src1 = s1 ? (rawNextUp.slotSource?.[s1] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
+      return {
+        type: 'SINGLES',
+        slots: [s0, s1],
+        slotSource: [src0, src1],
+      };
+    }
+    const s0 = rawNextUp.team1[0] ?? null;
+    const s1 = rawNextUp.team1[1] ?? null;
+    const s2 = rawNextUp.team2[0] ?? null;
+    const s3 = rawNextUp.team2[1] ?? null;
+    const getSrc = (id: string | null) =>
+      id ? (rawNextUp.slotSource?.[id] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
+    return {
+      type: 'DOUBLES',
+      slots: [s0, s1, s2, s3],
+      slotSource: [getSrc(s0), getSrc(s1), getSrc(s2), getSrc(s3)],
+    };
+  }
+  return createEmptyNextUp(matchType);
+}
 
 export const STORAGE_KEY_V2 = 'badminton_court_session_v2';
 export const STORAGE_KEY_V1 = 'badminton_court_session_v1';
@@ -145,7 +193,8 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
       return def;
     }
     const currentMatch = existing.currentMatch || null;
-    const nextUp = existing.nextUp || null;
+    const nextUp = normalizeNextUp(existing.nextUp, existing.forcedType, existing.policy);
+    const suggestCursor = Number.isFinite(Number(existing.suggestCursor)) ? Number(existing.suggestCursor) : 0;
 
     return {
       id: def.id,
@@ -155,6 +204,7 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
       forcedType: existing.forcedType !== undefined ? existing.forcedType : null,
       currentMatch,
       nextUp,
+      suggestCursor,
     };
   });
 
@@ -168,7 +218,8 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
         policy: c.policy || 'MIX',
         forcedType: c.forcedType !== undefined ? c.forcedType : null,
         currentMatch: c.currentMatch || null,
-        nextUp: c.nextUp || null,
+        nextUp: normalizeNextUp(c.nextUp, c.forcedType, c.policy),
+        suggestCursor: Number.isFinite(Number(c.suggestCursor)) ? Number(c.suggestCursor) : 0,
       });
     }
   }
@@ -208,6 +259,70 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
       ? buildStatsFromHistory(history)
       : raw.stats || createEmptyStats();
 
+  // Data hygiene cho Next Up
+  const activePlayerIds = new Set(
+    players.filter((p) => p.status === 'ACTIVE').map((p) => p.id)
+  );
+
+  const playingByCourt = new Map<string, Set<string>>();
+  for (const c of courts) {
+    const set = new Set<string>();
+    if (c.isActive && c.currentMatch) {
+      c.currentMatch.team1.forEach((id) => set.add(id));
+      c.currentMatch.team2.forEach((id) => set.add(id));
+    }
+    playingByCourt.set(c.id, set);
+  }
+
+  const seenNextUpPlayerIds = new Set<string>();
+
+  for (const c of courts) {
+    if (!c.nextUp) {
+      c.nextUp = createEmptyNextUp(c.forcedType || (c.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES'));
+    }
+    const slots = [...c.nextUp.slots];
+    const slotSource = [...c.nextUp.slotSource];
+
+    for (let i = 0; i < slots.length; i++) {
+      const pid = slots[i];
+      if (!pid) {
+        slots[i] = null;
+        slotSource[i] = null;
+        continue;
+      }
+
+      if (!activePlayerIds.has(pid)) {
+        slots[i] = null;
+        slotSource[i] = null;
+        continue;
+      }
+
+      let playingElsewhere = false;
+      for (const [otherCourtId, playingSet] of playingByCourt.entries()) {
+        if (otherCourtId !== c.id && playingSet.has(pid)) {
+          playingElsewhere = true;
+          break;
+        }
+      }
+      if (playingElsewhere) {
+        slots[i] = null;
+        slotSource[i] = null;
+        continue;
+      }
+
+      if (seenNextUpPlayerIds.has(pid)) {
+        slots[i] = null;
+        slotSource[i] = null;
+        continue;
+      }
+
+      seenNextUpPlayerIds.add(pid);
+    }
+
+    c.nextUp.slots = slots;
+    c.nextUp.slotSource = slotSource;
+  }
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     players,
@@ -226,7 +341,6 @@ export function migrateSessionState(raw: any): BadmintonSessionState {
     mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
     readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
     autoSinglesSnooze: raw.autoSinglesSnooze || {},
-    courtPlanIndex: raw.courtPlanIndex || {},
     undoStack:
       raw.schemaVersion === CURRENT_SCHEMA_VERSION && Array.isArray(raw.undoStack)
         ? raw.undoStack.slice(0, 5)

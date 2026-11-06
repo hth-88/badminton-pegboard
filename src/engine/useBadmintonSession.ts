@@ -3,13 +3,12 @@ import type {
   BadmintonRank,
   BadmintonSessionState,
   CourtPolicy,
-  CourtPlanMap,
   Lineup,
   PairRule,
   Player,
   SessionSettings,
 } from '../types/badminton';
-import { selectCourtPlans } from './matchmaker';
+import { evaluateNextUp, type NextUpEvaluation } from './nextUp';
 import {
   badmintonReducer,
   createInitialSessionState,
@@ -131,28 +130,15 @@ export function useBadmintonSession() {
     []
   );
 
-  const setManualSlot = useCallback(
-    (
-      courtId: string,
-      target: 'CURRENT' | 'NEXT_UP',
-      team: 1 | 2,
-      index: number,
-      playerId: string,
-      baseLineup?: Lineup
-    ) => {
-      dispatch({
-        type: 'SET_MANUAL_SLOT',
-        payload: { courtId, target, team, index, playerId, baseLineup },
-      });
-    },
-    []
-  );
+  const suggestNextUp = useCallback((courtId: string, now?: number) => {
+    dispatch({ type: 'SUGGEST_NEXT_UP', payload: { courtId, now } });
+  }, []);
 
-  const setNextUp = useCallback(
-    (courtId: string, lineup: Lineup, isLockedByHost = false) => {
+  const setNextUpSlot = useCallback(
+    (courtId: string, slotIndex: number, playerId: string | null) => {
       dispatch({
-        type: 'SET_NEXT_UP',
-        payload: { courtId, lineup, isLockedByHost },
+        type: 'SET_NEXT_UP_SLOT',
+        payload: { courtId, slotIndex, playerId },
       });
     },
     []
@@ -162,9 +148,12 @@ export function useBadmintonSession() {
     dispatch({ type: 'CLEAR_NEXT_UP', payload: { courtId } });
   }, []);
 
-  const cycleNextUpProposal = useCallback((courtId: string) => {
-    dispatch({ type: 'CYCLE_NEXT_UP_PROPOSAL', payload: { courtId } });
-  }, []);
+  const rearrangeNextUp = useCallback(
+    (courtId: string, mode: 'ROTATE' | 'BALANCE') => {
+      dispatch({ type: 'REARRANGE_NEXT_UP', payload: { courtId, mode } });
+    },
+    []
+  );
 
   const enqueueReadyQueue = useCallback(
     (lineup: Lineup, courtId?: string, isLockedByHost = false) => {
@@ -335,10 +324,14 @@ export function useBadmintonSession() {
     dispatch({ type: 'LOAD_STATE', payload: cloudState });
   }, []);
 
-  // Selector tính toán kế hoạch sân (Mục 0.15)
-  const courtPlans = useMemo<CourtPlanMap>(() => {
-    return selectCourtPlans(state, nowMinute);
-  }, [state, nowMinute]);
+  // Đánh giá trực quan Next Up của từng sân (Section 7)
+  const nextUpEval = useMemo<Record<string, NextUpEvaluation | null>>(() => {
+    const evals: Record<string, NextUpEvaluation | null> = {};
+    for (const c of state.courts) {
+      evals[c.id] = evaluateNextUp(c.nextUp, state.players, state.settings?.maleBonus);
+    }
+    return evals;
+  }, [state.courts, state.players, state.settings?.maleBonus]);
 
   const ruleConflicts = useMemo<RuleConflictInfo[]>(() => {
     return selectRuleConflicts(state);
@@ -358,7 +351,7 @@ export function useBadmintonSession() {
     canUndo: state.undoStack.length > 0,
     canRedo: state.redoStack.length > 0,
     ruleConflicts,
-    courtPlans,
+    nextUpEval,
     nowMinute,
     storageError,
     // Actions
@@ -366,10 +359,10 @@ export function useBadmintonSession() {
     endMatch,
     endAndStartMatch,
     swapPlayers,
-    setManualSlot,
-    setNextUp,
+    suggestNextUp,
+    setNextUpSlot,
     clearNextUp,
-    cycleNextUpProposal,
+    rearrangeNextUp,
     enqueueReadyQueue,
     dequeueReadyQueue,
     reorderReadyQueue,
@@ -396,4 +389,4 @@ export function useBadmintonSession() {
   };
 }
 
-export { selectCourtPlans, selectRuleConflicts };
+export { selectRuleConflicts };

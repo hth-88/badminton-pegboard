@@ -150,28 +150,27 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
   });
 
   // =========================================================================
-  // Test c: 20 lần CYCLE_NEXT_UP_PROPOSAL không làm đầy undoStack
+  // Test c: 20 lần SUGGEST_NEXT_UP không làm đầy undoStack
   // =========================================================================
-  it('c) 20 lần CYCLE_NEXT_UP_PROPOSAL không tạo snapshot undo', () => {
+  it('c) 20 lần SUGGEST_NEXT_UP không tạo snapshot undo', () => {
     let state = createInitialSessionState();
     expect(state.undoStack.length).toBe(0);
 
     for (let i = 0; i < 20; i++) {
       state = badmintonReducer(state, {
-        type: 'CYCLE_NEXT_UP_PROPOSAL',
-        payload: { courtId: 'court-1' },
+        type: 'SUGGEST_NEXT_UP',
+        payload: { courtId: 'court-1', now: 1000 + i },
       });
     }
 
-    // courtPlanIndex tăng lên 20 nhưng undoStack vẫn là 0!
-    expect(state.courtPlanIndex['court-1']).toBe(20);
+    // undoStack vẫn là 0 vì SUGGEST_NEXT_UP không tạo snapshot undo!
     expect(state.undoStack.length).toBe(0);
   });
 
   // =========================================================================
-  // Test d: SWAP trên nextUp null có baseLineup -> nextUp được lưu, slot MANUAL; trùng người -> state không đổi
+  // Test d: SET_NEXT_UP_SLOT -> slot MANUAL; trùng người -> return state
   // =========================================================================
-  it('d) SWAP trên nextUp null có baseLineup -> lưu nextUp, slot MANUAL; trùng người -> return state', () => {
+  it('d) SET_NEXT_UP_SLOT -> lưu slot MANUAL; trùng người -> return state', () => {
     let state = createInitialSessionState();
     state.players = [
       createMockPlayer('p1', 'P1'),
@@ -181,69 +180,29 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       createMockPlayer('p5', 'P5'),
     ];
 
-    expect(state.courts[0].nextUp).toBeNull();
-
-    const baseLineup: Lineup = {
-      type: 'DOUBLES',
-      team1: ['p1', 'p2'],
-      team2: ['p3', 'p4'],
-      slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
-    };
-
-    // SWAP đổi p1 và p3 dựa trên baseLineup
+    // Gán p1 vào slot 0
     state = badmintonReducer(state, {
-      type: 'SWAP_PLAYERS',
-      payload: {
-        courtId: 'court-1',
-        target: 'NEXT_UP',
-        slot1: { team: 1, index: 0 },
-        slot2: { team: 2, index: 0 },
-        baseLineup,
-      },
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
     });
 
     const nextUp = state.courts[0].nextUp;
-    expect(nextUp).not.toBeNull();
-    expect(nextUp?.team1[0]).toBe('p3');
-    expect(nextUp?.team2[0]).toBe('p1');
-    expect(nextUp?.slotSource['p1']).toBe('MANUAL');
-    expect(nextUp?.slotSource['p3']).toBe('MANUAL');
+    expect(nextUp.slots[0]).toBe('p1');
+    expect(nextUp.slotSource[0]).toBe('MANUAL');
 
-    // Thay người từ ngoài (p5) vào slot team 1 index 1 (thay p2)
-    state = badmintonReducer(state, {
-      type: 'SWAP_PLAYERS',
-      payload: {
-        courtId: 'court-1',
-        target: 'NEXT_UP',
-        slot1: { team: 1, index: 1 },
-        slot2: { playerId: 'p5' },
-      },
-    });
-
-    const nextUp2 = state.courts[0].nextUp;
-    expect(nextUp2?.team1[1]).toBe('p5');
-    expect(nextUp2?.slotSource['p5']).toBe('MANUAL');
-    // p2 đã ra ngoài nên slotSource không còn khóa p2
-    expect(nextUp2?.slotSource['p2']).toBeUndefined();
-
-    // Thử thay người tạo trùng lặp: đưa p3 (đang ở team 1) vào slot team 2 -> BLOCK -> state không đổi
+    // Thử gán p1 vào slot 1 (trùng người trong cùng nextUp) -> BLOCK -> return state
     const stateBeforeDuplicate = state;
     const stateAfterDuplicate = badmintonReducer(state, {
-      type: 'SWAP_PLAYERS',
-      payload: {
-        courtId: 'court-1',
-        target: 'NEXT_UP',
-        slot1: { team: 2, index: 1 },
-        slot2: { playerId: 'p3' }, // p3 đã có ở team 1 index 0
-      },
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p1' },
     });
     expect(stateAfterDuplicate).toBe(stateBeforeDuplicate);
   });
 
   // =========================================================================
-  // Test e: PAUSE người trong nextUp chưa khóa -> nextUp null; trong nextUp đã khóa -> giữ
+  // Test e: PAUSE người trong nextUp -> chỉ đặt slot chứa người đó thành null
   // =========================================================================
-  it('e) PAUSE người trong nextUp chưa khóa -> nextUp null; trong nextUp đã khóa -> giữ nguyên', () => {
+  it('e) PAUSE người trong nextUp -> chỉ đặt đúng slot chứa người đó thành null, các slot khác giữ nguyên', () => {
     let state = createInitialSessionState();
     state.players = [
       createMockPlayer('p1', 'P1'),
@@ -252,24 +211,13 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       createMockPlayer('p4', 'P4'),
     ];
 
-    const lineup: Lineup = {
-      type: 'DOUBLES',
-      team1: ['p1', 'p2'],
-      team2: ['p3', 'p4'],
-      slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
-    };
-
-    // Sân 1 có nextUp CHƯA khóa
-    state = badmintonReducer(state, {
-      type: 'SET_NEXT_UP',
-      payload: { courtId: 'court-1', lineup, isLockedByHost: false },
-    });
-
-    // Sân 2 có nextUp ĐÃ khóa
-    state = badmintonReducer(state, {
-      type: 'SET_NEXT_UP',
-      payload: { courtId: 'court-2', lineup, isLockedByHost: true },
-    });
+    // Gán p1..p4 vào Sân 1
+    for (let i = 0; i < 4; i++) {
+      state = badmintonReducer(state, {
+        type: 'SET_NEXT_UP_SLOT',
+        payload: { courtId: 'court-1', slotIndex: i, playerId: `p${i + 1}` },
+      });
+    }
 
     // Tạm nghỉ p1
     state = badmintonReducer(state, {
@@ -277,12 +225,12 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       payload: { playerId: 'p1' },
     });
 
-    // Sân 1 chưa khóa -> nextUp bị dọn thành null
-    expect(state.courts[0].nextUp).toBeNull();
-
-    // Sân 2 đã khóa -> nextUp được giữ nguyên
-    expect(state.courts[1].nextUp).not.toBeNull();
-    expect(state.courts[1].nextUp?.isLockedByHost).toBe(true);
+    // Chỉ đúng slot chứa p1 thành null, 3 slot còn lại giữ nguyên 100%
+    expect(state.courts[0].nextUp.slots[0]).toBeNull();
+    expect(state.courts[0].nextUp.slotSource[0]).toBeNull();
+    expect(state.courts[0].nextUp.slots[1]).toBe('p2');
+    expect(state.courts[0].nextUp.slots[2]).toBe('p3');
+    expect(state.courts[0].nextUp.slots[3]).toBe('p4');
   });
 
   // =========================================================================
@@ -328,9 +276,9 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
   });
 
   // =========================================================================
-  // Test g: Tắt sân đang đánh -> state không đổi; tắt sân trống -> nextUp null
+  // Test g: Tắt sân đang đánh -> state không đổi; tắt sân trống -> reset nextUp
   // =========================================================================
-  it('g) Tắt sân đang đánh -> state không đổi; tắt sân trống -> nextUp null, xóa planIndex/snooze', () => {
+  it('g) Tắt sân đang đánh -> state không đổi; tắt sân trống -> reset nextUp, xóa snooze', () => {
     let state = createInitialSessionState();
     state.courts[0].currentMatch = {
       type: 'SINGLES',
@@ -342,12 +290,9 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
 
     state.courts[1].nextUp = {
       type: 'SINGLES',
-      team1: ['p3'],
-      team2: ['p4'],
-      slotSource: { p3: 'AUTO', p4: 'AUTO' },
-      isLockedByHost: false,
+      slots: ['p3', 'p4'],
+      slotSource: ['AUTO', 'AUTO'],
     };
-    state.courtPlanIndex['court-2'] = 3;
     state.autoSinglesSnooze['court-2'] = { untilTs: 9999, queueSizeAtSnooze: 2 };
 
     // Tắt Sân 1 (đang có currentMatch) -> không cho phép, return state
@@ -358,7 +303,7 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     });
     expect(stateAfter).toBe(stateBefore);
 
-    // Tắt Sân 2 (đang rảnh) -> thành công, nextUp bị đặt null, xóa planIndex và snooze
+    // Tắt Sân 2 (đang rảnh) -> thành công, nextUp bị reset rỗng, suggestCursor = 0, xóa snooze
     const stateAfterTurnOff2 = badmintonReducer(state, {
       type: 'UPDATE_COURT',
       payload: { courtId: 'court-2', updates: { isActive: false } },
@@ -366,15 +311,15 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
 
     const c2 = stateAfterTurnOff2.courts[1];
     expect(c2.isActive).toBe(false);
-    expect(c2.nextUp).toBeNull();
-    expect(stateAfterTurnOff2.courtPlanIndex['court-2']).toBeUndefined();
+    expect(c2.nextUp.slots).toEqual([null, null]);
+    expect(c2.suggestCursor).toBe(0);
     expect(stateAfterTurnOff2.autoSinglesSnooze['court-2']).toBeUndefined();
   });
 
   // =========================================================================
-  // Test h: mixDebt và courtPlanIndex đúng sau chuỗi START/END/CYCLE
+  // Test h: mixDebt đúng sau chuỗi START/END
   // =========================================================================
-  it('h) mixDebt và courtPlanIndex chính xác sau chuỗi START/END/CYCLE', () => {
+  it('h) mixDebt chính xác sau chuỗi START/END', () => {
     let state = createInitialSessionState();
     state.settings.matchMix = { doubles: 0.8, singles: 0.2 };
     state.players = [
@@ -383,13 +328,6 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       createMockPlayer('p3', 'P3'),
       createMockPlayer('p4', 'P4'),
     ];
-
-    // Bắt đầu trận ĐÔI (toàn bộ slot AUTO)
-    state = badmintonReducer(state, {
-      type: 'CYCLE_NEXT_UP_PROPOSAL',
-      payload: { courtId: 'court-1' },
-    });
-    expect(state.courtPlanIndex['court-1']).toBe(1);
 
     state = badmintonReducer(state, {
       type: 'START_MATCH',
@@ -405,9 +343,6 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       },
     });
 
-    // courtPlanIndex của sân 1 được reset về 0 khi bắt đầu trận
-    expect(state.courtPlanIndex['court-1']).toBe(0);
-
     // mixDebt được cộng mix (0.8 / 0.2) và trừ 1 cho doubles (0.8 - 1 = -0.2)
     expect(Number(state.mixDebt.doubles.toFixed(2))).toBe(-0.2);
     expect(Number(state.mixDebt.singles.toFixed(2))).toBe(0.2);
@@ -417,7 +352,7 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       type: 'END_MATCH',
       payload: { courtId: 'court-1', now: 2000 },
     });
-    expect(state.courtPlanIndex['court-1']).toBe(0);
+    expect(state.courts[0].currentMatch).toBeNull();
   });
 
   // =========================================================================
@@ -443,7 +378,6 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
       },
     ];
     state.mixDebt = { doubles: 2, singles: -1 };
-    state.courtPlanIndex = { 'court-1': 3 };
 
     // Tạo buổi mới giữ người
     const newState = badmintonReducer(state, {
@@ -458,10 +392,10 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     expect(newState.players[0].waitStreak).toBe(0);
     expect(newState.players[0].status).toBe('ACTIVE');
 
-    // History, mixDebt, courtPlanIndex bị dọn sạch
+    // History, mixDebt bị dọn sạch
     expect(newState.history).toEqual([]);
     expect(newState.mixDebt).toEqual({ doubles: 0, singles: 0 });
-    expect(newState.courtPlanIndex).toEqual({});
+    expect((newState as any).courtPlanIndex).toBeUndefined();
     expect(newState.undoStack).toEqual([]);
     expect(newState.redoStack).toEqual([]);
   });

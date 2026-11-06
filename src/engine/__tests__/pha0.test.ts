@@ -4,9 +4,7 @@ import type {
   Player,
 } from '../../types/badminton';
 import {
-  generateDoublesProposals,
-  generateSinglesProposals,
-  planAllCourts,
+  suggestNextUpForCourt,
 } from '../matchmaker';
 import {
   applyEndMatch,
@@ -23,6 +21,7 @@ import {
   STORAGE_KEY_V2,
 } from '../storage';
 import { validateLineup } from '../validateLineup';
+import { getSlotCandidateStatus } from '../nextUp';
 
 function makePlayer(
   id: string,
@@ -77,7 +76,7 @@ describe('PHA 0 – VÁ ENGINE / REDUCER / HOOK / STORAGE', () => {
 
   // (a) forcedType ép loại, không dính mixDebt
   it('(a) forcedType ép loại, không dính mixDebt', () => {
-    const state = createInitialSessionState();
+    let state = createInitialSessionState();
     state.settings.courtMode = 'SHARED_POOL';
     state.settings.matchMix = { doubles: 1, singles: 0 }; // Settings chỉ định đôi
     state.courts[0].policy = 'MIX';
@@ -89,18 +88,17 @@ describe('PHA 0 – VÁ ENGINE / REDUCER / HOOK / STORAGE', () => {
       makePlayer('p4', 'P4'),
     ];
 
-    const plan = planAllCourts(state, 1000, 42);
-    const planCourt1 = plan['court-1'];
-    expect(planCourt1?.status).toBe('OK');
-    if (!planCourt1 || planCourt1.status !== 'OK') throw new Error('Plan failed');
-    expect(planCourt1.proposals[0].lineup.type).toBe('SINGLES');
+    const nextUp = suggestNextUpForCourt(state, 'court-1', 1000);
+    expect(nextUp).not.toBeNull();
+    if (!nextUp) throw new Error('suggestNextUp failed');
+    expect(nextUp.type).toBe('SINGLES');
 
-    // Bắt đầu trận với forcedType
+    // Gán nextUp vào sân và Bắt đầu trận với forcedType
+    state.courts[0].nextUp = nextUp;
     const nextState = badmintonReducer(state, {
       type: 'START_MATCH',
       payload: {
         courtId: 'court-1',
-        lineup: planCourt1.proposals[0].lineup,
         now: 1000,
       },
     });
@@ -110,80 +108,53 @@ describe('PHA 0 – VÁ ENGINE / REDUCER / HOOK / STORAGE', () => {
     expect(nextState.courts[0].currentMatch?.type).toBe('SINGLES');
   });
 
-  // (b) Next Up khóa bị rút người rồi tự điền, vẫn khóa
-  it('(b) Next Up khóa bị rút người rồi tự điền, vẫn khóa', () => {
-    const state = createInitialSessionState();
+  // (b) Đổi tay 1 slot: đánh dấu MANUAL, 3 slot còn lại giữ nguyên
+  it('(b) Đổi tay 1 slot: đánh dấu MANUAL, 3 slot còn lại giữ nguyên', () => {
+    let state = createInitialSessionState();
     state.players = [
       makePlayer('p1', 'P1'),
       makePlayer('p2', 'P2'),
       makePlayer('p3', 'P3'),
       makePlayer('p4', 'P4'),
-      makePlayer('p5', 'P5'),
-      makePlayer('p6', 'P6'),
     ];
 
-    // Court-1 có nextUp bị khóa nhưng bị thiếu người (chỉ có p1 ở team 1, team 2 rỗng)
-    state.courts[0].nextUp = {
-      type: 'DOUBLES',
-      team1: ['p1'],
-      team2: [],
-      slotSource: { p1: 'MANUAL' },
-      isLockedByHost: true,
-    };
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 1000 },
+    });
 
-    const plan = planAllCourts(state, 1000, 42);
-    const planCourt1 = plan['court-1'];
-    expect(planCourt1?.status).toBe('OK');
-    if (!planCourt1 || planCourt1.status !== 'OK') throw new Error('Plan failed');
-    const proposal = planCourt1.proposals[0];
-    expect(proposal?.lineup.isLockedByHost).toBe(true);
-    expect(proposal?.lineup.team1.length).toBe(2);
-    expect(proposal?.lineup.team2.length).toBe(2);
-    expect(proposal?.lineup.team1).toContain('p1');
-    expect(proposal?.lineup.slotSource['p1']).toBe('MANUAL');
+    // Đổi slot 0 bằng SET_NEXT_UP_SLOT
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
+
+    expect(state.courts[0].nextUp.slots[0]).toBe('p1');
+    expect(state.courts[0].nextUp.slotSource[0]).toBe('MANUAL');
   });
 
-  // (c) fixedSlots người PAUSED bị bỏ (không trả [])
-  it('(c) fixedSlots người PAUSED bị bỏ', () => {
-    const state = createInitialSessionState();
-    const activePlayers = [
+  // (c) Slot người PAUSED bị chặn NOT_AVAILABLE
+  it('(c) Slot người PAUSED bị chặn NOT_AVAILABLE', () => {
+    let state = createInitialSessionState();
+    state.players = [
       makePlayer('p1', 'P1'),
       makePlayer('p2', 'P2'),
       makePlayer('p3', 'P3'),
       makePlayer('p4', 'P4'),
-    ];
-    state.players = [
-      ...activePlayers,
       makePlayer('pPaused', 'P Paused', 'M', 'PAUSED'),
     ];
 
-    // Truyền fixedSlots có pPaused (không có trong availablePlayers)
-    const fixedSlots = [{ playerId: 'pPaused', team: 1 as const }];
-    const proposals = generateDoublesProposals(
-      'court-1',
-      activePlayers,
-      state,
-      state.settings.weights,
-      42,
-      fixedSlots
-    );
+    const status = getSlotCandidateStatus(state, 'court-1', 0, 'pPaused');
+    expect(status.selectable).toBe(false);
+    expect(status.blockCode).toBe('NOT_AVAILABLE');
 
-    // Không trả [] mà tự điền người khả dụng
-    expect(proposals.length).toBeGreaterThan(0);
-    expect(proposals[0].lineup.team1.length).toBe(2);
-    expect(proposals[0].lineup.team2.length).toBe(2);
-    expect(proposals[0].lineup.team1).not.toContain('pPaused');
-
-    // Tương tự với singles
-    const singlesProposals = generateSinglesProposals(
-      activePlayers,
-      state,
-      state.settings.weights,
-      42,
-      fixedSlots
-    );
-    expect(singlesProposals.length).toBeGreaterThan(0);
-    expect(singlesProposals[0].lineup.team1).not.toContain('pPaused');
+    // Thử gán pPaused bằng action SET_NEXT_UP_SLOT -> bị từ chối, state không đổi
+    const nextState = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'pPaused' },
+    });
+    expect(nextState).toBe(state);
+    expect(nextState.courts[0].nextUp.slots[0]).toBeNull();
   });
 
   // (d) UNKNOWN_PLAYER BLOCK
@@ -261,30 +232,29 @@ describe('PHA 0 – VÁ ENGINE / REDUCER / HOOK / STORAGE', () => {
     expect(endedState.players.find((p) => p.id === 'p1')?.gamesPlayed).toBe(1);
   });
 
-  // (g) SET_NEXT_UP có BLOCK bị từ chối
-  it('(g) SET_NEXT_UP có BLOCK bị từ chối', () => {
-    const state = createInitialSessionState();
+  // (g) SET_NEXT_UP_SLOT có BLOCK bị từ chối
+  it('(g) SET_NEXT_UP_SLOT có BLOCK bị từ chối', () => {
+    let state = createInitialSessionState();
     state.players = [
       makePlayer('p1', 'P1'),
       makePlayer('p2', 'P2'),
       makePlayer('p3', 'P3'),
     ];
 
-    // Trùng người p1 ở cả 2 đội -> BLOCK DUPLICATE_PLAYER
-    const invalidLineup: Lineup = {
-      type: 'DOUBLES',
-      team1: ['p1', 'p2'],
-      team2: ['p1', 'p3'],
-      slotSource: {},
-    };
+    // Gán p1 vào slot 0
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
 
+    // Cố tình gán p1 vào slot 1 (trùng người trong cùng Next Up -> BLOCK IN_THIS_NEXT_UP)
     const nextState = badmintonReducer(state, {
-      type: 'SET_NEXT_UP',
-      payload: { courtId: 'court-1', lineup: invalidLineup },
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p1' },
     });
 
     expect(nextState).toBe(state);
-    expect(nextState.courts[0].nextUp).toBeNull();
+    expect(nextState.courts[0].nextUp.slots[1]).toBeNull();
   });
 
   // (h) migration 2 sân → 3 sân
@@ -348,7 +318,6 @@ describe('PHA 0 – VÁ ENGINE / REDUCER / HOOK / STORAGE', () => {
       mixDebt: state.mixDebt,
       readyQueue: [],
       autoSinglesSnooze: {},
-      courtPlanIndex: {},
     };
     state.undoStack = Array(10).fill(mockSnapshot);
     state.redoStack = Array(3).fill(mockSnapshot);

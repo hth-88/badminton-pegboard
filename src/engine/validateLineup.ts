@@ -6,6 +6,8 @@ import type {
 } from '../types/badminton';
 import { getEffectiveSkill } from './skillConfig';
 import { isRecentPartner } from './statsManager';
+import { nextUpMemberIds } from './nextUp';
+export { BLOCK_PLAYING_ELSEWHERE_FOR_NEXT_UP } from './nextUp';
 
 /**
  * Mô tả đánh giá cân bằng trình độ của một đội hình (dùng chung cho UI & Engine)
@@ -348,10 +350,7 @@ export function validateLineup(
   // ==========================================
   for (const court of state.courts) {
     if (court.isActive && court.nextUp && court.id !== currentCourtId) {
-      const nextUpPlayers = [
-        ...court.nextUp.team1,
-        ...court.nextUp.team2,
-      ];
+      const nextUpPlayers = nextUpMemberIds(court.nextUp);
       const overlap = allLineupPlayers.filter((pid) => nextUpPlayers.includes(pid));
       if (overlap.length > 0) {
         issues.push({

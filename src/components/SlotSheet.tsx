@@ -16,16 +16,18 @@ import type {
 import { RANK_METADATA } from '../engine/skillConfig';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
 import { validateLineup } from '../engine/validateLineup';
+import { getSlotCandidateStatus } from '../engine/nextUp';
 
 interface SlotSheetProps {
   isOpen: boolean;
   onClose: () => void;
   courtName: string;
   target: 'CURRENT' | 'NEXT_UP';
-  team: 1 | 2;
-  index: number;
+  team?: 1 | 2;
+  index?: number;
+  slotIndex?: number;
   courtId: string;
-  currentLineup: Lineup;
+  currentLineup?: Lineup;
   state: BadmintonSessionState;
   onSelectPlayer: (playerId: string) => void;
   onResumePlayer: (playerId: string) => void;
@@ -36,8 +38,9 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
   onClose,
   courtName,
   target,
-  team,
-  index,
+  team = 1,
+  index = 0,
+  slotIndex,
   courtId,
   currentLineup,
   state,
@@ -50,6 +53,9 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
     type: 'PAUSED' | 'WARN';
     message: string;
   } | null>(null);
+
+  const effectiveSlotIndex =
+    slotIndex !== undefined ? slotIndex : team === 1 ? index : 2 + index;
 
   // Sắp xếp người chơi: ACTIVE rảnh ưu tiên trước, PAUSED phía sau
   const sortedCandidates = useMemo(() => {
@@ -70,8 +76,9 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
 
   if (!isOpen) return null;
 
-  // Tính toán thử nghiệm khi thay người vào slot này
-  const previewIssuesFor = (candidateId: string) => {
+  // Tính toán thử nghiệm khi thay người vào slot này (cho CURRENT match)
+  const previewIssuesForCurrent = (candidateId: string) => {
+    if (!currentLineup) return [];
     const newTeam1 = [...currentLineup.team1];
     const newTeam2 = [...currentLineup.team2];
 
@@ -91,14 +98,30 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
       },
     };
 
-    return validateLineup(testLineup, state, courtId, { target });
+    return validateLineup(testLineup, state, courtId, { target: 'CURRENT' });
   };
 
   const handleChoose = (player: Player) => {
-    const issues = previewIssuesFor(player.id);
+    if (target === 'NEXT_UP') {
+      const status = getSlotCandidateStatus(
+        state,
+        courtId,
+        effectiveSlotIndex,
+        player.id
+      );
+      if (!status.selectable) {
+        return;
+      }
+      onSelectPlayer(player.id);
+      onClose();
+      return;
+    }
+
+    // TARGET: CURRENT match
+    const issues = previewIssuesForCurrent(player.id);
     const blockIssue = issues.find((i) => i.severity === 'BLOCK');
     if (blockIssue) {
-      return; // Không cho phép chọn nếu bị BLOCK
+      return;
     }
 
     if (player.status === 'PAUSED') {
@@ -145,7 +168,9 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
               Chọn người thay vào {courtName}
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Đội {team} • Vị trí {index + 1} ({target === 'CURRENT' ? 'Đang đánh' : 'Lượt sau'})
+              {target === 'NEXT_UP'
+                ? `Lượt sau • Vị trí ô số ${effectiveSlotIndex + 1}`
+                : `Đội ${team} • Vị trí ${index + 1} (Đang đánh)`}
             </p>
           </div>
           <button
@@ -174,10 +199,109 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {filteredCandidates.map((player) => {
             const rankMeta = RANK_METADATA[player.rank];
-            const issues = previewIssuesFor(player.id);
+            const isPaused = player.status === 'PAUSED';
+
+            if (target === 'NEXT_UP') {
+              const status = getSlotCandidateStatus(
+                state,
+                courtId,
+                effectiveSlotIndex,
+                player.id
+              );
+              const isBlocked = !status.selectable;
+              const hasWarnings = status.warnings.length > 0;
+
+              return (
+                <div
+                  key={player.id}
+                  className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
+                    isBlocked
+                      ? 'bg-rose-950/20 border-rose-900/40 opacity-60'
+                      : hasWarnings
+                      ? 'bg-amber-950/20 border-amber-800/40'
+                      : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60'
+                  }`}
+                >
+                  {/* Player info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-sm text-slate-100 truncate">
+                        {player.name}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          player.sex === 'M' ? 'bg-sky-950 text-sky-300' : 'bg-pink-950 text-pink-300'
+                        }`}
+                      >
+                        {player.sex === 'M' ? 'Nam' : 'Nữ'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
+                      >
+                        {rankMeta.code}
+                      </span>
+                      {isPaused && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-600/40 flex items-center gap-1">
+                          <UserX className="w-3 h-3" /> Tạm nghỉ
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Priority stats */}
+                    <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+                      <span>Trận: {player.gamesPlayed} (+{player.virtualGamesOffset})</span>
+                      <span>•</span>
+                      <span className={player.waitStreak > 1 ? 'text-emerald-400 font-semibold' : ''}>
+                        Chờ: {player.waitStreak} lượt
+                      </span>
+                    </div>
+
+                    {/* Specific Block Label */}
+                    {isBlocked && (
+                      <div className="mt-1.5 flex items-center gap-1 text-[11px] text-rose-300 font-medium">
+                        <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <span>{status.blockLabel || 'Không khả dụng'}</span>
+                      </div>
+                    )}
+
+                    {/* Non-blocking Warning Chips */}
+                    {!isBlocked &&
+                      status.warnings.map((w) => (
+                        <div
+                          key={w}
+                          className="mt-1 flex items-center gap-1 text-[11px] text-amber-300 font-medium"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>{w}</span>
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Choose button */}
+                  <div className="shrink-0">
+                    {isBlocked ? (
+                      <span className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-400 cursor-not-allowed">
+                        {status.blockLabel || 'Bận'}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleChoose(player)}
+                        className="text-xs font-bold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition shadow flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Chọn</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // TARGET: CURRENT MATCH
+            const issues = previewIssuesForCurrent(player.id);
             const blockIssue = issues.find((i) => i.severity === 'BLOCK');
             const warnIssue = issues.find((i) => i.severity === 'WARN');
-            const isPaused = player.status === 'PAUSED';
 
             return (
               <div
@@ -215,7 +339,6 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                     )}
                   </div>
 
-                  {/* Priority stats */}
                   <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                     <span>Trận: {player.gamesPlayed} (+{player.virtualGamesOffset})</span>
                     <span>•</span>
@@ -224,7 +347,6 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                     </span>
                   </div>
 
-                  {/* Issue Warning Chips */}
                   {blockIssue && (
                     <div className="mt-1.5 flex items-center gap-1 text-[11px] text-rose-300 font-medium">
                       <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
@@ -248,6 +370,7 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                     </span>
                   ) : warnIssue || isPaused ? (
                     <button
+                      type="button"
                       onClick={() => handleChoose(player)}
                       className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 transition shadow"
                     >
@@ -255,6 +378,7 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => handleChoose(player)}
                       className="text-xs font-bold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition shadow flex items-center gap-1"
                     >
@@ -280,12 +404,14 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
             </p>
             <div className="flex gap-2 w-full max-w-xs">
               <button
+                type="button"
                 onClick={() => setConfirmingPlayer(null)}
                 className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
               >
                 Hủy bỏ
               </button>
               <button
+                type="button"
                 onClick={handleConfirm}
                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center justify-center gap-1"
               >
@@ -299,4 +425,3 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
     </div>
   );
 };
-

@@ -31,16 +31,17 @@ export function App() {
     canUndo,
     canRedo,
     ruleConflicts,
-    courtPlans,
+    nextUpEval,
     storageError,
     // Actions
     startMatch,
     endMatch,
     endAndStartMatch,
     swapPlayers,
-    setManualSlot,
-    setNextUp,
-    cycleNextUpProposal,
+    suggestNextUp,
+    setNextUpSlot,
+    clearNextUp,
+    rearrangeNextUp,
     pausePlayer,
     resumePlayer,
     addPlayer,
@@ -349,7 +350,7 @@ export function App() {
                   key={court.id}
                   court={court}
                   state={state}
-                  courtPlan={courtPlans[court.id]}
+                  nextUpEval={nextUpEval[court.id]}
                   onStartMatch={(courtId, lineup) =>
                     guardAction(() => startMatch(courtId, lineup))
                   }
@@ -359,17 +360,20 @@ export function App() {
                   onEndAndStartMatch={(courtId, nextLineup, expectedMatchId) =>
                     guardAction(() => endAndStartMatch(courtId, nextLineup, expectedMatchId))
                   }
-                  onCycleNextUp={(courtId) =>
-                    guardAction(() => cycleNextUpProposal(courtId))
+                  onSuggestNextUp={(courtId) =>
+                    guardAction(() => suggestNextUp(courtId))
                   }
-                  onSetNextUp={(courtId, lineup, isLocked) =>
-                    guardAction(() => setNextUp(courtId, lineup, isLocked))
+                  onSetNextUpSlot={(courtId, slotIndex, playerId) =>
+                    guardAction(() => setNextUpSlot(courtId, slotIndex, playerId))
+                  }
+                  onClearNextUp={(courtId) =>
+                    guardAction(() => clearNextUp(courtId))
+                  }
+                  onRearrangeNextUp={(courtId, mode) =>
+                    guardAction(() => rearrangeNextUp(courtId, mode))
                   }
                   onSwapPlayers={(courtId, target, slot1, slot2, baseLineup) =>
                     guardAction(() => swapPlayers(courtId, target, slot1, slot2, baseLineup))
-                  }
-                  onSetManualSlot={(courtId, target, team, index, playerId, baseLineup) =>
-                    guardAction(() => setManualSlot(courtId, target, team, index, playerId, baseLineup))
                   }
                   onUpdateCourt={(courtId, updates) =>
                     guardAction(() => updateCourt(courtId, updates))

@@ -9,6 +9,7 @@ import {
   badmintonReducer,
   createInitialSessionState,
 } from '../sessionReducer';
+import { createEmptyNextUp } from '../nextUp';
 
 function createMockPlayer(
   id: string,
@@ -69,7 +70,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
             slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
             startedAt: 1000,
           },
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
       ];
 
@@ -157,7 +159,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
             slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
             startedAt: 1000,
           },
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
       ];
 
@@ -200,7 +203,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
             slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
             startedAt: 1000,
           },
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
       ];
 
@@ -427,7 +431,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
           policy: 'MIX',
           forcedType: null,
           currentMatch: null,
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
         {
           id: 'court-2',
@@ -436,7 +441,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
           policy: 'MIX',
           forcedType: null,
           currentMatch: null,
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
       ];
 
@@ -502,7 +508,8 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
           policy: 'MIX',
           forcedType: null,
           currentMatch: null,
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
       ];
 

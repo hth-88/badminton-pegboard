@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Player } from '../../types/badminton';
-import { planAllCourts } from '../matchmaker';
 import {
+  generateDoublesProposals,
+  suggestNextUpForCourt,
+} from '../matchmaker';
+import {
+  badmintonReducer,
   createDefaultCourts,
   createInitialSessionState,
 } from '../sessionReducer';
+import { nextUpMemberIds } from '../nextUp';
 
 describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () => {
   const makePlayer = (
@@ -30,7 +35,7 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
     ...extra,
   });
 
-  it('planAllCourts là hàm thuần (pure) và cho kết quả tất định (deterministic) với cùng seed', () => {
+  it('suggestNextUpForCourt là hàm thuần (pure) và cho kết quả tất định (deterministic)', () => {
     const state = createInitialSessionState();
     state.players = [
       makePlayer('p1', 'P1', 'M', 'tb'),
@@ -43,14 +48,15 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       makePlayer('p8', 'P8', 'F', 'tb+'),
     ];
 
-    const plan1 = planAllCourts(state, 10000, 42);
-    const plan2 = planAllCourts(state, 10000, 42);
+    const draft1 = suggestNextUpForCourt(state, 'court-1', 10000);
+    const draft2 = suggestNextUpForCourt(state, 'court-1', 10000);
 
-    expect(plan1).toEqual(plan2);
+    expect(draft1).not.toBeNull();
+    expect(draft1).toEqual(draft2);
   });
 
-  it('planAllCourts phân bổ người chơi không trùng nhau giữa các sân (tập reserved)', () => {
-    const state = createInitialSessionState();
+  it('suggestNextUpForCourt phân bổ người chơi không trùng nhau giữa các sân', () => {
+    let state = createInitialSessionState();
     state.courts = createDefaultCourts(2);
     state.players = [
       makePlayer('p1', 'P1'),
@@ -63,35 +69,33 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       makePlayer('p8', 'P8'),
     ];
 
-    const plan = planAllCourts(state, 10000, 42);
+    // Gợi ý cho Sân 1 và lưu vào state
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 10000 },
+    });
 
-    const court1Plan = plan['court-1'];
-    const court2Plan = plan['court-2'];
+    // Gợi ý cho Sân 2 và lưu vào state
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-2', now: 10000 },
+    });
 
-    expect(court1Plan.status).toBe('OK');
-    expect(court2Plan.status).toBe('OK');
+    const c1Players = new Set(nextUpMemberIds(state.courts[0].nextUp));
+    const c2Players = new Set(nextUpMemberIds(state.courts[1].nextUp));
 
-    if (court1Plan.status === 'OK' && court2Plan.status === 'OK') {
-      const c1Players = new Set([
-        ...court1Plan.proposals[0].lineup.team1,
-        ...court1Plan.proposals[0].lineup.team2,
-      ]);
-      const c2Players = new Set([
-        ...court2Plan.proposals[0].lineup.team1,
-        ...court2Plan.proposals[0].lineup.team2,
-      ]);
+    expect(c1Players.size).toBe(4);
+    expect(c2Players.size).toBe(4);
 
-      // Không có người nào bị xếp đồng thời ở cả 2 sân
-      for (const p of c1Players) {
-        expect(c2Players.has(p)).toBe(false);
-      }
+    // Không có người nào bị xếp đồng thời ở cả 2 sân
+    for (const p of c1Players) {
+      expect(c2Players.has(p)).toBe(false);
     }
   });
 
-  it('trả về top N=5 phương án xếp hạng cho mỗi sân', () => {
+  it('generateDoublesProposals trả về top phương án xếp hạng theo penalty tăng dần', () => {
     const state = createInitialSessionState();
-    state.courts = createDefaultCourts(1);
-    state.players = [
+    const candidates = [
       makePlayer('p1', 'P1', 'M', 'tb'),
       makePlayer('p2', 'P2', 'F', 'tb'),
       makePlayer('p3', 'P3', 'M', 'tby+'),
@@ -100,23 +104,24 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       makePlayer('p6', 'P6', 'F', 'tb+'),
     ];
 
-    const plan = planAllCourts(state, 10000, 42);
-    const courtPlan = plan['court-1'];
+    const proposals = generateDoublesProposals(
+      'court-1',
+      candidates,
+      state,
+      state.settings.weights,
+      10000
+    );
 
-    expect(courtPlan.status).toBe('OK');
-    if (courtPlan.status === 'OK') {
-      expect(courtPlan.proposals.length).toBeLessThanOrEqual(5);
-      expect(courtPlan.proposals.length).toBeGreaterThan(1);
-      // Kiểm tra tính đơn điệu của penalty
-      for (let i = 0; i < courtPlan.proposals.length - 1; i++) {
-        expect(courtPlan.proposals[i].penalty).toBeLessThanOrEqual(
-          courtPlan.proposals[i + 1].penalty
-        );
-      }
+    const topProposals = proposals.slice(0, 5);
+    expect(topProposals.length).toBeLessThanOrEqual(5);
+    expect(topProposals.length).toBeGreaterThan(1);
+    // Kiểm tra tính đơn điệu của penalty
+    for (let i = 0; i < proposals.length - 1; i++) {
+      expect(proposals[i].penalty).toBeLessThanOrEqual(proposals[i + 1].penalty);
     }
   });
 
-  it('xử lý dưới 4 người theo autoSingles: OFF -> WAIT, ASK -> NEEDS_CONFIRM, AUTO -> OK', () => {
+  it('xử lý dưới 4 người theo autoSingles: OFF -> null, AUTO -> SINGLES draft', () => {
     const baseState = createInitialSessionState();
     baseState.courts = createDefaultCourts(1);
     baseState.players = [
@@ -130,32 +135,20 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       ...baseState,
       settings: { ...baseState.settings, autoSingles: 'OFF' as const },
     };
-    const planOff = planAllCourts(stateOff, 10000);
-    expect(planOff['court-1'].status).toBe('WAIT');
+    const draftOff = suggestNextUpForCourt(stateOff, 'court-1', 10000);
+    expect(draftOff).toBeNull();
 
-    // 2. autoSingles = 'ASK'
-    const stateAsk = {
-      ...baseState,
-      settings: { ...baseState.settings, autoSingles: 'ASK' as const },
-    };
-    const planAsk = planAllCourts(stateAsk, 10000);
-    expect(planAsk['court-1'].status).toBe('NEEDS_CONFIRM');
-    if (planAsk['court-1'].status === 'NEEDS_CONFIRM') {
-      expect(planAsk['court-1'].proposal.lineup.type).toBe('SINGLES');
-    }
-
-    // 3. autoSingles = 'AUTO'
+    // 2. autoSingles = 'AUTO'
     const stateAuto = {
       ...baseState,
       settings: { ...baseState.settings, autoSingles: 'AUTO' as const },
     };
-    const planAuto = planAllCourts(stateAuto, 10000);
-    expect(planAuto['court-1'].status).toBe('OK');
-    if (planAuto['court-1'].status === 'OK') {
-      expect(planAuto['court-1'].proposals[0].lineup.type).toBe('SINGLES');
-      // Trận đơn có đúng 2 người, 1 người còn lại đợi
-      expect(planAuto['court-1'].proposals[0].lineup.team1.length).toBe(1);
-      expect(planAuto['court-1'].proposals[0].lineup.team2.length).toBe(1);
+    const draftAuto = suggestNextUpForCourt(stateAuto, 'court-1', 10000);
+    expect(draftAuto).not.toBeNull();
+    if (draftAuto) {
+      expect(draftAuto.type).toBe('SINGLES');
+      expect(draftAuto.slots.length).toBe(2);
+      expect(draftAuto.slots.every(Boolean)).toBe(true);
     }
   });
 
@@ -173,12 +166,13 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
     state.autoSinglesSnooze['court-1'] = { untilTs: 15000, queueSizeAtSnooze: 3 };
 
     // Tại thời điểm now = 12000 (chưa hết hạn)
-    const planInSnooze = planAllCourts(state, 12000);
-    expect(planInSnooze['court-1'].status).toBe('WAIT');
+    const draftInSnooze = suggestNextUpForCourt(state, 'court-1', 12000);
+    expect(draftInSnooze).toBeNull();
 
     // Tại thời điểm now = 16000 (đã hết hạn)
-    const planAfterSnooze = planAllCourts(state, 16000);
-    expect(planAfterSnooze['court-1'].status).toBe('NEEDS_CONFIRM');
+    const draftAfterSnooze = suggestNextUpForCourt(state, 'court-1', 16000);
+    expect(draftAfterSnooze).not.toBeNull();
+    expect(draftAfterSnooze?.type).toBe('SINGLES');
   });
 
   it('ghép ĐƠN loại bỏ người chơi có noSingles === true', () => {
@@ -191,13 +185,12 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       makePlayer('p3', 'P3', 'M', 'tb'),
     ];
 
-    const plan = planAllCourts(state, 10000);
-    expect(plan['court-1'].status).toBe('OK');
-    if (plan['court-1'].status === 'OK') {
-      const { team1, team2 } = plan['court-1'].proposals[0].lineup;
-      expect(team1[0]).not.toBe('p1');
-      expect(team2[0]).not.toBe('p1');
-      expect([team1[0], team2[0]].sort()).toEqual(['p2', 'p3']);
+    const draft = suggestNextUpForCourt(state, 'court-1', 10000);
+    expect(draft).not.toBeNull();
+    if (draft) {
+      expect(draft.type).toBe('SINGLES');
+      expect(draft.slots).not.toContain('p1');
+      expect([...draft.slots].sort()).toEqual(['p2', 'p3']);
     }
   });
 
@@ -221,17 +214,16 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       { id: 'rule1', playerAId: 'p1', playerBId: 'p9', type: 'LOCK_PARTNER' },
     ];
 
-    const plan = planAllCourts(state, 10000);
-    expect(plan['court-1'].status).toBe('OK');
-    if (plan['court-1'].status === 'OK') {
-      const topProposal = plan['court-1'].proposals[0].lineup;
-      const participants = new Set([...topProposal.team1, ...topProposal.team2]);
+    const draft = suggestNextUpForCourt(state, 'court-1', 10000);
+    expect(draft).not.toBeNull();
+    if (draft) {
+      const participants = new Set(draft.slots);
 
       // Nếu p1 được chọn thì p9 PHẢI được kéo vào và cùng đội
       if (participants.has('p1')) {
         expect(participants.has('p9')).toBe(true);
-        const inT1 = topProposal.team1.includes('p1') && topProposal.team1.includes('p9');
-        const inT2 = topProposal.team2.includes('p1') && topProposal.team2.includes('p9');
+        const inT1 = draft.slots[0] === 'p1' && draft.slots[1] === 'p9' || draft.slots[0] === 'p9' && draft.slots[1] === 'p1';
+        const inT2 = draft.slots[2] === 'p1' && draft.slots[3] === 'p9' || draft.slots[2] === 'p9' && draft.slots[3] === 'p1';
         expect(inT1 || inT2).toBe(true);
       }
     }
@@ -253,18 +245,13 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       { id: 'r2', playerAId: 'p2', playerBId: 'p3', type: 'AVOID_MATCH' },
     ];
 
-    const plan = planAllCourts(state, 10000);
-    expect(plan['court-1'].status).toBe('OK');
-    if (plan['court-1'].status === 'OK') {
-      const topProposal = plan['court-1'].proposals[0];
-      // Vẫn tìm được giải pháp (AVOID_MATCH được chuyển thành penalty thay vì chặn cứng)
-      expect(topProposal.debugScore.avoidMatchPenalty).toBe(state.settings.weights.avoidMatchPenalty);
+    const draft = suggestNextUpForCourt(state, 'court-1', 10000);
+    expect(draft).not.toBeNull();
+    if (draft) {
       // Ràng buộc cứng LOCK_PARTNER vẫn được giữ
-      const team1 = topProposal.lineup.team1;
-      const team2 = topProposal.lineup.team2;
-      const sameT1 = team1.includes('p1') && team1.includes('p2');
-      const sameT2 = team2.includes('p1') && team2.includes('p2');
-      expect(sameT1 || sameT2).toBe(true);
+      const inT1 = draft.slots[0] === 'p1' && draft.slots[1] === 'p2' || draft.slots[0] === 'p2' && draft.slots[1] === 'p1';
+      const inT2 = draft.slots[2] === 'p1' && draft.slots[3] === 'p2' || draft.slots[2] === 'p2' && draft.slots[3] === 'p1';
+      expect(inT1 || inT2).toBe(true);
     }
   });
 });

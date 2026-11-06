@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Court, PairRule, Player, SessionSettings } from '../../types/badminton';
 import { DEFAULT_PENALTY_WEIGHTS } from '../../types/badminton';
 import { generateSuggestedMatch } from '../matchmaker';
+import { createEmptyNextUp } from '../nextUp';
 
 describe('Pair Rules Enforcement in Matchmaking Engine', () => {
   const defaultSettings: SessionSettings = {
@@ -15,8 +16,8 @@ describe('Pair Rules Enforcement in Matchmaking Engine', () => {
   };
 
   const courts: Court[] = [
-    { id: 'court-1', name: 'Sân 1', isActive: true, policy: 'MIX', currentMatch: null, nextUp: null },
-    { id: 'court-2', name: 'Sân 2', isActive: true, policy: 'MIX', currentMatch: null, nextUp: null },
+    { id: 'court-1', name: 'Sân 1', isActive: true, policy: 'MIX', currentMatch: null, nextUp: createEmptyNextUp('DOUBLES'), suggestCursor: 0 },
+    { id: 'court-2', name: 'Sân 2', isActive: true, policy: 'MIX', currentMatch: null, nextUp: createEmptyNextUp('DOUBLES'), suggestCursor: 0 },
   ];
 
   const makePlayer = (id: string, name: string, sex: 'M' | 'F', rank: any): Player => ({

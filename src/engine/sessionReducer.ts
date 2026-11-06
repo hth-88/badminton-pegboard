@@ -15,6 +15,15 @@ import type {
 import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
 import { buildStatsFromHistory, createEmptyStats, recordCompletedMatch } from './statsManager';
 import { validateLineup } from './validateLineup';
+import {
+  balancePairing,
+  createEmptyNextUp,
+  getSlotCandidateStatus,
+  isNextUpComplete,
+  rotatePairing,
+  slotsToLineup,
+} from './nextUp';
+import { suggestNextUpForCourt } from './matchmaker';
 
 export const CURRENT_SCHEMA_VERSION = 3;
 
@@ -39,7 +48,8 @@ export function createDefaultCourts(count = 3): Court[] {
     policy: 'MIX',
     forcedType: null,
     currentMatch: null,
-    nextUp: null,
+    nextUp: createEmptyNextUp('DOUBLES'),
+    suggestCursor: 0,
   }));
 }
 
@@ -55,7 +65,6 @@ export function createInitialSessionState(): BadmintonSessionState {
     mixDebt: { doubles: 0, singles: 0 },
     readyQueue: [],
     autoSinglesSnooze: {},
-    courtPlanIndex: {},
     undoStack: [],
     redoStack: [],
   };
@@ -75,7 +84,6 @@ function createSnapshot(state: BadmintonSessionState): BadmintonSessionSnapshot 
     mixDebt: { ...state.mixDebt },
     readyQueue: JSON.parse(JSON.stringify(state.readyQueue)),
     autoSinglesSnooze: JSON.parse(JSON.stringify(state.autoSinglesSnooze)),
-    courtPlanIndex: { ...(state.courtPlanIndex || {}) },
   };
 }
 
@@ -181,15 +189,20 @@ export function applyEndMatch(
   let nextNextUp = targetCourt.nextUp;
   let remainingQueue = [...state.readyQueue];
 
-  if (state.settings.courtMode === 'SHARED_POOL' && !nextNextUp && remainingQueue.length > 0) {
+  if (
+    state.settings.courtMode === 'SHARED_POOL' &&
+    remainingQueue.length > 0
+  ) {
     const candidateIdx = remainingQueue.findIndex(
       (item) => !item.isLockedByHost || !item.courtId || item.courtId === courtId
     );
     if (candidateIdx >= 0) {
       const [promoted] = remainingQueue.splice(candidateIdx, 1);
+      const slots = [...promoted.lineup.team1, ...promoted.lineup.team2];
       nextNextUp = {
-        ...promoted.lineup,
-        isLockedByHost: promoted.isLockedByHost,
+        type: promoted.lineup.type,
+        slots,
+        slotSource: slots.map(() => 'AUTO'),
       };
     }
   }
@@ -210,7 +223,6 @@ export function applyEndMatch(
     history: [...state.history, historyItem],
     stats: updatedStats,
     readyQueue: remainingQueue,
-    courtPlanIndex: { ...state.courtPlanIndex, [courtId]: 0 },
   };
 }
 
@@ -224,25 +236,31 @@ export function applyStartMatch(
   now: number
 ): BadmintonSessionState {
   const targetCourt = state.courts.find((c) => c.id === courtId);
-  // Mục 5: nếu court không tồn tại, không active, hoặc currentMatch !== null -> return state
   if (!targetCourt || !targetCourt.isActive || targetCourt.currentMatch !== null) {
     return state;
   }
 
-  const lineupCandidate = rawLineup ?? targetCourt.nextUp;
-  if (!lineupCandidate) return state;
+  let lineupToStart: Lineup | null = null;
+  if (rawLineup) {
+    lineupToStart = rawLineup;
+  } else if (targetCourt.nextUp && isNextUpComplete(targetCourt.nextUp)) {
+    lineupToStart = slotsToLineup(targetCourt.nextUp);
+  }
+
+  if (!lineupToStart) {
+    return state;
+  }
 
   const cleanSlots = cleanLineupSlotSource(
-    lineupCandidate.team1,
-    lineupCandidate.team2,
-    lineupCandidate.slotSource
+    lineupToStart.team1,
+    lineupToStart.team2,
+    lineupToStart.slotSource
   );
-  const lineupToStart: Lineup = {
-    ...lineupCandidate,
+  lineupToStart = {
+    ...lineupToStart,
     slotSource: cleanSlots,
   };
 
-  // Mục 0.9: Chặn nếu bất kỳ người nào trong lineup đang PAUSED
   const hasPausedPlayer = [...lineupToStart.team1, ...lineupToStart.team2].some((pid) => {
     const p = state.players.find((pl) => pl.id === pid);
     return p && p.status === 'PAUSED';
@@ -251,7 +269,6 @@ export function applyStartMatch(
     return state;
   }
 
-  // Chạy validateLineup: có mã BLOCK -> return state
   const issues = validateLineup(lineupToStart, state, courtId);
   if (issues.some((i) => i.severity === 'BLOCK')) {
     return state;
@@ -284,7 +301,6 @@ export function applyStartMatch(
     return p;
   });
 
-  // Cập nhật mixDebt (Mục 0.1: không trừ mixDebt khi court.forcedType != null)
   const isManual =
     Object.values(cleanSlots).length > 0 &&
     Object.values(cleanSlots).every((s) => s === 'MANUAL');
@@ -301,40 +317,32 @@ export function applyStartMatch(
     }
   }
 
-  // Cập nhật sân & rút người khỏi nextUp của sân khác
   const updatedCourts = state.courts.map((c) => {
     if (c.id === courtId) {
       return {
         ...c,
         currentMatch: {
-          ...lineupToStart,
-          id: lineupToStart.id || `match_${courtId}_${now}`,
+          ...lineupToStart!,
+          id: lineupToStart!.id || `match_${courtId}_${now}`,
           startedAt: now,
         },
-        nextUp: null,
+        nextUp: createEmptyNextUp(c.nextUp?.type || 'DOUBLES'),
+        suggestCursor: 0,
       };
     }
-    if (c.nextUp) {
-      const hasOverlap = [...c.nextUp.team1, ...c.nextUp.team2].some((id) =>
-        matchPlayers.has(id)
-      );
+    if (c.nextUp && Array.isArray(c.nextUp.slots)) {
+      const hasOverlap = c.nextUp.slots.some((id) => id && matchPlayers.has(id));
       if (hasOverlap) {
-        if (!c.nextUp.isLockedByHost) {
-          return { ...c, nextUp: null };
-        }
-        const newT1 = c.nextUp.team1.filter((id) => !matchPlayers.has(id));
-        const newT2 = c.nextUp.team2.filter((id) => !matchPlayers.has(id));
-        const newSlots: Record<string, 'AUTO' | 'MANUAL'> = {};
-        [...newT1, ...newT2].forEach((id) => {
-          newSlots[id] = 'MANUAL';
-        });
+        const newSlots = c.nextUp.slots.map((id) => (id && matchPlayers.has(id) ? null : id));
+        const newSource = (c.nextUp.slotSource || []).map((src, idx) =>
+          c.nextUp.slots[idx] && matchPlayers.has(c.nextUp.slots[idx]!) ? null : src
+        );
         return {
           ...c,
           nextUp: {
             ...c.nextUp,
-            team1: newT1,
-            team2: newT2,
-            slotSource: newSlots,
+            slots: newSlots,
+            slotSource: newSource,
           },
         };
       }
@@ -347,14 +355,26 @@ export function applyStartMatch(
     return !itemIds.some((id) => matchPlayers.has(id));
   });
 
-  return {
+  let nextState: BadmintonSessionState = {
     ...state,
     players: updatedPlayers,
     courts: updatedCourts,
     mixDebt: newMixDebt,
     readyQueue: updatedReadyQueue,
-    courtPlanIndex: { ...state.courtPlanIndex, [courtId]: 0 },
   };
+
+  // Tự động gợi ý đúng 1 lần cho sân đó (dùng trạng thái mới vừa chuyển). Cấm đụng sân khác.
+  const autoNextUp = suggestNextUpForCourt(nextState, courtId, now);
+  if (autoNextUp) {
+    nextState = {
+      ...nextState,
+      courts: nextState.courts.map((c) =>
+        c.id === courtId ? { ...c, nextUp: autoNextUp } : c
+      ),
+    };
+  }
+
+  return nextState;
 }
 
 export type BadmintonAction =
@@ -381,19 +401,16 @@ export type BadmintonAction =
       };
     }
   | {
-      type: 'SET_MANUAL_SLOT';
-      payload: {
-        courtId: string;
-        target: 'CURRENT' | 'NEXT_UP';
-        team: 1 | 2;
-        index: number;
-        playerId: string;
-        baseLineup?: Lineup;
-      };
+      type: 'SUGGEST_NEXT_UP';
+      payload: { courtId: string; now?: number };
     }
   | {
-      type: 'SET_NEXT_UP';
-      payload: { courtId: string; lineup: Lineup; isLockedByHost?: boolean };
+      type: 'SET_NEXT_UP_SLOT';
+      payload: { courtId: string; slotIndex: number; playerId: string | null };
+    }
+  | {
+      type: 'REARRANGE_NEXT_UP';
+      payload: { courtId: string; mode: 'ROTATE' | 'BALANCE' };
     }
   | {
       type: 'CLEAR_NEXT_UP';
@@ -489,10 +506,6 @@ export type BadmintonAction =
       payload: { courtId: string; untilTs: number; queueSize: number };
     }
   | {
-      type: 'CYCLE_NEXT_UP_PROPOSAL';
-      payload: { courtId: string };
-    }
-  | {
       type: 'DELETE_HISTORY_MATCH';
       payload: { matchId: string };
     }
@@ -506,7 +519,6 @@ export type BadmintonAction =
   | { type: 'LOAD_STATE'; payload: BadmintonSessionSnapshot };
 
 const NO_UNDO_ACTIONS = new Set<BadmintonAction['type']>([
-  'CYCLE_NEXT_UP_PROPOSAL',
   'SNOOZE_AUTO_SINGLES',
   'SNOOZE_AUTO_SINGLES_WAIT',
 ]);
@@ -572,7 +584,8 @@ export function badmintonReducer(
         ...c,
         forcedType: null,
         currentMatch: null,
-        nextUp: null,
+        nextUp: createEmptyNextUp('DOUBLES'),
+        suggestCursor: 0,
       })),
       history: [],
       pairRules: [...state.pairRules],
@@ -581,7 +594,6 @@ export function badmintonReducer(
       mixDebt: { doubles: 0, singles: 0 },
       readyQueue: [],
       autoSinglesSnooze: {},
-      courtPlanIndex: {},
       undoStack: [],
       redoStack: [],
     };
@@ -639,13 +651,7 @@ export function badmintonReducer(
       }
 
       // 2. START_MATCH step
-      const targetCourtAfter = stateAfterEnd.courts.find((c) => c.id === courtId);
-      const lineupToStart = nextLineup ?? targetCourtAfter?.nextUp;
-      if (!lineupToStart) {
-        return stateAfterEnd;
-      }
-
-      const stateAfterStart = applyStartMatch(stateAfterEnd, courtId, lineupToStart, now);
+      const stateAfterStart = applyStartMatch(stateAfterEnd, courtId, nextLineup, now);
       if (stateAfterStart === stateAfterEnd) {
         // Nếu không start được (do PAUSED, BLOCK...) thì chỉ kết thúc trận
         return stateAfterEnd;
@@ -656,15 +662,12 @@ export function badmintonReducer(
 
     // Mục 7 & 0.12: SWAP_PLAYERS
     case 'SWAP_PLAYERS': {
-      const { courtId, target, slot1, slot2, baseLineup } = action.payload;
+      const { courtId, target, slot1, slot2 } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
       if (!targetCourt) return state;
 
-      const currentOrNext =
-        target === 'CURRENT'
-          ? targetCourt.currentMatch
-          : (targetCourt.nextUp ?? baseLineup);
-
+      if (target !== 'CURRENT') return state;
+      const currentOrNext = targetCourt.currentMatch;
       if (!currentOrNext) return state;
 
       // Validate slot indices
@@ -687,7 +690,7 @@ export function badmintonReducer(
 
       const team1 = [...currentOrNext.team1];
       const team2 = [...currentOrNext.team2];
-      const rawSlotSource = { ...currentOrNext.slotSource };
+      const rawSlotSource: Record<string, 'AUTO' | 'MANUAL'> = { ...currentOrNext.slotSource };
 
       if ('playerId' in slot2) {
         const newPid = slot2.playerId;
@@ -724,20 +727,10 @@ export function badmintonReducer(
 
       const updatedCourts = baseNextState.courts.map((c) => {
         if (c.id !== courtId) return c;
-        if (target === 'CURRENT') {
-          return {
-            ...c,
-            currentMatch: c.currentMatch ? { ...c.currentMatch, ...newLineup } : null,
-          };
-        } else {
-          return {
-            ...c,
-            nextUp: {
-              ...newLineup,
-              isLockedByHost: c.nextUp?.isLockedByHost ?? false,
-            },
-          };
-        }
+        return {
+          ...c,
+          currentMatch: c.currentMatch ? { ...c.currentMatch, ...newLineup } : null,
+        };
       });
 
       return {
@@ -746,84 +739,13 @@ export function badmintonReducer(
       };
     }
 
-    // Mục 7 & 0.12: SET_MANUAL_SLOT
-    case 'SET_MANUAL_SLOT': {
-      const { courtId, target, team, index, playerId, baseLineup } = action.payload;
+    case 'SUGGEST_NEXT_UP': {
+      const { courtId } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
-      if (!targetCourt) return state;
+      if (!targetCourt || !targetCourt.isActive) return state;
 
-      const currentOrNext =
-        target === 'CURRENT'
-          ? targetCourt.currentMatch
-          : (targetCourt.nextUp ?? baseLineup);
-
-      if (!currentOrNext) return state;
-
-      if (!validateSlotIndex(currentOrNext.type, team, index)) {
-        return state;
-      }
-
-      // 0.12: index <= length of that team
-      const curLen = team === 1 ? currentOrNext.team1.length : currentOrNext.team2.length;
-      if (index > curLen) {
-        return state;
-      }
-
-      const team1 = [...currentOrNext.team1];
-      const team2 = [...currentOrNext.team2];
-      const rawSlotSource = { ...currentOrNext.slotSource, [playerId]: 'MANUAL' as const };
-
-      if (team === 1) team1[index] = playerId;
-      else team2[index] = playerId;
-
-      const cleanSlots = cleanLineupSlotSource(team1, team2, rawSlotSource);
-      const newLineup: Lineup = {
-        type: currentOrNext.type,
-        team1,
-        team2,
-        slotSource: cleanSlots,
-      };
-
-      const issues = validateLineup(newLineup, baseNextState, courtId, { target });
-      if (issues.some((i) => i.severity === 'BLOCK')) {
-        return state;
-      }
-
-      const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.id !== courtId) return c;
-        if (target === 'CURRENT') {
-          return {
-            ...c,
-            currentMatch: c.currentMatch ? { ...c.currentMatch, ...newLineup } : null,
-          };
-        } else {
-          return {
-            ...c,
-            nextUp: {
-              ...newLineup,
-              isLockedByHost: c.nextUp?.isLockedByHost ?? false,
-            },
-          };
-        }
-      });
-
-      return {
-        ...baseNextState,
-        courts: updatedCourts,
-      };
-    }
-
-    // Mục 0.11: SET_NEXT_UP validateLineup (chặn BLOCK, trừ INVALID_SIZE khi thiếu người)
-    case 'SET_NEXT_UP': {
-      const { courtId, lineup, isLockedByHost = false } = action.payload;
-      const cleanSlots = cleanLineupSlotSource(lineup.team1, lineup.team2, lineup.slotSource);
-      const newLineup = { ...lineup, slotSource: cleanSlots, isLockedByHost };
-
-      const issues = validateLineup(newLineup, baseNextState, courtId, { target: 'NEXT_UP' });
-      const hasBlock = issues.some(
-        (i) => i.severity === 'BLOCK' && i.code !== 'INVALID_SIZE'
-      );
-      if (hasBlock) {
+      const draft = suggestNextUpForCourt(baseNextState, courtId, action.payload.now);
+      if (!draft) {
         return state;
       }
 
@@ -831,9 +753,104 @@ export function badmintonReducer(
         if (c.id !== courtId) return c;
         return {
           ...c,
-          nextUp: newLineup,
+          nextUp: draft,
+          suggestCursor: (c.suggestCursor || 0) + 1,
         };
       });
+
+      return {
+        ...baseNextState,
+        courts: updatedCourts,
+      };
+    }
+
+    case 'SET_NEXT_UP_SLOT': {
+      const { courtId, slotIndex, playerId } = action.payload;
+      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
+      if (!targetCourt || !targetCourt.isActive) return state;
+
+      const expectedLength = targetCourt.nextUp.type === 'SINGLES' ? 2 : 4;
+      if (slotIndex < 0 || slotIndex >= expectedLength) return state;
+
+      if (playerId === null) {
+        const newSlots = [...targetCourt.nextUp.slots];
+        const newSource = [...targetCourt.nextUp.slotSource];
+        newSlots[slotIndex] = null;
+        newSource[slotIndex] = null;
+
+        const updatedCourts = baseNextState.courts.map((c) => {
+          if (c.id !== courtId) return c;
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
+        });
+
+        return {
+          ...baseNextState,
+          courts: updatedCourts,
+        };
+      }
+
+      const status = getSlotCandidateStatus(baseNextState, courtId, slotIndex, playerId);
+      if (!status.selectable) {
+        return state;
+      }
+
+      const newSlots = [...targetCourt.nextUp.slots];
+      const newSource = [...targetCourt.nextUp.slotSource];
+      newSlots[slotIndex] = playerId;
+      newSource[slotIndex] = 'MANUAL';
+
+      const updatedCourts = baseNextState.courts.map((c) => {
+        if (c.id !== courtId) return c;
+        return {
+          ...c,
+          nextUp: {
+            ...c.nextUp,
+            slots: newSlots,
+            slotSource: newSource,
+          },
+        };
+      });
+
+      return {
+        ...baseNextState,
+        courts: updatedCourts,
+      };
+    }
+
+    case 'REARRANGE_NEXT_UP': {
+      const { courtId, mode } = action.payload;
+      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
+      if (!targetCourt || !isNextUpComplete(targetCourt.nextUp)) return state;
+
+      let newSlots: (string | null)[];
+      if (mode === 'ROTATE') {
+        newSlots = rotatePairing(targetCourt.nextUp.slots);
+      } else {
+        newSlots = balancePairing(
+          targetCourt.nextUp.slots,
+          baseNextState.players,
+          baseNextState.settings.maleBonus
+        );
+      }
+
+      const updatedCourts = baseNextState.courts.map((c) => {
+        if (c.id !== courtId) return c;
+        return {
+          ...c,
+          nextUp: {
+            ...c.nextUp,
+            slots: newSlots,
+          },
+        };
+      });
+
       return {
         ...baseNextState,
         courts: updatedCourts,
@@ -841,8 +858,18 @@ export function badmintonReducer(
     }
 
     case 'CLEAR_NEXT_UP': {
+      const { courtId } = action.payload;
+      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
+      if (!targetCourt) return state;
+
       const updatedCourts = baseNextState.courts.map((c) =>
-        c.id === action.payload.courtId ? { ...c, nextUp: null } : c
+        c.id === courtId
+          ? {
+              ...c,
+              nextUp: createEmptyNextUp(c.nextUp?.type || 'DOUBLES'),
+              suggestCursor: 0,
+            }
+          : c
       );
       return {
         ...baseNextState,
@@ -900,14 +927,19 @@ export function badmintonReducer(
       );
 
       const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.nextUp) {
-          const inNextUp = c.nextUp.team1.includes(pid) || c.nextUp.team2.includes(pid);
-          if (inNextUp) {
-            if (!c.nextUp.isLockedByHost) {
-              return { ...c, nextUp: null };
-            }
-            return c;
-          }
+        if (c.nextUp && c.nextUp.slots.includes(pid)) {
+          const newSlots = c.nextUp.slots.map((s) => (s === pid ? null : s));
+          const newSource = c.nextUp.slotSource.map((src, idx) =>
+            c.nextUp.slots[idx] === pid ? null : src
+          );
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
         }
         return c;
       });
@@ -921,7 +953,7 @@ export function badmintonReducer(
         players: updatedPlayers,
         courts: updatedCourts,
         readyQueue: updatedReadyQueue,
-        courtPlanIndex: {}, // Mục 4: reset khi PAUSE
+         // Mục 4: reset khi PAUSE
       };
     }
 
@@ -935,7 +967,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         players: updatedPlayers,
-        courtPlanIndex: {}, // Mục 4: reset khi RESUME
+         // Mục 4: reset khi RESUME
       };
     }
 
@@ -962,7 +994,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         players: [...baseNextState.players, newPlayer],
-        courtPlanIndex: {}, // Mục 4: reset khi ADD
+         // Mục 4: reset khi ADD
       };
     }
 
@@ -1003,7 +1035,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         players: currentPlayers,
-        courtPlanIndex: {}, // Mục 4: reset khi ADD
+         // Mục 4: reset khi ADD
       };
     }
 
@@ -1036,10 +1068,6 @@ export function badmintonReducer(
       delete sanitizedUpdates.singlesCount;
       delete sanitizedUpdates.status;
 
-      const hasSexOrPoolChange =
-        (sanitizedUpdates.sex !== undefined && sanitizedUpdates.sex !== target.sex) ||
-        (sanitizedUpdates.assignedPool !== undefined && sanitizedUpdates.assignedPool !== target.assignedPool);
-
       const updatedPlayers = baseNextState.players.map((p) =>
         p.id === player.id ? { ...p, ...sanitizedUpdates } : p
       );
@@ -1047,8 +1075,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         players: updatedPlayers,
-        courtPlanIndex: hasSexOrPoolChange ? {} : baseNextState.courtPlanIndex,
-      };
+              };
     }
 
     // Mục 12: REMOVE_PLAYER (Nâng cấp: Bỏ chặn gamesPlayed > 0 để cho phép rút người vắng mặt khỏi buổi)
@@ -1071,8 +1098,19 @@ export function badmintonReducer(
       const updatedPlayers = baseNextState.players.filter((p) => p.id !== pid);
 
       const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.nextUp && (c.nextUp.team1.includes(pid) || c.nextUp.team2.includes(pid))) {
-          return { ...c, nextUp: null };
+        if (c.nextUp && c.nextUp.slots.includes(pid)) {
+          const newSlots = c.nextUp.slots.map((s) => (s === pid ? null : s));
+          const newSource = c.nextUp.slotSource.map((src, idx) =>
+            c.nextUp.slots[idx] === pid ? null : src
+          );
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
         }
         return c;
       });
@@ -1091,7 +1129,7 @@ export function badmintonReducer(
         courts: updatedCourts,
         readyQueue: updatedReadyQueue,
         pairRules: updatedPairRules,
-        courtPlanIndex: {}, // Mục 4: reset khi REMOVE
+         // Mục 4: reset khi REMOVE
       };
     }
 
@@ -1102,7 +1140,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         players: updatedPlayers,
-        courtPlanIndex: {}, // Mục 4: reset khi EDIT_RANK
+         // Mục 4: reset khi EDIT_RANK
       };
     }
 
@@ -1120,13 +1158,17 @@ export function badmintonReducer(
         policy: action.payload.policy || 'MIX',
         forcedType: action.payload.forcedType ?? null,
         currentMatch: null,
-        nextUp: null,
+        nextUp: createEmptyNextUp(
+          action.payload.forcedType === 'SINGLES' || action.payload.policy === 'SINGLES_ONLY'
+            ? 'SINGLES'
+            : 'DOUBLES'
+        ),
+        suggestCursor: 0,
       };
       return {
         ...baseNextState,
         courts: [...baseNextState.courts, newCourt],
-        courtPlanIndex: {},
-      };
+              };
     }
 
     // Mục 16, 0.1 & 0.14: UPDATE_COURT
@@ -1135,7 +1177,10 @@ export function badmintonReducer(
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
       if (!targetCourt) return state;
 
-      // Tắt sân chỉ cho phép khi currentMatch === null; gặp trận đang đánh -> return state
+      if (updates.name && updates.name.trim() === '') {
+        return state;
+      }
+
       if (updates.isActive === false && targetCourt.currentMatch !== null) {
         return state;
       }
@@ -1147,44 +1192,50 @@ export function badmintonReducer(
       if (updates.forcedType !== undefined) sanitizedUpdates.forcedType = updates.forcedType;
 
       const nextAutoSnooze = { ...baseNextState.autoSinglesSnooze };
-      let nextPlanIndex = { ...baseNextState.courtPlanIndex };
-
-      // 0.14: Đổi isActive (bật hoặc tắt) -> reset courtPlanIndex toàn bộ
-      const isTogglingActive =
-        updates.isActive !== undefined && updates.isActive !== targetCourt.isActive;
-      if (isTogglingActive) {
-        nextPlanIndex = {};
-      }
+      const isActivating = !targetCourt.isActive && updates.isActive === true;
+      const isDeactivating = targetCourt.isActive && updates.isActive === false;
 
       const updatedCourts = baseNextState.courts.map((c) => {
         if (c.id !== courtId) return c;
-        const isNowInactive = updates.isActive === false;
-        if (isNowInactive) {
+        if (isDeactivating) {
           delete nextAutoSnooze[courtId];
-          delete nextPlanIndex[courtId];
           return {
             ...c,
             ...sanitizedUpdates,
-            nextUp: null,
+            nextUp: createEmptyNextUp(c.nextUp?.type || 'DOUBLES'),
+            suggestCursor: 0,
           };
         }
         return { ...c, ...sanitizedUpdates };
       });
 
       let nextReadyQueue = baseNextState.readyQueue;
-      if (updates.isActive === false) {
+      if (isDeactivating) {
         nextReadyQueue = nextReadyQueue.map((item) =>
           item.courtId === courtId ? { ...item, courtId: undefined } : item
         );
       }
 
-      return {
+      let nextState: BadmintonSessionState = {
         ...baseNextState,
         courts: updatedCourts,
         readyQueue: nextReadyQueue,
         autoSinglesSnooze: nextAutoSnooze,
-        courtPlanIndex: updates.policy !== undefined || isTogglingActive ? {} : nextPlanIndex,
       };
+
+      if (isActivating) {
+        const draft = suggestNextUpForCourt(nextState, courtId);
+        if (draft) {
+          nextState = {
+            ...nextState,
+            courts: nextState.courts.map((c) =>
+              c.id === courtId ? { ...c, nextUp: draft } : c
+            ),
+          };
+        }
+      }
+
+      return nextState;
     }
 
     // Mục 15: REMOVE_COURT
@@ -1209,8 +1260,7 @@ export function badmintonReducer(
         courts: updatedCourts,
         players: updatedPlayers,
         readyQueue: updatedReadyQueue,
-        courtPlanIndex: {},
-      };
+              };
     }
 
     // Mục 14: ADD_PAIR_RULE
@@ -1237,7 +1287,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         pairRules: [...baseNextState.pairRules, newRule],
-        courtPlanIndex: {}, // Mục 4: reset khi đổi luật cặp
+         // Mục 4: reset khi đổi luật cặp
       };
     }
 
@@ -1245,7 +1295,7 @@ export function badmintonReducer(
       return {
         ...baseNextState,
         pairRules: baseNextState.pairRules.filter((r) => r.id !== action.payload.ruleId),
-        courtPlanIndex: {}, // Mục 4: reset khi đổi luật cặp
+         // Mục 4: reset khi đổi luật cặp
       };
     }
 
@@ -1291,7 +1341,7 @@ export function badmintonReducer(
         ...baseNextState,
         settings: newSettings,
         players: updatedPlayers,
-        courtPlanIndex: {}, // Mục 4: reset khi đổi settings
+         // Mục 4: reset khi đổi settings
       };
     }
 
@@ -1309,19 +1359,6 @@ export function badmintonReducer(
       };
     }
 
-    case 'CYCLE_NEXT_UP_PROPOSAL': {
-      const { courtId } = action.payload;
-      const currentIdx = baseNextState.courtPlanIndex[courtId] ?? 0;
-      return {
-        ...baseNextState,
-        courtPlanIndex: {
-          ...baseNextState.courtPlanIndex,
-          [courtId]: currentIdx + 1,
-        },
-      };
-    }
-
-    // Mục 19 & 0.14: DELETE_HISTORY_MATCH (reset courtPlanIndex toàn bộ)
     case 'DELETE_HISTORY_MATCH': {
       const { matchId } = action.payload;
       const matchIndex = baseNextState.history.findIndex((h) => h.id === matchId);
@@ -1349,7 +1386,7 @@ export function badmintonReducer(
         players: updatedPlayers,
         history: remainingHistory,
         stats: updatedStats,
-        courtPlanIndex: {}, // 0.14: reset courtPlanIndex toàn bộ
+         // Mục 19: DELETE_HISTORY_MATCH
       };
     }
 

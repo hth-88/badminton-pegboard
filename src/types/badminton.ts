@@ -75,6 +75,14 @@ export interface Lineup {
   isLockedByHost?: boolean;
 }
 
+export type NextUpSlotSource = 'AUTO' | 'MANUAL';
+
+export interface NextUpDraft {
+  type: MatchType;
+  slots: (string | null)[];
+  slotSource: (NextUpSlotSource | null)[];
+}
+
 export type CourtPolicy = 'MIX' | 'DOUBLES_ONLY' | 'SINGLES_ONLY';
 
 export interface Court {
@@ -84,7 +92,8 @@ export interface Court {
   policy: CourtPolicy;
   forcedType?: 'DOUBLES' | 'SINGLES' | null;
   currentMatch: (Lineup & { startedAt: number; id?: string }) | null;
-  nextUp: (Lineup & { isLockedByHost: boolean }) | null;
+  nextUp: NextUpDraft;
+  suggestCursor: number;
 }
 
 export interface MatchHistory {
@@ -254,7 +263,6 @@ export interface BadmintonSessionSnapshot {
   mixDebt: { doubles: number; singles: number };
   readyQueue: ReadyQueueItem[];
   autoSinglesSnooze: Record<string, { untilTs: number; queueSizeAtSnooze: number }>;
-  courtPlanIndex: Record<string, number>;
 }
 
 export interface BadmintonSessionState extends BadmintonSessionSnapshot {

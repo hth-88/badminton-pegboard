@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { planAllCourts } from '../matchmaker';
+import { suggestNextUpForCourt } from '../matchmaker';
+import { createEmptyNextUp } from '../nextUp';
 import { describeLineup } from '../validateLineup';
 import { stepRankUp, stepRankDown, ORDERED_RANKS } from '../skillConfig';
 import type {
@@ -54,7 +55,8 @@ describe('Tính năng Dự kiến Next Up (Mục 1) & Tác dụng tức thì Mal
           slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
           startedAt: 1000,
         },
-        nextUp: null,
+        nextUp: createEmptyNextUp('DOUBLES'),
+        suggestCursor: 0,
       },
     ];
 
@@ -65,23 +67,19 @@ describe('Tính năng Dự kiến Next Up (Mục 1) & Tác dụng tức thì Mal
       settings: DEFAULT_SETTINGS,
     };
 
-    const plan = planAllCourts(state, 2000, 12345);
-    const courtPlan = plan['court-1'];
+    const nextUp = suggestNextUpForCourt(state, 'court-1', 2000);
 
-    // 1. Phải trả về status: 'OK' chứ không phải 'WAIT'
-    expect(courtPlan.status).toBe('OK');
-    if (courtPlan.status === 'OK') {
-      const topProposal = courtPlan.proposals[0];
-      // 2. Phải đánh dấu cờ isProjectedFromCurrentMatch: true
-      expect(topProposal.isProjectedFromCurrentMatch).toBe(true);
+    // 1. Phải trả về NextUpDraft đủ 4 người
+    expect(nextUp).not.toBeNull();
+    if (nextUp) {
+      expect(nextUp.slots.length).toBe(4);
+      expect(nextUp.slots.every(Boolean)).toBe(true);
 
-      // 3. Phải đảo cặp: KHÔNG lặp lại cặp p1&p2 và p3&p4
-      const t1 = topProposal.lineup.team1;
-      const t2 = topProposal.lineup.team2;
-
-      const p1Partner = t1.includes('p1')
-        ? (t1[0] === 'p1' ? t1[1] : t1[0])
-        : (t2[0] === 'p1' ? t2[1] : t2[0]);
+      // 2. Phải đảo cặp: KHÔNG lặp lại cặp p1&p2 và p3&p4
+      const [s0, s1, s2, s3] = nextUp.slots as string[];
+      const p1Partner = [s0, s1].includes('p1')
+        ? (s0 === 'p1' ? s1 : s0)
+        : (s2 === 'p1' ? s3 : s2);
 
       // Đồng đội của p1 ở trận mới phải là p3 hoặc p4, KHÔNG được là p2
       expect(p1Partner).not.toBe('p2');

@@ -2,8 +2,10 @@ import type {
   BadmintonSessionState,
   Court,
   Lineup,
+  NextUpDraft,
   Player,
 } from '../types/badminton';
+import { createEmptyNextUp } from './nextUp';
 import {
   activatePlayerWithOffset,
   createDefaultCourts,
@@ -68,7 +70,7 @@ export function startCourtMatch(
         id: `match_${courtId}_${startedAt}`,
         startedAt,
       },
-      nextUp: null,
+      nextUp: createEmptyNextUp(court.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES'),
     };
   });
 }
@@ -79,7 +81,7 @@ export function startCourtMatch(
 export function setCourtNextUp(
   courtId: string,
   courts: Court[],
-  nextUp: (Lineup & { isLockedByHost: boolean }) | null
+  nextUp: NextUpDraft
 ): Court[] {
   return courts.map((court) => {
     if (court.id !== courtId) return court;

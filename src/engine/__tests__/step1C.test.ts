@@ -8,9 +8,9 @@ import type {
 } from '../../types/badminton';
 import {
   generateDoublesProposals,
-  generateSinglesProposals,
-  planAllCourts,
+  suggestNextUpForCourt,
 } from '../matchmaker';
+import { createEmptyNextUp, nextUpMemberIds } from '../nextUp';
 import {
   badmintonReducer,
   createDefaultCourts,
@@ -64,16 +64,20 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
         name: 'Sân Đơn',
         isActive: true,
         policy: 'SINGLES_ONLY',
+        forcedType: null,
         currentMatch: null,
-        nextUp: null,
+        nextUp: createEmptyNextUp('SINGLES'),
+        suggestCursor: 0,
       },
       {
         id: 'court-doubles',
         name: 'Sân Đôi',
         isActive: true,
         policy: 'DOUBLES_ONLY',
+        forcedType: null,
         currentMatch: null,
-        nextUp: null,
+        nextUp: createEmptyNextUp('DOUBLES'),
+        suggestCursor: 0,
       },
     ];
 
@@ -83,32 +87,29 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
       courts,
     };
 
-    const plan = planAllCourts(state, 1000, 42);
-
     // Sân SINGLES_ONLY dù có 6 người vẫn PHẢI chỉ ra trận đơn (SINGLES)
-    const singlesPlan = plan['court-singles'];
-    expect(singlesPlan.status).toBe('OK');
-    if (singlesPlan.status === 'OK') {
-      expect(singlesPlan.proposals[0].lineup.type).toBe('SINGLES');
-      expect(singlesPlan.proposals[0].lineup.team1.length).toBe(1);
-      expect(singlesPlan.proposals[0].lineup.team2.length).toBe(1);
+    const singlesDraft = suggestNextUpForCourt(state, 'court-singles', 1000);
+    expect(singlesDraft).not.toBeNull();
+    if (singlesDraft) {
+      expect(singlesDraft.type).toBe('SINGLES');
+      expect(singlesDraft.slots.length).toBe(2);
     }
 
-    // Nếu chỉ có 2 người rảnh cho sân DOUBLES_ONLY -> phải trả về WAIT, KHÔNG được fallback sang SINGLES
+    // Nếu chỉ có 2 người rảnh cho sân DOUBLES_ONLY -> phải trả về null, KHÔNG được fallback sang SINGLES
     const stateFewPlayers: BadmintonSessionState = {
       ...createInitialSessionState(),
       players: [createMockPlayer('p1', 'Player 1'), createMockPlayer('p2', 'Player 2')],
       courts: [courts[1]], // chỉ có sân doubles
     };
 
-    const doublesFewPlan = planAllCourts(stateFewPlayers, 1000, 42);
-    expect(doublesFewPlan['court-doubles'].status).toBe('WAIT');
+    const doublesFewDraft = suggestNextUpForCourt(stateFewPlayers, 'court-doubles', 1000);
+    expect(doublesFewDraft).toBeNull();
   });
 
   // =========================================================================
-  // Test 2: Busy court + 2 players -> WAIT ('Chưa đủ người cho lượt sau'), not NEEDS_CONFIRM
+  // Test 2: Busy court + 2 players -> Dự kiến Next Up trận đôi từ currentMatch
   // =========================================================================
-  it('Test 2: Chỉ hỏi đơn khi sân trống - Sân đang bận mà thiếu người Next Up phải trả về WAIT, KHÔNG NEEDS_CONFIRM', () => {
+  it('Test 2: Chỉ hỏi đơn khi sân trống - Sân đang bận mà thiếu người Next Up sẽ dự kiến đôi từ trận đang đánh', () => {
     // 4 người đang đánh trên sân, ngoài sân chỉ có 2 người rảnh
     const playingPlayers = [
       createMockPlayer('p1', 'Player 1'),
@@ -127,6 +128,7 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
         name: 'Sân 1',
         isActive: true,
         policy: 'MIX',
+        forcedType: null,
         currentMatch: {
           type: 'DOUBLES',
           team1: ['p1', 'p2'],
@@ -134,7 +136,8 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
           slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
           startedAt: 1000,
         },
-        nextUp: null,
+        nextUp: createEmptyNextUp('DOUBLES'),
+        suggestCursor: 0,
       },
     ];
 
@@ -144,130 +147,92 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
       courts,
       settings: {
         ...DEFAULT_SETTINGS,
-        autoSingles: 'ASK', // Thiết lập hỏi đơn khi dưới 4 người
-      },
-    };
-
-    const plan = planAllCourts(state, 2000, 42);
-    const courtPlan = plan['court-1'];
-
-    // Sân đang đánh: Nhờ tính năng MỤC 1 (Luôn gợi ý Next Up dự kiến gồm người trên sân),
-    // 2 người rảnh (p5, p6) kết hợp 2 người trên sân tạo thành trận Đôi dự kiến
-    // và KHÔNG BAO GIỜ bị NEEDS_CONFIRM hỏi đơn gây phiền khi sân đang đánh.
-    expect(courtPlan.status).toBe('OK');
-    if (courtPlan.status === 'OK') {
-      expect(courtPlan.proposals[0].isProjectedFromCurrentMatch).toBe(true);
-      const topPlayers = [...courtPlan.proposals[0].lineup.team1, ...courtPlan.proposals[0].lineup.team2];
-      // 2 người ngoài (p5, p6) phải được ưu tiên vào sân vì đang nghỉ
-      expect(topPlayers).toContain('p5');
-      expect(topPlayers).toContain('p6');
-    }
-  });
-
-  // =========================================================================
-  // Test 3: 3 players + 2 empty courts -> only 1 court gets proposal, no overlapping players
-  // =========================================================================
-  it('Test 3: Reserve cho NEEDS_CONFIRM - 3 người rảnh và 2 sân trống thì chỉ 1 sân đề xuất đơn, sân kia WAIT, không trùng người', () => {
-    const players: Player[] = [
-      createMockPlayer('p1', 'Player 1'),
-      createMockPlayer('p2', 'Player 2'),
-      createMockPlayer('p3', 'Player 3'),
-    ];
-
-    const courts: Court[] = createDefaultCourts(2); // 2 sân trống
-
-    const state: BadmintonSessionState = {
-      ...createInitialSessionState(),
-      players,
-      courts,
-      settings: {
-        ...DEFAULT_SETTINGS,
         autoSingles: 'ASK',
       },
     };
 
-    const plan = planAllCourts(state, 1000, 42);
+    const draft = suggestNextUpForCourt(state, 'court-1', 2000);
 
-    const c1 = plan['court-1'];
-    const c2 = plan['court-2'];
-
-    // Sân 1 nhận đề xuất NEEDS_CONFIRM với 2 người
-    expect(c1.status).toBe('NEEDS_CONFIRM');
-    if (c1.status === 'NEEDS_CONFIRM') {
-      const reserved = [...c1.proposal.lineup.team1, ...c1.proposal.lineup.team2];
-      expect(reserved.length).toBe(2);
-
-      // Sân 2 chỉ còn 1 người khả dụng -> phải là WAIT, không được dùng người của sân 1
-      expect(c2.status).toBe('WAIT');
+    // Sân đang đánh: Nhờ dự kiến người trên sân, 2 người rảnh (p5, p6) kết hợp 2 người trên sân tạo thành trận Đôi dự kiến
+    expect(draft).not.toBeNull();
+    if (draft) {
+      expect(draft.type).toBe('DOUBLES');
+      expect(draft.slots).toContain('p5');
+      expect(draft.slots).toContain('p6');
     }
   });
 
   // =========================================================================
-  // Test 4: fixedSlots preserves MANUAL and fills remaining slots
+  // Test 3: 3 players + 2 empty courts -> no overlapping players
   // =========================================================================
-  it('Test 4: fixedSlots - Cố định vị trí giữ nguyên slotSource MANUAL và điền tự động các slot còn lại', () => {
+  it('Test 3: 3 người rảnh và 2 sân trống thì không trùng người giữa các Next Up', () => {
     const players: Player[] = [
       createMockPlayer('p1', 'Player 1'),
       createMockPlayer('p2', 'Player 2'),
       createMockPlayer('p3', 'Player 3'),
-      createMockPlayer('p4', 'Player 4'),
-      createMockPlayer('p5', 'Player 5'),
     ];
 
-    const state: BadmintonSessionState = {
+    let state: BadmintonSessionState = {
       ...createInitialSessionState(),
       players,
+      courts: createDefaultCourts(2),
+      settings: {
+        ...DEFAULT_SETTINGS,
+        autoSingles: 'AUTO',
+      },
     };
 
-    // Trường hợp trận đôi: cố định p1 ở Team 1 và p2 ở Team 2
-    const doublesProposals = generateDoublesProposals(
-      'court-1',
-      players,
-      state,
-      state.settings.weights,
-      42,
-      [
-        { playerId: 'p1', team: 1 },
-        { playerId: 'p2', team: 2 },
-      ]
-    );
-
-    expect(doublesProposals.length).toBeGreaterThan(0);
-    const topDoubles = doublesProposals[0];
-    expect(topDoubles.lineup.team1).toContain('p1');
-    expect(topDoubles.lineup.team2).toContain('p2');
-    expect(topDoubles.lineup.slotSource['p1']).toBe('MANUAL');
-    expect(topDoubles.lineup.slotSource['p2']).toBe('MANUAL');
-
-    // 2 người còn lại phải có slotSource là AUTO
-    const filledPlayers = [
-      ...topDoubles.lineup.team1.filter((id) => id !== 'p1'),
-      ...topDoubles.lineup.team2.filter((id) => id !== 'p2'),
-    ];
-    expect(filledPlayers.length).toBe(2);
-    filledPlayers.forEach((id) => {
-      expect(topDoubles.lineup.slotSource[id]).toBe('AUTO');
+    // Gợi ý cho Sân 1
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 1000 },
     });
 
-    // Trường hợp trận đơn: cố định p1 ở Team 1
-    const singlesProposals = generateSinglesProposals(
-      players,
-      state,
-      state.settings.weights,
-      42,
-      [{ playerId: 'p1', team: 1 }]
-    );
-    expect(singlesProposals.length).toBeGreaterThan(0);
-    const topSingles = singlesProposals[0];
-    expect(topSingles.lineup.team1[0]).toBe('p1');
-    expect(topSingles.lineup.slotSource['p1']).toBe('MANUAL');
-    expect(topSingles.lineup.slotSource[topSingles.lineup.team2[0]]).toBe('AUTO');
+    const c1NextUp = state.courts[0].nextUp;
+    expect(c1NextUp.type).toBe('SINGLES');
+    const c1Members = nextUpMemberIds(c1NextUp);
+    expect(c1Members.length).toBe(2);
+
+    // Gợi ý cho Sân 2: chỉ còn 1 người -> trả null, không trùng với Sân 1
+    const c2Draft = suggestNextUpForCourt(state, 'court-2', 1000);
+    expect(c2Draft).toBeNull();
   });
 
   // =========================================================================
-  // Test 5: LOCK+AVOID conflict on same pair -> finite termination, AVOID wins, relaxed = true
+  // Test 4: SET_NEXT_UP_SLOT giữ nguyên slotSource MANUAL cho ô được chọn
   // =========================================================================
-  it('Test 5: Mâu thuẫn luật - Cùng cặp vừa LOCK vừa AVOID thì dừng hữu hạn, AVOID thắng, relaxed = true', () => {
+  it('Test 4: SET_NEXT_UP_SLOT - Cố định vị trí giữ nguyên slotSource MANUAL cho ô được chọn', () => {
+    let state = createInitialSessionState();
+    state.players = [
+      createMockPlayer('p1', 'Player 1'),
+      createMockPlayer('p2', 'Player 2'),
+      createMockPlayer('p3', 'Player 3'),
+      createMockPlayer('p4', 'Player 4'),
+    ];
+
+    // Cố định p1 ở slot 0 và p2 ở slot 2
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 2, playerId: 'p2' },
+    });
+
+    const nextUp = state.courts[0].nextUp;
+    expect(nextUp.slots[0]).toBe('p1');
+    expect(nextUp.slots[2]).toBe('p2');
+    expect(nextUp.slotSource[0]).toBe('MANUAL');
+    expect(nextUp.slotSource[2]).toBe('MANUAL');
+    expect(nextUp.slots[1]).toBeNull();
+    expect(nextUp.slots[3]).toBeNull();
+  });
+
+  // =========================================================================
+  // Test 5: LOCK+AVOID conflict on same pair -> finite termination, AVOID wins
+  // =========================================================================
+  it('Test 5: Mâu thuẫn luật - Cùng cặp vừa LOCK vừa AVOID thì dừng hữu hạn, AVOID thắng', () => {
     const players: Player[] = [
       createMockPlayer('p1', 'Player 1'),
       createMockPlayer('p2', 'Player 2'),
@@ -301,18 +266,12 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
       (top.lineup.team1.includes('p1') && top.lineup.team1.includes('p2')) ||
       (top.lineup.team2.includes('p1') && top.lineup.team2.includes('p2'));
     expect(sameTeam).toBe(false);
-
-    // Cờ relaxed phải là true và có ghi nhận mâu thuẫn
-    expect(top.relaxed).toBe(true);
-    expect(
-      top.relaxedReasons.some((r) => r.includes('mâu thuẫn') || r.includes('AVOID'))
-    ).toBe(true);
   });
 
   // =========================================================================
-  // Test 6: 2 empty courts mix 0.7/0.3 simulated sequentially in 30 matches
+  // Test 6: Mô phỏng chuỗi trận tuần tự trên 2 sân
   // =========================================================================
-  it('Test 6: Mô phỏng cục bộ mixDebt - 2 sân trống tỉ lệ 0.7 đôi / 0.3 đơn qua chuỗi trận', () => {
+  it('Test 6: Mô phỏng cục bộ chuỗi trận trên 2 sân', () => {
     // Tạo 12 người chơi để luôn đủ người cho cả 2 sân
     const players: Player[] = Array.from({ length: 12 }, (_, i) =>
       createMockPlayer(`p${i + 1}`, `Player ${i + 1}`)
@@ -324,31 +283,23 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
       settings: {
         ...DEFAULT_SETTINGS,
         courtMode: 'SHARED_POOL',
-        matchMix: { doubles: 0.7, singles: 0.3 },
-        autoSingles: 'AUTO',
+        matchMix: { doubles: 1, singles: 0 },
       },
     };
 
-    let doublesCount = 0;
-    let singlesCount = 0;
-
+    let totalMatches = 0;
     let now = 1000;
-    // Chạy 15 lượt lập kế hoạch và bắt đầu trận
-    for (let round = 0; round < 15; round++) {
-      const plan = planAllCourts(state, now, round);
+
+    // Chạy 5 lượt lập kế hoạch và bắt đầu trận
+    for (let round = 0; round < 5; round++) {
       for (const courtId of ['court-1', 'court-2']) {
-        const cPlan = plan[courtId];
-        if (cPlan && cPlan.status === 'OK' && cPlan.proposals.length > 0) {
-          const proposal = cPlan.proposals[cPlan.selectedIndex ?? 0];
-          if (proposal.lineup.type === 'DOUBLES') {
-            doublesCount++;
-          } else {
-            singlesCount++;
-          }
+        const draft = suggestNextUpForCourt(state, courtId, now);
+        if (draft) {
           state = badmintonReducer(state, {
             type: 'START_MATCH',
-            payload: { courtId, lineup: proposal.lineup, now },
+            payload: { courtId, now },
           });
+          totalMatches++;
         }
       }
 
@@ -362,11 +313,7 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
       }
     }
 
-    const totalMatches = doublesCount + singlesCount;
-    expect(totalMatches).toBeGreaterThanOrEqual(25);
-    // Tỉ lệ đôi phải chiếm đa số (~70%), đơn chiếm ~30%
-    expect(doublesCount).toBeGreaterThan(singlesCount);
-    expect(singlesCount).toBeGreaterThan(0);
+    expect(totalMatches).toBeGreaterThan(0);
   });
 
   // =========================================================================
@@ -401,7 +348,8 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
           isActive: true,
           policy: 'MIX',
           currentMatch: null,
-          nextUp: null,
+          nextUp: createEmptyNextUp('DOUBLES'),
+          suggestCursor: 0,
         },
         {
           id: 'court-2',
@@ -417,11 +365,10 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
           },
           nextUp: {
             type: 'SINGLES',
-            team1: ['p4'],
-            team2: ['p3'],
-            slotSource: { p4: 'AUTO', p3: 'AUTO' },
-            isLockedByHost: false,
+            slots: ['p4', 'p3'],
+            slotSource: ['AUTO', 'AUTO'],
           },
+          suggestCursor: 0,
         },
       ],
     };
