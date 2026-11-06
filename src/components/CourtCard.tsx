@@ -19,12 +19,14 @@ import type {
   BadmintonSessionState,
   Court,
   Lineup,
+  NextUpDraft,
   Player,
 } from '../types/badminton';
 import {
   canSuggestNextUp,
   isNextUpComplete,
   isNextUpEmpty,
+  normalizeNextUp,
   slotsToLineup,
   type NextUpEvaluation,
 } from '../engine/nextUp';
@@ -110,6 +112,10 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     [state.players]
   );
 
+  const safeNextUp: NextUpDraft = useMemo(() => {
+    return normalizeNextUp(court.nextUp, court.forcedType, court.policy);
+  }, [court.nextUp, court.forcedType, court.policy]);
+
   const getPlayer = (id: string): Player | undefined => playerMap.get(id);
 
   // Kiểm tra tính hợp lệ của đội hình trước khi vào sân
@@ -144,8 +150,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     }
     lastEndClickRef.current = now;
 
-    if (isNextUpComplete(court.nextUp)) {
-      const nextLineup = slotsToLineup(court.nextUp);
+    if (isNextUpComplete(safeNextUp)) {
+      const nextLineup = slotsToLineup(safeNextUp);
       if (nextLineup) {
         const err = checkLineupErrors(nextLineup);
         if (err) {
@@ -277,11 +283,11 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
   // Nút Vào sân khi sân đang trống
   const handleStartNextUpClick = () => {
-    if (!isNextUpComplete(court.nextUp)) {
+    if (!isNextUpComplete(safeNextUp)) {
       onShowWarningToast?.('Chưa đủ 4 người để vào sân');
       return;
     }
-    const lineup = slotsToLineup(court.nextUp);
+    const lineup = slotsToLineup(safeNextUp);
     if (!lineup) return;
     const err = checkLineupErrors(lineup);
     if (err) {
@@ -614,7 +620,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <span>Lượt kế tiếp (Next Up)</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  {court.nextUp.type === 'DOUBLES' ? 'Đôi' : 'Đơn'}
+                  {safeNextUp.type === 'DOUBLES' ? 'Đôi' : 'Đơn'}
                 </span>
               </span>
 
@@ -633,25 +639,25 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition"
                 >
                   <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isNextUpEmpty(court.nextUp) ? 'Gợi ý kèo' : 'Gợi ý lại'}</span>
+                  <span>{isNextUpEmpty(safeNextUp) ? 'Gợi ý kèo' : 'Gợi ý lại'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => onClearNextUp(court.id)}
-                  disabled={isNextUpEmpty(court.nextUp)}
+                  disabled={isNextUpEmpty(safeNextUp)}
                   title="Xóa trắng toàn bộ các ô lượt sau"
                   className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-slate-300 border border-slate-700 transition"
                 >
                   <span>🗑️ Xóa trắng</span>
                 </button>
 
-                {court.nextUp.type === 'DOUBLES' && (
+                {safeNextUp.type === 'DOUBLES' && (
                   <>
                     <button
                       type="button"
                       onClick={() => onRearrangeNextUp(court.id, 'ROTATE')}
-                      disabled={!isNextUpComplete(court.nextUp)}
+                      disabled={!isNextUpComplete(safeNextUp)}
                       title="Đảo cặp cho 4 người hiện có"
                       className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-slate-300 border border-slate-700 transition flex items-center gap-1"
                     >
@@ -662,7 +668,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     <button
                       type="button"
                       onClick={() => onRearrangeNextUp(court.id, 'BALANCE')}
-                      disabled={!isNextUpComplete(court.nextUp)}
+                      disabled={!isNextUpComplete(safeNextUp)}
                       title="Cân kèo cho 4 người hiện có"
                       className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-emerald-300 border border-slate-700 transition flex items-center gap-1"
                     >
@@ -675,18 +681,18 @@ export const CourtCard: React.FC<CourtCardProps> = ({
             </div>
 
             {/* Next Up Slots Grid */}
-            {court.nextUp.type === 'SINGLES' ? (
+            {safeNextUp.type === 'SINGLES' ? (
               <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-2">
                 {/* Team 1 */}
                 <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
                   <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 1</span>
-                  {renderNextUpSlot(court.nextUp.slots[0], 0)}
+                  {renderNextUpSlot(safeNextUp.slots[0], 0)}
                 </div>
 
                 {/* Team 2 */}
                 <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
                   <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 2</span>
-                  {renderNextUpSlot(court.nextUp.slots[1], 1)}
+                  {renderNextUpSlot(safeNextUp.slots[1], 1)}
                 </div>
               </div>
             ) : (
@@ -694,8 +700,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                 {/* Team 1 (Slot 0, 1) */}
                 <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
                   <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 1</span>
-                  {renderNextUpSlot(court.nextUp.slots[0], 0)}
-                  {renderNextUpSlot(court.nextUp.slots[1], 1)}
+                  {renderNextUpSlot(safeNextUp.slots[0], 0)}
+                  {renderNextUpSlot(safeNextUp.slots[1], 1)}
                 </div>
 
                 {/* VS Divider on Mobile */}
@@ -710,14 +716,14 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                 {/* Team 2 (Slot 2, 3) */}
                 <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
                   <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 2</span>
-                  {renderNextUpSlot(court.nextUp.slots[2], 2)}
-                  {renderNextUpSlot(court.nextUp.slots[3], 3)}
+                  {renderNextUpSlot(safeNextUp.slots[2], 2)}
+                  {renderNextUpSlot(safeNextUp.slots[3], 3)}
                 </div>
               </div>
             )}
 
             {/* Evaluation line under Next Up (Chênh X điểm • 3 Nam – 1 Nữ) */}
-            {isNextUpComplete(court.nextUp) && nextUpEval && (
+            {isNextUpComplete(safeNextUp) && nextUpEval && (
               <div className="mt-2.5 px-3 py-1.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs font-medium text-slate-300">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -794,7 +800,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     }
 
     const player = getPlayer(pid);
-    const isManual = court.nextUp.slotSource[idx] === 'MANUAL';
+    const isManual = safeNextUp.slotSource?.[idx] === 'MANUAL';
     const rankMeta = player ? RANK_METADATA[player.rank] : null;
 
     return (

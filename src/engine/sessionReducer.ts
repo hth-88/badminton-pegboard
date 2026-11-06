@@ -20,6 +20,7 @@ import {
   createEmptyNextUp,
   getSlotCandidateStatus,
   isNextUpComplete,
+  normalizeNextUp,
   rotatePairing,
   slotsToLineup,
 } from './nextUp';
@@ -534,9 +535,15 @@ export function badmintonReducer(
     if (state.undoStack.length === 0) return state;
     const previous = state.undoStack[0];
     const currentSnapshot = createSnapshot(state);
+    const sanitizedCourts = (previous.courts || []).map((c) => ({
+      ...c,
+      nextUp: normalizeNextUp(c.nextUp, c.forcedType, c.policy),
+      suggestCursor: Number.isFinite(Number(c.suggestCursor)) ? Number(c.suggestCursor) : 0,
+    }));
     return {
       ...previous,
-      schemaVersion: state.schemaVersion,
+      courts: sanitizedCourts,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       undoStack: state.undoStack.slice(1),
       redoStack: [currentSnapshot, ...state.redoStack].slice(0, 30),
     };
@@ -546,18 +553,54 @@ export function badmintonReducer(
     if (state.redoStack.length === 0) return state;
     const next = state.redoStack[0];
     const currentSnapshot = createSnapshot(state);
+    const sanitizedCourts = (next.courts || []).map((c) => ({
+      ...c,
+      nextUp: normalizeNextUp(c.nextUp, c.forcedType, c.policy),
+      suggestCursor: Number.isFinite(Number(c.suggestCursor)) ? Number(c.suggestCursor) : 0,
+    }));
     return {
       ...next,
-      schemaVersion: state.schemaVersion,
+      courts: sanitizedCourts,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       undoStack: [currentSnapshot, ...state.undoStack].slice(0, 30),
       redoStack: state.redoStack.slice(1),
     };
   }
 
   if (action.type === 'LOAD_STATE') {
+    const raw = action.payload;
+    if (!raw || typeof raw !== 'object') return state;
+
+    const rawCourts = Array.isArray(raw.courts) ? raw.courts : createDefaultCourts(3);
+    const sanitizedCourts: Court[] = rawCourts.map((c: any) => ({
+      id: String(c?.id || 'court-1'),
+      name: String(c?.name || 'Sân'),
+      isActive: Boolean(c?.isActive ?? true),
+      policy: c?.policy || 'MIX',
+      forcedType: c?.forcedType !== undefined ? c.forcedType : null,
+      currentMatch: c?.currentMatch || null,
+      nextUp: normalizeNextUp(c?.nextUp, c?.forcedType, c?.policy),
+      suggestCursor: Number.isFinite(Number(c?.suggestCursor)) ? Number(c.suggestCursor) : 0,
+    }));
+
     return {
-      ...action.payload,
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      players: Array.isArray(raw.players) ? raw.players : [],
+      courts: sanitizedCourts,
+      history: Array.isArray(raw.history) ? raw.history : [],
+      pairRules: Array.isArray(raw.pairRules) ? raw.pairRules : [],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        ...(raw.settings || {}),
+        weights: {
+          ...DEFAULT_PENALTY_WEIGHTS,
+          ...(raw.settings?.weights || {}),
+        },
+      },
+      stats: raw.stats || createEmptyStats(),
+      mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
+      readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
+      autoSinglesSnooze: raw.autoSinglesSnooze || {},
       undoStack: [],
       redoStack: [],
     };

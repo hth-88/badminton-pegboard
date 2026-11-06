@@ -327,8 +327,8 @@ export function useBadmintonSession() {
   // Đánh giá trực quan Next Up của từng sân (Section 7)
   const nextUpEval = useMemo<Record<string, NextUpEvaluation | null>>(() => {
     const evals: Record<string, NextUpEvaluation | null> = {};
-    for (const c of state.courts) {
-      evals[c.id] = evaluateNextUp(c.nextUp, state.players, state.settings?.maleBonus);
+    for (const c of state.courts || []) {
+      evals[c.id] = evaluateNextUp(c.nextUp, state.players || [], state.settings?.maleBonus);
     }
     return evals;
   }, [state.courts, state.players, state.settings?.maleBonus]);

@@ -1,10 +1,7 @@
 import type {
   BadmintonSessionState,
   Court,
-  CourtPolicy,
   MatchHistory,
-  MatchType,
-  NextUpDraft,
   Player,
 } from '../types/badminton';
 import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
@@ -14,51 +11,8 @@ import {
   DEFAULT_SETTINGS,
 } from './sessionReducer';
 import { buildStatsFromHistory, createEmptyStats } from './statsManager';
-import { createEmptyNextUp } from './nextUp';
-
-function normalizeNextUp(
-  rawNextUp: any,
-  forcedType?: MatchType | null,
-  policy?: CourtPolicy
-): NextUpDraft {
-  const matchType: MatchType = forcedType || (policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES');
-  if (!rawNextUp || typeof rawNextUp !== 'object') {
-    return createEmptyNextUp(matchType);
-  }
-  if (Array.isArray(rawNextUp.slots) && Array.isArray(rawNextUp.slotSource)) {
-    return {
-      type: rawNextUp.type || matchType,
-      slots: rawNextUp.slots,
-      slotSource: rawNextUp.slotSource,
-    };
-  }
-  if (Array.isArray(rawNextUp.team1) && Array.isArray(rawNextUp.team2)) {
-    const type: MatchType = rawNextUp.type || matchType;
-    if (type === 'SINGLES') {
-      const s0 = rawNextUp.team1[0] ?? null;
-      const s1 = rawNextUp.team2[0] ?? null;
-      const src0 = s0 ? (rawNextUp.slotSource?.[s0] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
-      const src1 = s1 ? (rawNextUp.slotSource?.[s1] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
-      return {
-        type: 'SINGLES',
-        slots: [s0, s1],
-        slotSource: [src0, src1],
-      };
-    }
-    const s0 = rawNextUp.team1[0] ?? null;
-    const s1 = rawNextUp.team1[1] ?? null;
-    const s2 = rawNextUp.team2[0] ?? null;
-    const s3 = rawNextUp.team2[1] ?? null;
-    const getSrc = (id: string | null) =>
-      id ? (rawNextUp.slotSource?.[id] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
-    return {
-      type: 'DOUBLES',
-      slots: [s0, s1, s2, s3],
-      slotSource: [getSrc(s0), getSrc(s1), getSrc(s2), getSrc(s3)],
-    };
-  }
-  return createEmptyNextUp(matchType);
-}
+import { createEmptyNextUp, normalizeNextUp } from './nextUp';
+export { normalizeNextUp };
 
 export const STORAGE_KEY_V2 = 'badminton_court_session_v2';
 export const STORAGE_KEY_V1 = 'badminton_court_session_v1';

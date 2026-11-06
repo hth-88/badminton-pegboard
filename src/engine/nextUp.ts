@@ -27,23 +27,93 @@ export function createEmptyNextUp(type: MatchType = 'DOUBLES'): NextUpDraft {
 }
 
 /**
+ * Chuẩn hóa bất kỳ đối tượng nextUp nào (null, undefined, legacy format hoặc bản nháp hỏng)
+ * về cấu trúc NextUpDraft chuẩn an toàn tuyệt đối.
+ */
+export function normalizeNextUp(
+  rawNextUp: any,
+  forcedType?: MatchType | null,
+  policy?: 'MIX' | 'DOUBLES_ONLY' | 'SINGLES_ONLY'
+): NextUpDraft {
+  const matchType: MatchType = forcedType || (policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES');
+  if (!rawNextUp || typeof rawNextUp !== 'object') {
+    return createEmptyNextUp(matchType);
+  }
+
+  const effectiveType: MatchType =
+    rawNextUp.type === 'SINGLES'
+      ? 'SINGLES'
+      : rawNextUp.type === 'DOUBLES'
+      ? 'DOUBLES'
+      : matchType === 'SINGLES'
+      ? 'SINGLES'
+      : 'DOUBLES';
+  const expectedCount = effectiveType === 'SINGLES' ? 2 : 4;
+
+  if (Array.isArray(rawNextUp.slots)) {
+    const slots: (string | null)[] = Array(expectedCount).fill(null);
+    const slotSource: ('AUTO' | 'MANUAL' | null)[] = Array(expectedCount).fill(null);
+    for (let i = 0; i < expectedCount; i++) {
+      const val = rawNextUp.slots[i];
+      const pid = typeof val === 'string' && val.trim().length > 0 ? val.trim() : null;
+      slots[i] = pid;
+      if (pid) {
+        const rawSrc = Array.isArray(rawNextUp.slotSource)
+          ? rawNextUp.slotSource[i]
+          : rawNextUp.slotSource?.[pid];
+        slotSource[i] = rawSrc === 'MANUAL' ? 'MANUAL' : 'AUTO';
+      }
+    }
+    return {
+      type: effectiveType,
+      slots,
+      slotSource,
+    };
+  }
+
+  // Legacy team1 / team2 format
+  if (Array.isArray(rawNextUp.team1) || Array.isArray(rawNextUp.team2)) {
+    if (effectiveType === 'SINGLES') {
+      const s0 = typeof rawNextUp.team1?.[0] === 'string' ? rawNextUp.team1[0] : null;
+      const s1 = typeof rawNextUp.team2?.[0] === 'string' ? rawNextUp.team2[0] : null;
+      const getSrc = (id: string | null) =>
+        id ? (rawNextUp.slotSource?.[id] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
+      return {
+        type: 'SINGLES',
+        slots: [s0, s1],
+        slotSource: [getSrc(s0), getSrc(s1)],
+      };
+    }
+    const s0 = typeof rawNextUp.team1?.[0] === 'string' ? rawNextUp.team1[0] : null;
+    const s1 = typeof rawNextUp.team1?.[1] === 'string' ? rawNextUp.team1[1] : null;
+    const s2 = typeof rawNextUp.team2?.[0] === 'string' ? rawNextUp.team2[0] : null;
+    const s3 = typeof rawNextUp.team2?.[1] === 'string' ? rawNextUp.team2[1] : null;
+    const getSrc = (id: string | null) =>
+      id ? (rawNextUp.slotSource?.[id] === 'MANUAL' ? 'MANUAL' : 'AUTO') : null;
+    return {
+      type: 'DOUBLES',
+      slots: [s0, s1, s2, s3],
+      slotSource: [getSrc(s0), getSrc(s1), getSrc(s2), getSrc(s3)],
+    };
+  }
+
+  return createEmptyNextUp(matchType);
+}
+
+/**
  * Kiểm tra Next Up có hoàn toàn rỗng không (tất cả các slot đều null)
  */
-export function isNextUpEmpty(nextUp: NextUpDraft): boolean {
-  return nextUp.slots.every((s) => s === null);
+export function isNextUpEmpty(nextUp: NextUpDraft | any): boolean {
+  if (!nextUp || typeof nextUp !== 'object' || !Array.isArray(nextUp.slots)) return true;
+  return nextUp.slots.every((s: any) => s === null || s === undefined);
 }
 
 /**
  * Kiểm tra Next Up đã điền đủ người chưa
  */
 export function isNextUpComplete(nextUp: NextUpDraft | any): boolean {
-  if (!nextUp) return false;
-  if (!Array.isArray(nextUp.slots)) {
-    if (Array.isArray(nextUp.team1) && Array.isArray(nextUp.team2)) {
-      return nextUp.team1.length > 0 && nextUp.team2.length > 0;
-    }
-    return false;
-  }
+  if (!nextUp || typeof nextUp !== 'object') return false;
+  if (!Array.isArray(nextUp.slots)) return false;
   const expectedCount = nextUp.type === 'SINGLES' ? 2 : 4;
   if (nextUp.slots.length !== expectedCount) return false;
   return nextUp.slots.every((s: any) => typeof s === 'string' && s.trim().length > 0);
@@ -53,7 +123,7 @@ export function isNextUpComplete(nextUp: NextUpDraft | any): boolean {
  * Lấy danh sách ID người chơi thực sự có mặt trong Next Up (bỏ qua null)
  */
 export function nextUpMemberIds(nextUp: NextUpDraft | any): string[] {
-  if (!nextUp) return [];
+  if (!nextUp || typeof nextUp !== 'object') return [];
   if (Array.isArray(nextUp.slots)) {
     return nextUp.slots.filter((s: any): s is string => typeof s === 'string' && s.trim().length > 0);
   }
@@ -67,7 +137,7 @@ export function nextUpMemberIds(nextUp: NextUpDraft | any): string[] {
  * Chuyển đổi NextUpDraft hoàn chỉnh sang Lineup để đẩy vào currentMatch
  * Trả về null nếu chưa đủ người
  */
-export function slotsToLineup(nextUp: NextUpDraft): Lineup | null {
+export function slotsToLineup(nextUp: NextUpDraft | any): Lineup | null {
   if (!isNextUpComplete(nextUp)) return null;
 
   if (nextUp.type === 'SINGLES') {
@@ -78,8 +148,8 @@ export function slotsToLineup(nextUp: NextUpDraft): Lineup | null {
       team1: [s0],
       team2: [s1],
       slotSource: {
-        [s0]: nextUp.slotSource[0] || 'AUTO',
-        [s1]: nextUp.slotSource[1] || 'AUTO',
+        [s0]: nextUp.slotSource?.[0] || 'AUTO',
+        [s1]: nextUp.slotSource?.[1] || 'AUTO',
       },
     };
   }
@@ -95,10 +165,10 @@ export function slotsToLineup(nextUp: NextUpDraft): Lineup | null {
     team1: [s0, s1],
     team2: [s2, s3],
     slotSource: {
-      [s0]: nextUp.slotSource[0] || 'AUTO',
-      [s1]: nextUp.slotSource[1] || 'AUTO',
-      [s2]: nextUp.slotSource[2] || 'AUTO',
-      [s3]: nextUp.slotSource[3] || 'AUTO',
+      [s0]: nextUp.slotSource?.[0] || 'AUTO',
+      [s1]: nextUp.slotSource?.[1] || 'AUTO',
+      [s2]: nextUp.slotSource?.[2] || 'AUTO',
+      [s3]: nextUp.slotSource?.[3] || 'AUTO',
     },
   };
 }
@@ -256,17 +326,17 @@ export interface NextUpEvaluation {
  * Đánh giá chất lượng kèo Next Up (chỉ chạy khi đủ 4 người)
  */
 export function evaluateNextUp(
-  nextUp: NextUpDraft,
+  nextUp: NextUpDraft | any,
   players: Player[],
   maleBonus: number = 1.5
 ): NextUpEvaluation | null {
-  if (!isNextUpComplete(nextUp) || nextUp.type !== 'DOUBLES') return null;
+  if (!nextUp || !isNextUpComplete(nextUp) || nextUp.type !== 'DOUBLES') return null;
 
-  const playerMap = new Map(players.map((p) => [p.id, p]));
-  const p0 = playerMap.get(nextUp.slots[0]!);
-  const p1 = playerMap.get(nextUp.slots[1]!);
-  const p2 = playerMap.get(nextUp.slots[2]!);
-  const p3 = playerMap.get(nextUp.slots[3]!);
+  const playerMap = new Map((players || []).map((p) => [p.id, p]));
+  const p0 = playerMap.get(nextUp.slots?.[0]);
+  const p1 = playerMap.get(nextUp.slots?.[1]);
+  const p2 = playerMap.get(nextUp.slots?.[2]);
+  const p3 = playerMap.get(nextUp.slots?.[3]);
 
   if (!p0 || !p1 || !p2 || !p3) return null;
 

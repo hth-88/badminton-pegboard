@@ -30,13 +30,70 @@ export function useCloudRoom({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPinPrompt, setShowPinPrompt] = useState<boolean>(false);
 
-  const clientId = useRef<string>(getClientId()).current;
+  const [clientId] = useState<string>(() => getClientId());
   const lastAppliedTimestampRef = useRef<number>(0);
   const isApplyingRemoteRef = useRef<boolean>(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingActionRef = useRef<(() => void) | null>(null);
 
-  // 1. Đọc phòng đã lưu hoặc tham số URL (?room=...&pin=...) khi khởi động
+  // 1. Vào phòng có sẵn (Viewer hoặc Co-Host)
+  const joinRoom = useCallback(
+    async (
+      code: string,
+      pin?: string
+    ): Promise<{ ok: boolean; role: RoomRole; error?: string }> => {
+      const cleanCode = code.toUpperCase().trim();
+      const cleanPin = pin?.trim() || '';
+
+      setSyncStatus('SYNCING');
+      const res = await fetchRoom(cleanCode);
+
+      if (res.error || !res.data) {
+        setSyncStatus('ERROR');
+        const err = res.error || `Không tìm thấy phòng "${cleanCode}"`;
+        setErrorMessage(err);
+        return { ok: false, role: 'OFFLINE', error: err };
+      }
+
+      const roomData = res.data;
+      const isCoHost = Boolean(cleanPin && cleanPin === roomData.pin_code);
+      const assignedRole: RoomRole = isCoHost ? 'CO_HOST' : 'VIEWER';
+
+      // Nạp dữ liệu phòng vào ứng dụng
+      lastAppliedTimestampRef.current = roomData.updated_at;
+      isApplyingRemoteRef.current = true;
+      onApplyCloudState(roomData.session_data);
+
+      setRoomCode(cleanCode);
+      setPinCode(roomData.pin_code);
+      setRole(assignedRole);
+      setSyncStatus('SYNCED');
+      setErrorMessage(null);
+
+      // Lưu vào localStorage
+      try {
+        const stored: StoredCloudRoom = {
+          roomCode: cleanCode,
+          pinCode: isCoHost ? cleanPin : '',
+          role: assignedRole,
+        };
+        localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
+      } catch {
+        // Bỏ qua
+      }
+
+      if (assignedRole === 'CO_HOST') {
+        onShowToast?.(`Đã kết nối phòng "${cleanCode}" với quyền CÙNG ĐIỀU KHIỂN (Co-Host)`);
+      } else {
+        onShowToast?.(`Đã vào phòng "${cleanCode}" ở chế độ CHỈ XEM`);
+      }
+
+      return { ok: true, role: assignedRole };
+    },
+    [onApplyCloudState, onShowToast]
+  );
+
+  // 2. Đọc phòng đã lưu hoặc tham số URL (?room=...&pin=...) khi khởi động
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -62,7 +119,7 @@ export function useCloudRoom({
     } catch {
       // Bỏ qua lỗi
     }
-  }, []);
+  }, [joinRoom]);
 
   // 2. Lắng nghe thay đổi Realtime từ Supabase cho phòng hiện tại
   useEffect(() => {
@@ -191,63 +248,6 @@ export function useCloudRoom({
       return { ok: true };
     },
     [clientId, onShowToast]
-  );
-
-  // 5. Vào phòng có sẵn (Viewer hoặc Co-Host)
-  const joinRoom = useCallback(
-    async (
-      code: string,
-      pin?: string
-    ): Promise<{ ok: boolean; role: RoomRole; error?: string }> => {
-      const cleanCode = code.toUpperCase().trim();
-      const cleanPin = pin?.trim() || '';
-
-      setSyncStatus('SYNCING');
-      const res = await fetchRoom(cleanCode);
-
-      if (res.error || !res.data) {
-        setSyncStatus('ERROR');
-        const err = res.error || `Không tìm thấy phòng "${cleanCode}"`;
-        setErrorMessage(err);
-        return { ok: false, role: 'OFFLINE', error: err };
-      }
-
-      const roomData = res.data;
-      const isCoHost = Boolean(cleanPin && cleanPin === roomData.pin_code);
-      const assignedRole: RoomRole = isCoHost ? 'CO_HOST' : 'VIEWER';
-
-      // Nạp dữ liệu phòng vào ứng dụng
-      lastAppliedTimestampRef.current = roomData.updated_at;
-      isApplyingRemoteRef.current = true;
-      onApplyCloudState(roomData.session_data);
-
-      setRoomCode(cleanCode);
-      setPinCode(roomData.pin_code);
-      setRole(assignedRole);
-      setSyncStatus('SYNCED');
-      setErrorMessage(null);
-
-      // Lưu vào localStorage
-      try {
-        const stored: StoredCloudRoom = {
-          roomCode: cleanCode,
-          pinCode: isCoHost ? cleanPin : '',
-          role: assignedRole,
-        };
-        localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
-      } catch {
-        // Bỏ qua
-      }
-
-      if (assignedRole === 'CO_HOST') {
-        onShowToast?.(`Đã kết nối phòng "${cleanCode}" với quyền CÙNG ĐIỀU KHIỂN (Co-Host)`);
-      } else {
-        onShowToast?.(`Đã vào phòng "${cleanCode}" ở chế độ CHỈ XEM`);
-      }
-
-      return { ok: true, role: assignedRole };
-    },
-    [onApplyCloudState, onShowToast]
   );
 
   // 6. Nâng cấp quyền từ VIEWER lên CO_HOST bằng mã PIN
