@@ -193,9 +193,10 @@ describe('Bước 1C – VÁ và Kiểm chứng Hoàn chỉnh Engine Matchmaking
     const c1Members = nextUpMemberIds(c1NextUp);
     expect(c1Members.length).toBe(2);
 
-    // Gợi ý cho Sân 2: chỉ còn 1 người -> trả null, không trùng với Sân 1
+    // Gợi ý cho Sân 2: Hạng mục 2.1 - Cho phép mượn người từ nextUp Sân 1 khi thiếu người để không báo lỗi vô lý
     const c2Draft = suggestNextUpForCourt(state, 'court-2', 1000);
-    expect(c2Draft).toBeNull();
+    expect(c2Draft).not.toBeNull();
+    expect(c2Draft?.type).toBe('SINGLES');
   });
 
   // =========================================================================

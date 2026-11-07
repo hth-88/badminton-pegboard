@@ -249,6 +249,19 @@ export function applyStartMatch(
     return state;
   }
 
+  // Hạng mục 2.2: Khóa cứng nếu có bất kỳ ai trong lineup đang thi đấu trực tiếp trên sân khác
+  const playingOnOtherCourtsPreCheck = new Set<string>();
+  for (const c of state.courts) {
+    if (c.id !== courtId && c.isActive && c.currentMatch) {
+      c.currentMatch.team1.forEach((id) => playingOnOtherCourtsPreCheck.add(id));
+      c.currentMatch.team2.forEach((id) => playingOnOtherCourtsPreCheck.add(id));
+    }
+  }
+  const lineupMemberIds = [...lineupToStart.team1, ...lineupToStart.team2];
+  if (lineupMemberIds.some((id) => playingOnOtherCourtsPreCheck.has(id))) {
+    return state;
+  }
+
   const issues = validateLineup(lineupToStart, state, courtId);
   if (issues.some((i) => i.severity === 'BLOCK')) {
     return state;
@@ -397,6 +410,10 @@ export type BadmintonAction =
       payload: { courtId: string };
     }
   | {
+      type: 'TOGGLE_NEXT_UP_TYPE';
+      payload: { courtId: string; nextType?: 'DOUBLES' | 'SINGLES' };
+    }
+  | {
       type: 'ENQUEUE_READY_QUEUE';
       payload: { lineup: Lineup; courtId?: string; isLockedByHost: boolean; now: number; id?: string };
     }
@@ -411,6 +428,10 @@ export type BadmintonAction =
   | {
       type: 'PAUSE_PLAYER';
       payload: { playerId: string };
+    }
+  | {
+      type: 'PAUSE_PLAYERS';
+      payload: { playerIds: string[] };
     }
   | {
       type: 'RESUME_PLAYER';
@@ -445,6 +466,10 @@ export type BadmintonAction =
   | {
       type: 'REMOVE_PLAYER';
       payload: { playerId: string };
+    }
+  | {
+      type: 'REMOVE_PLAYERS';
+      payload: { playerIds: string[] };
     }
   | {
       type: 'EDIT_RANK';
@@ -878,6 +903,54 @@ export function badmintonReducer(
       };
     }
 
+    case 'TOGGLE_NEXT_UP_TYPE': {
+      const { courtId, nextType } = action.payload;
+      const court = baseNextState.courts.find((c) => c.id === courtId);
+      if (!court || !court.isActive) return state;
+
+      const currentType = court.nextUp?.type || 'DOUBLES';
+      const targetType = nextType || (currentType === 'DOUBLES' ? 'SINGLES' : 'DOUBLES');
+      if (court.nextUp && court.nextUp.type === targetType) return state;
+
+      const updatedCourts = baseNextState.courts.map((c) => {
+        if (c.id !== courtId) return c;
+        if (targetType === 'SINGLES') {
+          // DOUBLES -> SINGLES (2 slots)
+          const oldSlots = c.nextUp?.slots || [null, null, null, null];
+          const oldSource = c.nextUp?.slotSource || [null, null, null, null];
+          const s0 = oldSlots[0];
+          const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+          const src0 = oldSource[0];
+          const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+          return {
+            ...c,
+            nextUp: {
+              type: 'SINGLES' as MatchType,
+              slots: [s0 ?? null, s1 ?? null],
+              slotSource: [src0 ?? null, src1 ?? null],
+            },
+          };
+        } else {
+          // SINGLES -> DOUBLES (4 slots)
+          const oldSlots = c.nextUp?.slots || [null, null];
+          const oldSource = c.nextUp?.slotSource || [null, null];
+          return {
+            ...c,
+            nextUp: {
+              type: 'DOUBLES' as MatchType,
+              slots: [oldSlots[0] ?? null, null, oldSlots[1] ?? null, null],
+              slotSource: [oldSource[0] ?? null, null, oldSource[1] ?? null, null],
+            },
+          };
+        }
+      });
+
+      return {
+        ...baseNextState,
+        courts: updatedCourts,
+      };
+    }
+
     case 'ENQUEUE_READY_QUEUE': {
       const id =
         action.payload.id ||
@@ -955,6 +1028,62 @@ export function badmintonReducer(
         courts: updatedCourts,
         readyQueue: updatedReadyQueue,
          // Mục 4: reset khi PAUSE
+      };
+    }
+
+    case 'PAUSE_PLAYERS': {
+      const playingIds = new Set<string>();
+      for (const c of baseNextState.courts) {
+        if (c.isActive && c.currentMatch) {
+          c.currentMatch.team1.forEach((id) => playingIds.add(id));
+          c.currentMatch.team2.forEach((id) => playingIds.add(id));
+        }
+      }
+      const toPause = new Set(
+        action.payload.playerIds.filter((id) => {
+          if (playingIds.has(id)) return false;
+          const p = state.players.find((pl) => pl.id === id);
+          return p && p.status === 'ACTIVE';
+        })
+      );
+      if (toPause.size === 0) return state;
+
+      const updatedPlayers = baseNextState.players.map((p) => {
+        if (toPause.has(p.id)) {
+          return { ...p, status: 'PAUSED' as const, waitStreak: 0 };
+        }
+        return p;
+      });
+
+      const updatedCourts = baseNextState.courts.map((c) => {
+        if (c.nextUp && c.nextUp.slots.some((s) => s && toPause.has(s))) {
+          const newSlots = c.nextUp.slots.map((s) => (s && toPause.has(s) ? null : s));
+          const newSource = c.nextUp.slotSource.map((src, idx) =>
+            c.nextUp.slots[idx] && toPause.has(c.nextUp.slots[idx]!) ? null : src
+          );
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
+        }
+        return c;
+      });
+
+      const updatedReadyQueue = baseNextState.readyQueue.filter(
+        (item) =>
+          !item.lineup.team1.some((id) => toPause.has(id)) &&
+          !item.lineup.team2.some((id) => toPause.has(id))
+      );
+
+      return {
+        ...baseNextState,
+        players: updatedPlayers,
+        courts: updatedCourts,
+        readyQueue: updatedReadyQueue,
       };
     }
 
@@ -1134,6 +1263,60 @@ export function badmintonReducer(
       };
     }
 
+    // Hạng mục 3.1: REMOVE_PLAYERS - Xóa hàng loạt người trong đúng 1 snapshot undo
+    case 'REMOVE_PLAYERS': {
+      const playingIds = new Set<string>();
+      for (const c of baseNextState.courts) {
+        if (c.isActive && c.currentMatch) {
+          c.currentMatch.team1.forEach((id) => playingIds.add(id));
+          c.currentMatch.team2.forEach((id) => playingIds.add(id));
+        }
+      }
+
+      const toRemove = new Set(
+        action.payload.playerIds.filter((id) => !playingIds.has(id))
+      );
+      if (toRemove.size === 0) return state;
+
+      const updatedPlayers = baseNextState.players.filter((p) => !toRemove.has(p.id));
+
+      const updatedCourts = baseNextState.courts.map((c) => {
+        if (c.nextUp && c.nextUp.slots.some((s) => s && toRemove.has(s))) {
+          const newSlots = c.nextUp.slots.map((s) => (s && toRemove.has(s) ? null : s));
+          const newSource = c.nextUp.slotSource.map((src, idx) =>
+            c.nextUp.slots[idx] && toRemove.has(c.nextUp.slots[idx]!) ? null : src
+          );
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
+        }
+        return c;
+      });
+
+      const updatedReadyQueue = baseNextState.readyQueue.filter(
+        (item) =>
+          !item.lineup.team1.some((id) => toRemove.has(id)) &&
+          !item.lineup.team2.some((id) => toRemove.has(id))
+      );
+
+      const updatedPairRules = baseNextState.pairRules.filter(
+        (r) => !toRemove.has(r.playerAId) && !toRemove.has(r.playerBId)
+      );
+
+      return {
+        ...baseNextState,
+        players: updatedPlayers,
+        courts: updatedCourts,
+        readyQueue: updatedReadyQueue,
+        pairRules: updatedPairRules,
+      };
+    }
+
     case 'EDIT_RANK': {
       const updatedPlayers = baseNextState.players.map((p) =>
         p.id === action.payload.playerId ? { ...p, rank: action.payload.rank } : p
@@ -1207,7 +1390,48 @@ export function badmintonReducer(
             suggestCursor: 0,
           };
         }
-        return { ...c, ...sanitizedUpdates };
+
+        let newNextUp = c.nextUp;
+        if (sanitizedUpdates.forcedType !== undefined) {
+          const newForced = sanitizedUpdates.forcedType;
+          if (newForced === 'SINGLES' && c.nextUp?.type !== 'SINGLES') {
+            const oldSlots = c.nextUp?.slots || [null, null, null, null];
+            const oldSource = c.nextUp?.slotSource || [null, null, null, null];
+            const s0 = oldSlots[0];
+            const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+            const src0 = oldSource[0];
+            const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+            newNextUp = {
+              type: 'SINGLES' as MatchType,
+              slots: [s0 ?? null, s1 ?? null],
+              slotSource: [src0 ?? null, src1 ?? null],
+            };
+          } else if (newForced === 'DOUBLES' && c.nextUp?.type !== 'DOUBLES') {
+            const oldSlots = c.nextUp?.slots || [null, null];
+            const oldSource = c.nextUp?.slotSource || [null, null];
+            newNextUp = {
+              type: 'DOUBLES' as MatchType,
+              slots: [oldSlots[0] ?? null, null, oldSlots[1] ?? null, null],
+              slotSource: [oldSource[0] ?? null, null, oldSource[1] ?? null, null],
+            };
+          } else if (newForced === null) {
+            if (baseNextState.settings.matchMix?.singles === 1 && c.nextUp?.type !== 'SINGLES') {
+              const oldSlots = c.nextUp?.slots || [null, null, null, null];
+              const oldSource = c.nextUp?.slotSource || [null, null, null, null];
+              const s0 = oldSlots[0];
+              const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+              const src0 = oldSource[0];
+              const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+              newNextUp = {
+                type: 'SINGLES' as MatchType,
+                slots: [s0 ?? null, s1 ?? null],
+                slotSource: [src0 ?? null, src1 ?? null],
+              };
+            }
+          }
+        }
+
+        return { ...c, ...sanitizedUpdates, nextUp: newNextUp };
       });
 
       let nextReadyQueue = baseNextState.readyQueue;
@@ -1338,10 +1562,34 @@ export function badmintonReducer(
         });
       }
 
+      let updatedCourts = baseNextState.courts;
+      if (normalizedMix.singles === 1) {
+        updatedCourts = baseNextState.courts.map((c) => {
+          if ((c.forcedType === null || c.forcedType === undefined) && c.nextUp?.type !== 'SINGLES') {
+            const oldSlots = c.nextUp?.slots || [null, null, null, null];
+            const oldSource = c.nextUp?.slotSource || [null, null, null, null];
+            const s0 = oldSlots[0];
+            const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+            const src0 = oldSource[0];
+            const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+            return {
+              ...c,
+              nextUp: {
+                type: 'SINGLES' as MatchType,
+                slots: [s0 ?? null, s1 ?? null],
+                slotSource: [src0 ?? null, src1 ?? null],
+              },
+            };
+          }
+          return c;
+        });
+      }
+
       return {
         ...baseNextState,
         settings: newSettings,
         players: updatedPlayers,
+        courts: updatedCourts,
          // Mục 4: reset khi đổi settings
       };
     }

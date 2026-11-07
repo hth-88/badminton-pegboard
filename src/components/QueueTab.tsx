@@ -52,6 +52,8 @@ interface QueueTabProps {
   onEditRank: (playerId: string, rank: BadmintonRank) => void;
   onUpdatePlayer: (player: Partial<Player> & { id: string }) => void;
   onRemovePlayer: (playerId: string) => void;
+  onRemovePlayers?: (playerIds: string[]) => void;
+  onPausePlayers?: (playerIds: string[]) => void;
 }
 
 export const QueueTab: React.FC<QueueTabProps> = ({
@@ -61,14 +63,20 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   onAddPlayer,
   onAddPlayers,
   onPausePlayer,
+  onPausePlayers,
   onResumePlayer,
   onEditRank,
   onUpdatePlayer,
   onRemovePlayer,
+  onRemovePlayers,
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addMode, setAddMode] = useState<'ROSTER' | 'SINGLE' | 'PASTE'>('ROSTER');
   const [pickerPlayer, setPickerPlayer] = useState<Player | null>(null);
+
+  // Hạng mục 3.2: Chế độ chọn nhiều người chơi (Bulk mode)
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
 
   // Sổ thành viên CLB & điểm danh
   const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster());
@@ -343,7 +351,33 @@ export const QueueTab: React.FC<QueueTabProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Hạng mục 3.2: Nút bật/tắt chế độ Chọn nhiều */}
+          {players.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsBulkMode((prev) => !prev);
+                if (isBulkMode) {
+                  setSelectedPlayerIds(new Set());
+                }
+              }}
+              title="Bật/tắt chế độ chọn nhiều người để xóa hoặc tạm nghỉ hàng loạt"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm border ${
+                isBulkMode
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-950/50'
+                  : 'bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              <span>☑️ Chọn nhiều</span>
+              {selectedPlayerIds.size > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-[10px] font-extrabold text-emerald-400">
+                  {selectedPlayerIds.size}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Nút Điểm danh thành viên CLB */}
           <button
             onClick={() => handleOpenAddModal('ROSTER')}
@@ -409,6 +443,25 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                 {/* HÀNG 1: Tên người chơi & Thống kê số trận/nghỉ */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                    {/* Hạng mục 3.2: Checkbox chọn nhiều */}
+                    {isBulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedPlayerIds.has(player.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const next = new Set(selectedPlayerIds);
+                          if (next.has(player.id)) {
+                            next.delete(player.id);
+                          } else {
+                            next.add(player.id);
+                          }
+                          setSelectedPlayerIds(next);
+                        }}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-700 cursor-pointer shrink-0 mr-1"
+                      />
+                    )}
+
                     {/* Nút Ngôi sao thành viên CLB */}
                     <button
                       type="button"
@@ -568,16 +621,35 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               key={player.id}
               className="p-3 rounded-2xl border border-slate-800/60 bg-slate-950/40 opacity-75 flex items-center justify-between gap-3"
             >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-slate-300">{player.name}</span>
-                  <span className="text-[10px] text-slate-400 font-medium">
-                    {RANK_METADATA[player.rank].code}
-                  </span>
+              <div className="flex items-center gap-2">
+                {isBulkMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedPlayerIds.has(player.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      const next = new Set(selectedPlayerIds);
+                      if (next.has(player.id)) {
+                        next.delete(player.id);
+                      } else {
+                        next.add(player.id);
+                      }
+                      setSelectedPlayerIds(next);
+                    }}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-700 cursor-pointer shrink-0"
+                  />
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-slate-300">{player.name}</span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {RANK_METADATA[player.rank].code}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Đã đánh {player.gamesPlayed} trận
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Đã đánh {player.gamesPlayed} trận
-                </p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -599,6 +671,80 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* HẠNG MỤC 3.2: Floating Action Bar khi chọn nhiều người */}
+      {isBulkMode && selectedPlayerIds.size > 0 && (
+        <div className="fixed bottom-20 left-0 right-0 z-40 px-3 max-w-xl mx-auto animate-in slide-in-from-bottom duration-200">
+          <div className="p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedPlayerIds.size === players.length) {
+                    setSelectedPlayerIds(new Set());
+                  } else {
+                    setSelectedPlayerIds(new Set(players.map((p) => p.id)));
+                  }
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-bold transition border border-slate-700"
+              >
+                {selectedPlayerIds.size === players.length
+                  ? 'Bỏ chọn'
+                  : `Chọn tất cả (${players.length})`}
+              </button>
+              <span className="text-xs font-semibold text-slate-300">
+                Đã chọn <strong className="text-emerald-400">{selectedPlayerIds.size}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Nút Tạm nghỉ */}
+              <button
+                type="button"
+                onClick={() => {
+                  vibrateSuccess();
+                  if (onPausePlayers) {
+                    onPausePlayers(Array.from(selectedPlayerIds));
+                  } else {
+                    selectedPlayerIds.forEach((id) => onPausePlayer(id));
+                  }
+                  setSelectedPlayerIds(new Set());
+                }}
+                title="Tạm nghỉ các người chơi đã chọn"
+                className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1"
+              >
+                <span>⏸ Tạm nghỉ ({selectedPlayerIds.size})</span>
+              </button>
+
+              {/* Nút Xóa đỏ */}
+              <button
+                type="button"
+                onClick={() => {
+                  const count = selectedPlayerIds.size;
+                  if (
+                    window.confirm(
+                      `Bạn có chắc chắn muốn xóa ${count} người đã chọn khỏi buổi hôm nay?`
+                    )
+                  ) {
+                    vibrateSuccess();
+                    if (onRemovePlayers) {
+                      onRemovePlayers(Array.from(selectedPlayerIds));
+                    } else {
+                      selectedPlayerIds.forEach((id) => onRemovePlayer(id));
+                    }
+                    setSelectedPlayerIds(new Set());
+                  }
+                }}
+                title="Xóa danh sách người đã chọn khỏi buổi hôm nay"
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-md shadow-rose-950/50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xóa ({selectedPlayerIds.size})</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

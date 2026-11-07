@@ -13,6 +13,7 @@ import {
   Plus,
   Square,
   X,
+  AlertOctagon,
 } from 'lucide-react';
 import type {
   BadmintonRank,
@@ -45,6 +46,7 @@ interface CourtCardProps {
   onSuggestNextUp: (courtId: string) => void;
   onSetNextUpSlot: (courtId: string, slotIndex: number, playerId: string | null) => void;
   onClearNextUp: (courtId: string) => void;
+  onToggleNextUpType?: (courtId: string, nextType?: 'DOUBLES' | 'SINGLES') => void;
   onRearrangeNextUp: (courtId: string, mode: 'ROTATE' | 'BALANCE') => void;
   onSwapPlayers: (
     courtId: string,
@@ -78,6 +80,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   onSuggestNextUp,
   onSetNextUpSlot,
   onClearNextUp,
+  onToggleNextUpType,
   onRearrangeNextUp,
   onSwapPlayers,
   onUpdateCourt,
@@ -118,6 +121,36 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
   const getPlayer = (id: string): Player | undefined => playerMap.get(id);
 
+  // Hạng mục 2.2: Tìm xem người chơi có đang đánh ở sân khác không
+  const getPlayingCourtName = (playerId: string): string | null => {
+    for (const c of state.courts) {
+      if (c.id !== court.id && c.isActive && c.currentMatch) {
+        const matchPlayerIds = [...c.currentMatch.team1, ...c.currentMatch.team2];
+        if (matchPlayerIds.includes(playerId)) {
+          return c.name || c.id;
+        }
+      }
+    }
+    return null;
+  };
+
+  // Người chơi đầu tiên trong nextUp đang bận thi đấu ở sân khác
+  const blockedPlayerPlayingElsewhere = useMemo(() => {
+    if (!isNextUpComplete(safeNextUp)) return null;
+    const currentSlots = safeNextUp.slots.filter(Boolean) as string[];
+    for (const pid of currentSlots) {
+      const courtName = getPlayingCourtName(pid);
+      if (courtName) {
+        const p = getPlayer(pid);
+        return {
+          playerName: p?.name || 'Người chơi',
+          courtName,
+        };
+      }
+    }
+    return null;
+  }, [safeNextUp, state.courts]);
+
   // Kiểm tra tính hợp lệ của đội hình trước khi vào sân
   const checkLineupErrors = (lineup: Lineup): string | null => {
     const allIds = [...lineup.team1, ...lineup.team2];
@@ -151,6 +184,18 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     lastEndClickRef.current = now;
 
     if (isNextUpComplete(safeNextUp)) {
+      if (blockedPlayerPlayingElsewhere) {
+        vibrateWarning();
+        onShowWarningToast?.(
+          `Không thể bắt đầu: ${blockedPlayerPlayingElsewhere.playerName} đang đánh ở ${blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác`
+        );
+        if (court.currentMatch) {
+          onEndMatch(court.id, court.currentMatch.id);
+          onTriggerUndoToast(`Đã kết thúc trận trên ${court.name}`);
+        }
+        return;
+      }
+
       const nextLineup = slotsToLineup(safeNextUp);
       if (nextLineup) {
         const err = checkLineupErrors(nextLineup);
@@ -284,7 +329,15 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   // Nút Vào sân khi sân đang trống
   const handleStartNextUpClick = () => {
     if (!isNextUpComplete(safeNextUp)) {
-      onShowWarningToast?.('Chưa đủ 4 người để vào sân');
+      const needed = safeNextUp.type === 'SINGLES' ? 2 : 4;
+      onShowWarningToast?.(`Chưa đủ ${needed} người để vào sân`);
+      return;
+    }
+    if (blockedPlayerPlayingElsewhere) {
+      vibrateWarning();
+      onShowWarningToast?.(
+        `Không thể bắt đầu: ${blockedPlayerPlayingElsewhere.playerName} đang đánh ở ${blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác`
+      );
       return;
     }
     const lineup = slotsToLineup(safeNextUp);
@@ -378,7 +431,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
       {/* 1. HEADER SÂN */}
       {/* ==================================================== */}
       <div className="p-3.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <div
             className={`w-2.5 h-2.5 rounded-full ${
               court.isActive
@@ -391,13 +444,51 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           <h2 className="font-extrabold text-base text-slate-100 truncate tracking-wide">
             {court.name}
           </h2>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-            {court.policy === 'MIX'
-              ? 'Đôi/Đơn'
-              : court.policy === 'DOUBLES_ONLY'
-              ? 'Chỉ đôi'
-              : 'Chỉ đơn'}
-          </span>
+          {court.policy !== 'MIX' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+              {court.policy === 'DOUBLES_ONLY' ? 'Chỉ đôi' : 'Chỉ đơn'}
+            </span>
+          )}
+
+          {/* Hạng mục 1.1: Khôi phục cụm nút chọn Auto | Đôi | Đơn */}
+          <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 text-[10px] font-bold shrink-0">
+            <button
+              type="button"
+              onClick={() => onUpdateCourt(court.id, { forcedType: null })}
+              title="Theo tỷ lệ chung trên thanh tiêu đề"
+              className={`px-2 py-0.5 rounded-md transition ${
+                court.forcedType === null || court.forcedType === undefined
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => onUpdateCourt(court.id, { forcedType: 'DOUBLES' })}
+              title="Ép sân này chỉ đánh Đôi (4 ô)"
+              className={`px-2 py-0.5 rounded-md transition ${
+                court.forcedType === 'DOUBLES'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Đôi
+            </button>
+            <button
+              type="button"
+              onClick={() => onUpdateCourt(court.id, { forcedType: 'SINGLES' })}
+              title="Ép sân này chỉ đánh Đơn (2 ô)"
+              className={`px-2 py-0.5 rounded-md transition ${
+                court.forcedType === 'SINGLES'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Đơn
+            </button>
+          </div>
         </div>
 
         {/* Nút bật/tắt sân */}
@@ -584,6 +675,13 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     </span>
                     <ChevronRight className="w-4 h-4 shrink-0" />
                   </button>
+
+                  {isNextUpComplete(court.nextUp) && blockedPlayerPlayingElsewhere && (
+                    <div className="p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
+                      <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>Không thể vào lượt mới: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở {blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác</span>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -600,14 +698,29 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
                 <button
                   type="button"
-                  disabled={!isNextUpComplete(court.nextUp)}
+                  disabled={!isNextUpComplete(court.nextUp) || !!blockedPlayerPlayingElsewhere}
                   onClick={handleStartNextUpClick}
-                  title={!isNextUpComplete(court.nextUp) ? 'Chưa đủ 4 người' : 'Bắt đầu trận này'}
+                  title={
+                    blockedPlayerPlayingElsewhere
+                      ? `Không thể bắt đầu: ${blockedPlayerPlayingElsewhere.playerName} đang đánh ở ${blockedPlayerPlayingElsewhere.courtName}`
+                      : !isNextUpComplete(court.nextUp)
+                      ? safeNextUp.type === 'SINGLES'
+                        ? 'Chưa đủ 2 người'
+                        : 'Chưa đủ 4 người'
+                      : 'Bắt đầu trận này'
+                  }
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
                 >
                   <Play className="w-4 h-4 fill-current" />
                   <span>BẮT ĐẦU TRẬN LƯỢT NÀY &gt;</span>
                 </button>
+
+                {blockedPlayerPlayingElsewhere && (
+                  <div className="mt-2.5 p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
+                    <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
+                    <span>Không thể bắt đầu: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở {blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -619,9 +732,21 @@ export const CourtCard: React.FC<CourtCardProps> = ({
             <div className="flex items-center justify-between mb-2.5 flex-wrap gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <span>Lượt kế tiếp (Next Up)</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  {safeNextUp.type === 'DOUBLES' ? 'Đôi' : 'Đơn'}
-                </span>
+                {/* Hạng mục 1.1: Chuyển badge Đôi/Đơn thành nút chuyển nhanh 2 ô <-> 4 ô */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onToggleNextUpType
+                      ? onToggleNextUpType(court.id)
+                      : onUpdateCourt(court.id, {
+                          forcedType: safeNextUp.type === 'DOUBLES' ? 'SINGLES' : 'DOUBLES',
+                        })
+                  }
+                  title="Bấm để chuyển nhanh khung Next Up giữa Đôi (4 ô) và Đơn (2 ô)"
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-750 text-emerald-400 hover:text-emerald-300 border border-slate-700 transition flex items-center gap-1 shadow-sm active:scale-95"
+                >
+                  <span>{safeNextUp.type === 'DOUBLES' ? 'Đôi (4 ô) ⇄' : 'Đơn (2 ô) ⇄'}</span>
+                </button>
               </span>
 
               {/* Toolbar Next Up */}
@@ -630,7 +755,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                   type="button"
                   onClick={() => {
                     if (!canSuggestNextUp(state, court.id)) {
-                      onShowWarningToast?.('Không đủ 4 người rảnh để gợi ý');
+                      const needed = safeNextUp.type === 'SINGLES' ? 2 : 4;
+                      onShowWarningToast?.(`Không đủ ${needed} người rảnh để gợi ý`);
                       return;
                     }
                     onSuggestNextUp(court.id);
@@ -802,6 +928,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     const player = getPlayer(pid);
     const isManual = safeNextUp.slotSource?.[idx] === 'MANUAL';
     const rankMeta = player ? RANK_METADATA[player.rank] : null;
+    const playingCourtName = getPlayingCourtName(pid);
 
     return (
       <div
@@ -811,7 +938,11 @@ export const CourtCard: React.FC<CourtCardProps> = ({
             slotIndex: idx,
           })
         }
-        className="relative p-2 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition cursor-pointer flex items-center justify-between gap-2"
+        className={`relative p-2 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 border ${
+          playingCourtName
+            ? 'border-rose-700/80 bg-rose-950/30 hover:border-rose-600'
+            : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
+        }`}
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
           <span className="font-semibold text-xs text-slate-100 truncate">
@@ -836,6 +967,11 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           {isManual && (
             <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-0.5">
               <Lock className="w-2.5 h-2.5" /> Tay
+            </span>
+          )}
+          {playingCourtName && (
+            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-700/80 flex items-center gap-1 shrink-0 animate-pulse">
+              Đang đánh ở {playingCourtName}
             </span>
           )}
         </div>

@@ -17,6 +17,7 @@ import {
   createEmptyNextUp,
   isNextUpComplete,
   nextUpMemberIds,
+  resolveTargetMatchType,
   slotsToLineup,
 } from './nextUp';
 import { getEffectiveSkill } from './skillConfig';
@@ -747,7 +748,7 @@ export function suggestNextUpForCourt(
   const court = state.courts.find((c) => c.id === courtId);
   if (!court || !court.isActive) return null;
 
-  // 1. Tập người đang thi đấu ở bất kỳ sân nào (currentMatch)
+  // 1. Tập người đang thi đấu ở bất kỳ sân nào (currentMatch) - CẤM
   const playingPlayerIds = new Set<string>();
   for (const c of state.courts) {
     if (c.isActive && c.currentMatch) {
@@ -756,7 +757,7 @@ export function suggestNextUpForCourt(
     }
   }
 
-  // 2. Tập người đã nằm trong Next Up của sân KHÁC (sân này đang gợi ý mới nên người cũ của sân này coi là rảnh)
+  // 2. Tập người đã nằm trong Next Up của sân KHÁC
   const otherNextUpPlayerIds = new Set<string>();
   for (const c of state.courts) {
     if (c.id !== courtId && c.isActive && c.nextUp) {
@@ -764,8 +765,8 @@ export function suggestNextUpForCourt(
     }
   }
 
-  // 3. Pool ban đầu: ACTIVE, không thi đấu ở bất kỳ sân nào, không nằm trong nextUp sân khác
-  const initialAvailable = state.players.filter((p) => {
+  // 3. Pool chính (ưu tiên): ACTIVE, không thi đấu ở bất kỳ sân nào, không nằm trong nextUp sân khác
+  const primaryAvailable = state.players.filter((p) => {
     if (p.status !== 'ACTIVE') return false;
     if (playingPlayerIds.has(p.id)) return false;
     if (otherNextUpPlayerIds.has(p.id)) return false;
@@ -775,29 +776,41 @@ export function suggestNextUpForCourt(
     return true;
   });
 
-  let matchType: MatchType = court.forcedType || (court.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES');
+  // 4. Pool mở rộng (khi thiếu người): ACTIVE, không thi đấu ở bất kỳ sân nào, nhưng đang ở nextUp sân khác
+  const secondaryAvailable = state.players.filter((p) => {
+    if (p.status !== 'ACTIVE') return false;
+    if (playingPlayerIds.has(p.id)) return false;
+    if (!otherNextUpPlayerIds.has(p.id)) return false;
+    if (state.settings.courtMode === 'SPLIT_COURT') {
+      return p.assignedPool === court.id || p.assignedPool === 'ALL';
+    }
+    return true;
+  });
 
-  if (matchType !== 'SINGLES' && court.policy !== 'DOUBLES_ONLY' && initialAvailable.length < 4 && !court.currentMatch) {
-    const isSnoozed =
-      state.autoSinglesSnooze?.[court.id] &&
-      state.autoSinglesSnooze[court.id].untilTs > now;
+  const totalFreeCount = primaryAvailable.length + secondaryAvailable.length;
+  let matchType: MatchType = resolveTargetMatchType(court, state, totalFreeCount, now);
+  const neededCount = matchType === 'SINGLES' ? 2 : 4;
 
-    if (!isSnoozed && (state.settings.autoSingles === 'AUTO' || state.settings.autoSingles === 'ASK')) {
-      matchType = 'SINGLES';
+  let effectiveAvailable = [...primaryAvailable];
+  let effectiveState = state;
+
+  // Nếu thiếu người: thử dự kiến người từ trận đang đánh trên sân này
+  if (effectiveAvailable.length < neededCount && court.currentMatch) {
+    const proj = buildProjectedEnvironment(court, effectiveAvailable, state, now);
+    if (proj) {
+      effectiveAvailable = proj.projectedAvailable;
+      effectiveState = proj.projectedState;
     }
   }
 
-  const neededCount = matchType === 'SINGLES' ? 2 : 4;
-
-  let effectiveAvailable = initialAvailable;
-  let effectiveState = state;
-
+  // Hạng mục 2.1: Nếu vẫn chưa đủ người, bổ sung người từ Next Up sân khác (chưa vào trận)
   if (effectiveAvailable.length < neededCount) {
-    if (court.currentMatch) {
-      const proj = buildProjectedEnvironment(court, initialAvailable, state, now);
-      if (proj) {
-        effectiveAvailable = proj.projectedAvailable;
-        effectiveState = proj.projectedState;
+    const existingIds = new Set(effectiveAvailable.map((p) => p.id));
+    for (const p of secondaryAvailable) {
+      if (!existingIds.has(p.id)) {
+        effectiveAvailable.push(p);
+        existingIds.add(p.id);
+        if (effectiveAvailable.length >= neededCount) break;
       }
     }
   }

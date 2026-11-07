@@ -1,5 +1,6 @@
 import type {
   BadmintonSessionState,
+  Court,
   Lineup,
   MatchType,
   NextUpDraft,
@@ -230,17 +231,13 @@ export function getSlotCandidateStatus(
     }
   }
 
-  // 3. IN_OTHER_NEXT_UP
+  // 3. IN_OTHER_NEXT_UP: Hạng mục 2.1 - Cho phép chọn bình thường, gắn cảnh báo nhẹ
+  const warnings: string[] = [];
   for (const c of state.courts) {
     if (c.id !== courtId && c.isActive && c.nextUp) {
       const members = nextUpMemberIds(c.nextUp);
       if (members.includes(playerId)) {
-        return {
-          selectable: false,
-          blockCode: 'IN_OTHER_NEXT_UP',
-          blockLabel: `Đã xếp ${c.name || c.id}`,
-          warnings: [],
-        };
+        warnings.push(`Đang dự kiến ở ${c.name || c.id}`);
       }
     }
   }
@@ -261,8 +258,7 @@ export function getSlotCandidateStatus(
     }
   }
 
-  // Không bị BLOCK -> Tính các cảnh báo nếu có
-  const warnings: string[] = [];
+  // Không bị BLOCK -> Tính thêm các cảnh báo nếu có
 
   // Giả lập đặt player vào slotIndex để kiểm tra cảnh báo
   if (thisCourt?.nextUp) {
@@ -470,9 +466,71 @@ export function balancePairing(
 }
 
 /**
+ * Xác định loại trận mục tiêu (DOUBLES hoặc SINGLES) cho sân theo đúng thứ tự ưu tiên (Hạng mục 1.2)
+ */
+export function resolveTargetMatchType(
+  court: Court,
+  state: BadmintonSessionState,
+  availableCount: number = 0,
+  now: number = Date.now()
+): MatchType {
+  // 1. Cấu hình cứng trên sân
+  if (court.forcedType === 'SINGLES' || court.policy === 'SINGLES_ONLY') {
+    return 'SINGLES';
+  }
+  if (court.forcedType === 'DOUBLES' || court.policy === 'DOUBLES_ONLY') {
+    return 'DOUBLES';
+  }
+
+  // 2. Chế độ Auto (forcedType === null/undefined):
+  const matchMix = state.settings?.matchMix || { doubles: 1, singles: 0 };
+
+  // 2.1. 100% Đơn trên cài đặt Header
+  if (matchMix.singles === 1) {
+    return 'SINGLES';
+  }
+
+  // 2.2. Next Up của sân đang ở cấu trúc SINGLES do Host bấm chuyển
+  if (court.nextUp?.type === 'SINGLES') {
+    return 'SINGLES';
+  }
+
+  const isAutoSinglesAllowed =
+    state.settings?.autoSingles === 'AUTO' || state.settings?.autoSingles === 'ASK';
+  const isSnoozed =
+    Boolean(state.autoSinglesSnooze?.[court.id] &&
+    state.autoSinglesSnooze[court.id].untilTs > now);
+
+  // 2.3. 100% Đôi
+  if (matchMix.doubles === 1) {
+    if (availableCount < 4 && availableCount >= 2 && !court.currentMatch && isAutoSinglesAllowed && !isSnoozed) {
+      return 'SINGLES';
+    }
+    return 'DOUBLES';
+  }
+
+  // 2.4. Pha trộn theo mixDebt
+  const mixDebt = state.mixDebt || { doubles: 0, singles: 0 };
+  if (mixDebt.singles > mixDebt.doubles && availableCount >= 2) {
+    return 'SINGLES';
+  }
+
+  // 2.5. Thiếu người rảnh (< 4) và autoSingles khi sân trống
+  if (availableCount < 4 && availableCount >= 2 && !court.currentMatch && isAutoSinglesAllowed && !isSnoozed) {
+    return 'SINGLES';
+  }
+
+  return 'DOUBLES';
+}
+
+/**
  * Kiểm tra nhanh xem sân có đủ người rảnh để sinh gợi ý Next Up không (dùng để hiện toast cảnh báo)
+ * Hạng mục 2.1: Cho phép lấy cả người đang ở Next Up sân khác (chỉ chặn người đang trong currentMatch)
  */
 export function canSuggestNextUp(state: BadmintonSessionState, courtId: string): boolean {
+  const court = state.courts.find((c) => c.id === courtId);
+  if (!court || !court.isActive) return false;
+
   const busyInCurrentMatches = new Set<string>();
   for (const c of state.courts) {
     if (c.isActive && c.currentMatch) {
@@ -481,33 +539,18 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
     }
   }
 
-  const busyInOtherNextUps = new Set<string>();
-  for (const c of state.courts) {
-    if (c.id !== courtId && c.isActive && c.nextUp) {
-      nextUpMemberIds(c.nextUp).forEach((id) => busyInOtherNextUps.add(id));
-    }
-  }
-
-  // Tập người rảnh bên ngoài (không trong trận nào, không trong nextUp sân khác)
+  // Tập người rảnh (không đang đánh trực tiếp trên bất kỳ sân nào)
   const availableOutside = state.players.filter(
-    (p) =>
-      p.status === 'ACTIVE' &&
-      !busyInCurrentMatches.has(p.id) &&
-      !busyInOtherNextUps.has(p.id)
+    (p) => p.status === 'ACTIVE' && !busyInCurrentMatches.has(p.id)
   );
 
-  if (availableOutside.length >= 4) return true;
-
-  // Nếu thiếu: kiểm tra xem sân này có trận đang đánh không để dự kiến bổ sung
-  const thisCourt = state.courts.find((c) => c.id === courtId);
-  if (thisCourt?.isActive && thisCourt.currentMatch) {
-    const currentOnThisCourt = [
-      ...thisCourt.currentMatch.team1,
-      ...thisCourt.currentMatch.team2,
-    ];
-    const totalPotential = availableOutside.length + currentOnThisCourt.length;
-    return totalPotential >= 4;
+  let totalPotential = availableOutside.length;
+  if (court.currentMatch) {
+    totalPotential += court.currentMatch.team1.length + court.currentMatch.team2.length;
   }
 
-  return false;
+  const targetType = resolveTargetMatchType(court, state, totalPotential);
+  const needed = targetType === 'SINGLES' ? 2 : 4;
+
+  return totalPotential >= needed;
 }

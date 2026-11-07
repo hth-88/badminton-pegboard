@@ -246,10 +246,10 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
       });
     }
 
-    // Lúc này p1 đang ở nextUp của Sân 1 -> Sân 2 kiểm tra p1 bị BLOCK IN_OTHER_NEXT_UP
+    // Lúc này p1 đang ở nextUp của Sân 1 -> Hạng mục 2.1: Sân 2 vẫn chọn được p1 kèm cảnh báo nhẹ
     const candBefore = getSlotCandidateStatus(state, 'court-2', 0, 'p1');
-    expect(candBefore.selectable).toBe(false);
-    expect(candBefore.blockCode).toBe('IN_OTHER_NEXT_UP');
+    expect(candBefore.selectable).toBe(true);
+    expect(candBefore.warnings.some((w) => w.includes('Đang dự kiến ở Sân 1'))).toBe(true);
 
     // Host bấm ✕ ở slot 0 của Sân 1 (bỏ p1)
     state = badmintonReducer(state, {
@@ -315,10 +315,10 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
     expect(s2.selectable).toBe(false);
     expect(s2.blockCode).toBe('PLAYING_ELSEWHERE');
 
-    // 3. IN_OTHER_NEXT_UP
+    // 3. IN_OTHER_NEXT_UP: Hạng mục 2.1 - Cho phép chọn kèm cảnh báo nhẹ
     const s3 = getSlotCandidateStatus(state, 'court-1', 1, 'p_nextup_c2');
-    expect(s3.selectable).toBe(false);
-    expect(s3.blockCode).toBe('IN_OTHER_NEXT_UP');
+    expect(s3.selectable).toBe(true);
+    expect(s3.warnings.some((w) => w.includes('Đang dự kiến ở'))).toBe(true);
 
     // 4. IN_THIS_NEXT_UP
     const s4 = getSlotCandidateStatus(state, 'court-1', 1, 'p_nextup_c1');

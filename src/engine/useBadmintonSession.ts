@@ -148,6 +148,10 @@ export function useBadmintonSession() {
     dispatch({ type: 'CLEAR_NEXT_UP', payload: { courtId } });
   }, []);
 
+  const toggleNextUpType = useCallback((courtId: string, nextType?: 'DOUBLES' | 'SINGLES') => {
+    dispatch({ type: 'TOGGLE_NEXT_UP_TYPE', payload: { courtId, nextType } });
+  }, []);
+
   const rearrangeNextUp = useCallback(
     (courtId: string, mode: 'ROTATE' | 'BALANCE') => {
       dispatch({ type: 'REARRANGE_NEXT_UP', payload: { courtId, mode } });
@@ -175,6 +179,10 @@ export function useBadmintonSession() {
 
   const pausePlayer = useCallback((playerId: string) => {
     dispatch({ type: 'PAUSE_PLAYER', payload: { playerId } });
+  }, []);
+
+  const pausePlayers = useCallback((playerIds: string[]) => {
+    dispatch({ type: 'PAUSE_PLAYERS', payload: { playerIds } });
   }, []);
 
   const resumePlayer = useCallback((playerId: string) => {
@@ -219,6 +227,10 @@ export function useBadmintonSession() {
 
   const removePlayer = useCallback((playerId: string) => {
     dispatch({ type: 'REMOVE_PLAYER', payload: { playerId } });
+  }, []);
+
+  const removePlayers = useCallback((playerIds: string[]) => {
+    dispatch({ type: 'REMOVE_PLAYERS', payload: { playerIds } });
   }, []);
 
   const editRank = useCallback((playerId: string, rank: BadmintonRank) => {
@@ -362,16 +374,19 @@ export function useBadmintonSession() {
     suggestNextUp,
     setNextUpSlot,
     clearNextUp,
+    toggleNextUpType,
     rearrangeNextUp,
     enqueueReadyQueue,
     dequeueReadyQueue,
     reorderReadyQueue,
     pausePlayer,
+    pausePlayers,
     resumePlayer,
     addPlayer,
     addPlayers,
     updatePlayer,
     removePlayer,
+    removePlayers,
     editRank,
     updateCourt,
     addPairRule,

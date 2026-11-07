@@ -41,13 +41,16 @@ export function App() {
     suggestNextUp,
     setNextUpSlot,
     clearNextUp,
+    toggleNextUpType,
     rearrangeNextUp,
     pausePlayer,
+    pausePlayers,
     resumePlayer,
     addPlayer,
     addPlayers,
     updatePlayer,
     removePlayer,
+    removePlayers,
     editRank,
     updateCourt,
     addPairRule,
@@ -374,6 +377,9 @@ export function App() {
                   onClearNextUp={(courtId) =>
                     guardAction(() => clearNextUp(courtId))
                   }
+                  onToggleNextUpType={(courtId, nextType) =>
+                    guardAction(() => toggleNextUpType(courtId, nextType))
+                  }
                   onRearrangeNextUp={(courtId, mode) =>
                     guardAction(() => rearrangeNextUp(courtId, mode))
                   }
@@ -409,10 +415,12 @@ export function App() {
             onAddPlayer={(data) => guardAction(() => addPlayer(data))}
             onAddPlayers={(list) => guardAction(() => addPlayers(list))}
             onPausePlayer={(id) => guardAction(() => pausePlayer(id))}
+            onPausePlayers={(ids) => guardAction(() => pausePlayers(ids))}
             onResumePlayer={(id) => guardAction(() => resumePlayer(id))}
             onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
             onUpdatePlayer={(player) => guardAction(() => updatePlayer(player))}
             onRemovePlayer={(id) => guardAction(() => removePlayer(id))}
+            onRemovePlayers={(ids) => guardAction(() => removePlayers(ids))}
           />
         )}
 
