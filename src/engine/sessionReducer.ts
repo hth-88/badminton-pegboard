@@ -12,7 +12,6 @@ import type {
   ReadyQueueItem,
   SessionSettings,
 } from '../types/badminton';
-import { DEFAULT_PENALTY_WEIGHTS } from '../types/badminton';
 import { buildStatsFromHistory, createEmptyStats, recordCompletedMatch } from './statsManager';
 import { validateLineup } from './validateLineup';
 import {
@@ -26,33 +25,13 @@ import {
 } from './nextUp';
 import { suggestNextUpForCourt } from './matchmaker';
 
-export const CURRENT_SCHEMA_VERSION = 3;
-
-export const DEFAULT_SETTINGS: SessionSettings = {
-  maleBonus: 1.5,
-  courtMode: 'SHARED_POOL',
-  matchMix: { doubles: 1, singles: 0 },
-  autoSingles: 'ASK',
-  autoSinglesSnoozeMin: 5,
-  preferMixedDoubles: true,
-  weights: { ...DEFAULT_PENALTY_WEIGHTS },
-};
-
-/**
- * Tạo sẵn 3 sân cố định (court-1, court-2, court-3), sân 3 mặc định isActive=false (Mục 15)
- */
-export function createDefaultCourts(count = 3): Court[] {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `court-${i + 1}`,
-    name: `Sân ${i + 1}`,
-    isActive: i < 2, // Sân 1 và 2 active, sân 3 trở đi isActive = false
-    policy: 'MIX',
-    forcedType: null,
-    currentMatch: null,
-    nextUp: createEmptyNextUp('DOUBLES'),
-    suggestCursor: 0,
-  }));
-}
+import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_SETTINGS,
+  createDefaultCourts,
+  migrateSessionState,
+} from './stateMigration';
+export { CURRENT_SCHEMA_VERSION, DEFAULT_SETTINGS, createDefaultCourts };
 
 export function createInitialSessionState(): BadmintonSessionState {
   return {
@@ -571,39 +550,18 @@ export function badmintonReducer(
     const raw = action.payload;
     if (!raw || typeof raw !== 'object') return state;
 
-    const rawCourts = Array.isArray(raw.courts) ? raw.courts : createDefaultCourts(3);
-    const sanitizedCourts: Court[] = rawCourts.map((c: any) => ({
-      id: String(c?.id || 'court-1'),
-      name: String(c?.name || 'Sân'),
-      isActive: Boolean(c?.isActive ?? true),
-      policy: c?.policy || 'MIX',
-      forcedType: c?.forcedType !== undefined ? c.forcedType : null,
-      currentMatch: c?.currentMatch || null,
-      nextUp: normalizeNextUp(c?.nextUp, c?.forcedType, c?.policy),
-      suggestCursor: Number.isFinite(Number(c?.suggestCursor)) ? Number(c.suggestCursor) : 0,
-    }));
-
-    return {
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      players: Array.isArray(raw.players) ? raw.players : [],
-      courts: sanitizedCourts,
-      history: Array.isArray(raw.history) ? raw.history : [],
-      pairRules: Array.isArray(raw.pairRules) ? raw.pairRules : [],
-      settings: {
-        ...DEFAULT_SETTINGS,
-        ...(raw.settings || {}),
-        weights: {
-          ...DEFAULT_PENALTY_WEIGHTS,
-          ...(raw.settings?.weights || {}),
-        },
-      },
-      stats: raw.stats || createEmptyStats(),
-      mixDebt: raw.mixDebt || { doubles: 0, singles: 0 },
-      readyQueue: Array.isArray(raw.readyQueue) ? raw.readyQueue : [],
-      autoSinglesSnooze: raw.autoSinglesSnooze || {},
-      undoStack: [],
-      redoStack: [],
-    };
+    try {
+      const migrated = migrateSessionState(raw);
+      return {
+        ...migrated,
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        undoStack: [],
+        redoStack: [],
+      };
+    } catch {
+      // Fallback nếu payload không đủ mảng players/courts
+      return state;
+    }
   }
 
   if (action.type === 'RESET_SESSION') {

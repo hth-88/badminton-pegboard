@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -70,8 +70,13 @@ export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('courts');
   const [selectedCourtFilter, setSelectedCourtFilter] = useState<'ALL' | string>('ALL');
   const [undoToastMessage, setUndoToastMessage] = useState<string | null>(null);
+  const [infoToastMessage, setInfoToastMessage] = useState<string | null>(null);
   const [warningToastMessage, setWarningToastMessage] = useState<string | null>(null);
   const [corruptStatus, setCorruptStatus] = useState<LoadStatus>(() => getLastLoadStatus());
+
+  const handleCloudToast = useCallback((msg: string) => {
+    setInfoToastMessage(msg);
+  }, []);
 
   // Cloud Room state
   const [showCloudModal, setShowCloudModal] = useState(false);
@@ -94,7 +99,7 @@ export function App() {
   } = useCloudRoom({
     currentState: state,
     onApplyCloudState: loadCloudState,
-    onShowToast: (msg) => setUndoToastMessage(msg),
+    onShowToast: handleCloudToast,
   });
 
   // Tính số sân đang bật
@@ -452,12 +457,19 @@ export function App() {
         )}
       </main>
 
-      {/* 3. TOAST HOÀN TÁC & TOAST CẢNH BÁO */}
+      {/* 3. TOAST HOÀN TÁC, THÔNG BÁO HỆ THỐNG & CẢNH BÁO */}
       {undoToastMessage && (
         <UndoToast
           message={undoToastMessage}
           onUndo={undo}
           onClose={() => setUndoToastMessage(null)}
+        />
+      )}
+      {infoToastMessage && (
+        <InfoToast
+          message={infoToastMessage}
+          type="info"
+          onClose={() => setInfoToastMessage(null)}
         />
       )}
       {warningToastMessage && (
