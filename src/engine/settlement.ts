@@ -8,6 +8,112 @@ export type ZeroGamesPolicy = 'FREE' | 'FULL';
 
 export const MAX_DEFICIT_SURCHARGE_RATE = 0.3;
 
+export type PaymentStatus = 'UNPAID' | 'PENDING_REVIEW' | 'PAID';
+
+export interface PlayerPaymentRecord {
+  status: PaymentStatus;
+  reportedAt?: number;
+  approvedAt?: number;
+}
+
+export interface CloudSettlementData {
+  settings: SettlementSettings;
+  payments: Record<string, PlayerPaymentRecord>;
+  updatedAt: number;
+}
+
+export function createDefaultCloudSettlementData(updatedAt: number = 0): CloudSettlementData {
+  return {
+    settings: { ...DEFAULT_SETTLEMENT_SETTINGS },
+    payments: {},
+    updatedAt,
+  };
+}
+
+export function normalizeCloudSettlementData(raw: unknown): CloudSettlementData | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const rawSettings =
+    obj.settings && typeof obj.settings === 'object' && !Array.isArray(obj.settings)
+      ? (obj.settings as Partial<SettlementSettings>)
+      : {};
+
+  const settings: SettlementSettings = {
+    ...DEFAULT_SETTLEMENT_SETTINGS,
+    ...rawSettings,
+  };
+
+  const payments: Record<string, PlayerPaymentRecord> = {};
+  if (obj.payments && typeof obj.payments === 'object' && !Array.isArray(obj.payments)) {
+    for (const [playerId, val] of Object.entries(obj.payments as Record<string, unknown>)) {
+      if (!playerId || !val || typeof val !== 'object' || Array.isArray(val)) continue;
+      const rec = val as Record<string, unknown>;
+      if (rec.status !== 'PENDING_REVIEW' && rec.status !== 'PAID') continue;
+
+      const normalizedRec: PlayerPaymentRecord = { status: rec.status };
+      if (typeof rec.reportedAt === 'number' && Number.isFinite(rec.reportedAt)) {
+        normalizedRec.reportedAt = rec.reportedAt;
+      }
+      if (typeof rec.approvedAt === 'number' && Number.isFinite(rec.approvedAt)) {
+        normalizedRec.approvedAt = rec.approvedAt;
+      }
+      payments[playerId] = normalizedRec;
+    }
+  }
+
+  const rawUpdatedAt = Number(obj.updatedAt);
+  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt >= 0 ? rawUpdatedAt : 0;
+
+  return {
+    settings,
+    payments,
+    updatedAt,
+  };
+}
+
+export function areSettlementDataEqual(
+  a: CloudSettlementData | null | undefined,
+  b: CloudSettlementData | null | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  const settingKeys = Object.keys(DEFAULT_SETTLEMENT_SETTINGS) as Array<keyof SettlementSettings>;
+  for (const key of settingKeys) {
+    if (a.settings?.[key] !== b.settings?.[key]) {
+      return false;
+    }
+  }
+
+  const getActivePayments = (payments: Record<string, PlayerPaymentRecord> | undefined) => {
+    const res: Record<string, PlayerPaymentRecord> = {};
+    if (!payments) return res;
+    for (const [pid, rec] of Object.entries(payments)) {
+      if (rec && (rec.status === 'PENDING_REVIEW' || rec.status === 'PAID')) {
+        res[pid] = rec;
+      }
+    }
+    return res;
+  };
+
+  const pA = getActivePayments(a.payments);
+  const pB = getActivePayments(b.payments);
+  const keysA = Object.keys(pA);
+  const keysB = Object.keys(pB);
+  if (keysA.length !== keysB.length) return false;
+
+  for (const k of keysA) {
+    if (!pB[k] || pA[k].status !== pB[k].status) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export interface SettlementSettings {
   // Tiền sân
   courtCostMode: CourtCostMode;

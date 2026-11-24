@@ -1,4 +1,5 @@
 import { createClient, RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import type { CloudSettlementData } from '../engine/settlement';
 import type { BadmintonSessionState } from '../types/badminton';
 
 export const STORAGE_KEY_SUPABASE_CONFIG = 'badminton_supabase_config';
@@ -19,7 +20,7 @@ export interface BadmintonRoomRecord {
   room_code: string;
   pin_code: string;
   session_data: BadmintonSessionState;
-  settlement_data?: any;
+  settlement_data?: CloudSettlementData | null;
   updated_at: number;
   updated_by: string;
 }
@@ -201,11 +202,16 @@ export async function upsertRoom(
 
   try {
     const cleanCode = record.room_code.toUpperCase().trim();
-    const payload = {
-      ...record,
+    const payload: Record<string, unknown> = {
       room_code: cleanCode,
+      pin_code: record.pin_code,
       session_data: serializeForCloud(record.session_data),
+      updated_at: record.updated_at,
+      updated_by: record.updated_by,
     };
+    if (record.settlement_data !== undefined) {
+      payload.settlement_data = record.settlement_data;
+    }
 
     const { error } = await supabase
       .from('badminton_rooms')
@@ -217,6 +223,40 @@ export async function upsertRoom(
     return { error: null };
   } catch (err: any) {
     return { error: err?.message || 'Lỗi khi đồng bộ phòng lên Supabase' };
+  }
+}
+
+/**
+ * Chỉ cập nhật cột settlement_data (không chạm session_data hay pin_code)
+ */
+export async function updateRoomSettlementOnly(
+  roomCode: string,
+  settlementData: CloudSettlementData,
+  updatedAt: number,
+  updatedBy: string
+): Promise<{ error: string | null }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { error: 'Chưa cấu hình Supabase URL & Anon Key' };
+  }
+
+  try {
+    const cleanCode = roomCode.toUpperCase().trim();
+    const { error } = await supabase
+      .from('badminton_rooms')
+      .update({
+        settlement_data: settlementData,
+        updated_at: updatedAt,
+        updated_by: updatedBy,
+      })
+      .eq('room_code', cleanCode);
+
+    if (error) {
+      return { error: error.message };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: err?.message || 'Lỗi khi cập nhật bảng quyết toán lên Supabase' };
   }
 }
 

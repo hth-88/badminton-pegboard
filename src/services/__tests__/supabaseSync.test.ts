@@ -5,9 +5,11 @@ import {
   getSupabaseConfig,
   saveSupabaseConfig,
   clearSupabaseConfig,
+  updateRoomSettlementOnly,
   STORAGE_KEY_SUPABASE_CONFIG,
   type BadmintonRoomRecord,
 } from '../supabaseSync';
+import { createDefaultCloudSettlementData } from '../../engine/settlement';
 import { createInitialSessionState } from '../../engine/sessionReducer';
 import type { BadmintonSessionSnapshot, BadmintonSessionState } from '../../types/badminton';
 
@@ -293,6 +295,24 @@ describe('Supabase Realtime Cloud Sync Service', () => {
       actionExecuted = false;
       guardAction(dangerousAction);
       expect(actionExecuted).toBe(true);
+    });
+  });
+
+  describe('updateRoomSettlementOnly (C4)', () => {
+    it('trả lỗi rõ ràng khi chưa cấu hình Supabase và hỗ trợ settlement_data trên BadmintonRoomRecord', async () => {
+      const settlement = createDefaultCloudSettlementData(1234);
+      const record: BadmintonRoomRecord = {
+        room_code: 'SAN-88',
+        pin_code: '1234',
+        session_data: createInitialSessionState(),
+        settlement_data: settlement,
+        updated_at: 1234,
+        updated_by: 'CLIENT_1',
+      };
+      expect(record.settlement_data?.updatedAt).toBe(1234);
+
+      const res = await updateRoomSettlementOnly('SAN-88', settlement, 1234, 'CLIENT_1');
+      expect(res.error).toBe('Chưa cấu hình Supabase URL & Anon Key');
     });
   });
 });

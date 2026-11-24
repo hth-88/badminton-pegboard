@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { Player } from '../../types/badminton';
 import {
+  areSettlementDataEqual,
   calculateSettlement,
   ceilToNearest1000,
+  createDefaultCloudSettlementData,
   DEFAULT_SETTLEMENT_SETTINGS,
+  normalizeCloudSettlementData,
   type SettlementSettings,
 } from '../settlement';
+import {
+  clearPaymentRecords,
+  getPaymentRecords,
+  savePaymentRecords,
+  STORAGE_KEY_PAID_PLAYERS,
+  STORAGE_KEY_PAYMENT_RECORDS,
+} from '../storage';
 
 function makePlayer(id: string, name: string, sex: 'M' | 'F', gamesPlayed: number): Player {
   return {
@@ -781,5 +791,107 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     expect(mCap.rawAmount).toBeLessThanOrEqual(45500);
     expect(resCap.shortfall).toBe(0);
     expect(resCap.warning).toBeDefined();
+  });
+
+  it('24. Mục C4: normalizeCloudSettlementData chuẩn hóa dữ liệu thiếu trường, lọc UNPAID/rác và trả null khi input sai', () => {
+    expect(normalizeCloudSettlementData(null)).toBeNull();
+    expect(normalizeCloudSettlementData([])).toBeNull();
+    expect(normalizeCloudSettlementData('bad')).toBeNull();
+
+    const normalized = normalizeCloudSettlementData({
+      settings: { shuttleCount: 10, bankAccount: '012345' },
+      payments: {
+        p1: { status: 'PAID', approvedAt: 5000 },
+        p2: { status: 'PENDING_REVIEW', reportedAt: 4000 },
+        p3: { status: 'UNPAID' },
+        p4: { status: 'INVALID' },
+        p5: null,
+      },
+      updatedAt: -10,
+    });
+
+    expect(normalized).not.toBeNull();
+    expect(normalized!.settings.shuttleCount).toBe(10);
+    expect(normalized!.settings.bankAccount).toBe('012345');
+    expect(normalized!.settings.courtHourlyRate).toBe(DEFAULT_SETTLEMENT_SETTINGS.courtHourlyRate);
+    expect(normalized!.payments).toEqual({
+      p1: { status: 'PAID', approvedAt: 5000 },
+      p2: { status: 'PENDING_REVIEW', reportedAt: 4000 },
+    });
+    expect(normalized!.updatedAt).toBe(0);
+  });
+
+  it('25. Mục C4: areSettlementDataEqual bỏ qua updatedAt khác nhau nhưng phát hiện thay đổi settings hoặc payments', () => {
+    const a = createDefaultCloudSettlementData(1000);
+    const b = createDefaultCloudSettlementData(9999);
+    expect(areSettlementDataEqual(a, b)).toBe(true);
+
+    const c = {
+      ...b,
+      settings: { ...b.settings, shuttleCount: 99 },
+    };
+    expect(areSettlementDataEqual(a, c)).toBe(false);
+
+    const d = {
+      ...b,
+      payments: { p1: { status: 'PENDING_REVIEW' as const, reportedAt: 2000 } },
+    };
+    expect(areSettlementDataEqual(a, d)).toBe(false);
+
+    const e = {
+      ...b,
+      payments: { p1: { status: 'PAID' as const, approvedAt: 3000 } },
+    };
+    expect(areSettlementDataEqual(d, e)).toBe(false);
+  });
+
+  it('26. Mục C4: storage getPaymentRecords migrate từ legacy badminton_paid_players, savePaymentRecords & clearPaymentRecords đồng bộ cả 2 key', () => {
+    const mockStore: Record<string, string> = {
+      [STORAGE_KEY_PAID_PLAYERS]: JSON.stringify(['p1', 'p2']),
+    };
+    const prevStorage = globalThis.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (k: string) => mockStore[k] ?? null,
+        setItem: (k: string, v: string) => {
+          mockStore[k] = String(v);
+        },
+        removeItem: (k: string) => {
+          delete mockStore[k];
+        },
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    try {
+      const migrated = getPaymentRecords();
+      expect(migrated).toEqual({
+        p1: { status: 'PAID' },
+        p2: { status: 'PAID' },
+      });
+
+      savePaymentRecords({
+        p1: { status: 'PAID', approvedAt: 1000 },
+        p3: { status: 'PENDING_REVIEW', reportedAt: 2000 },
+        p4: { status: 'UNPAID' },
+      });
+
+      expect(JSON.parse(mockStore[STORAGE_KEY_PAYMENT_RECORDS])).toEqual({
+        p1: { status: 'PAID', approvedAt: 1000 },
+        p3: { status: 'PENDING_REVIEW', reportedAt: 2000 },
+      });
+      expect(JSON.parse(mockStore[STORAGE_KEY_PAID_PLAYERS])).toEqual(['p1']);
+
+      clearPaymentRecords();
+      expect(mockStore[STORAGE_KEY_PAYMENT_RECORDS]).toBeUndefined();
+      expect(mockStore[STORAGE_KEY_PAID_PLAYERS]).toBeUndefined();
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: prevStorage,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 });

@@ -1,4 +1,9 @@
 import type { BadmintonSessionState } from '../types/badminton';
+import {
+  DEFAULT_SETTLEMENT_SETTINGS,
+  type PlayerPaymentRecord,
+  type SettlementSettings,
+} from './settlement';
 import { normalizeNextUp } from './nextUp';
 import { migrateSessionState } from './stateMigration';
 export { normalizeNextUp, migrateSessionState };
@@ -252,6 +257,109 @@ export function clearSession(): void {
 
 export const STORAGE_KEY_PAID_PLAYERS = 'badminton_paid_players';
 export const STORAGE_KEY_ARCHIVED_SESSIONS = 'badminton_archived_sessions';
+export const STORAGE_KEY_SETTLEMENT_SETTINGS = 'badminton_settlement_settings';
+export const STORAGE_KEY_PAYMENT_RECORDS = 'badminton_payment_records';
+
+export function getSettlementSettings(): SettlementSettings {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return { ...DEFAULT_SETTLEMENT_SETTINGS };
+    }
+    const saved = localStorage.getItem(STORAGE_KEY_SETTLEMENT_SETTINGS);
+    if (!saved) {
+      return { ...DEFAULT_SETTLEMENT_SETTINGS };
+    }
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ...DEFAULT_SETTLEMENT_SETTINGS };
+    }
+    if (parsed.courtHourlyRate === 90000) parsed.courtHourlyRate = 160000;
+    if (parsed.shuttlePrice === 22000) parsed.shuttlePrice = 30000;
+    if (parsed.extraCost === 30000 && parsed.extraCostNote === 'Nước uống') parsed.extraCost = 0;
+    return { ...DEFAULT_SETTLEMENT_SETTINGS, ...parsed };
+  } catch {
+    return { ...DEFAULT_SETTLEMENT_SETTINGS };
+  }
+}
+
+export function saveSettlementSettings(settings: SettlementSettings): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY_SETTLEMENT_SETTINGS, JSON.stringify(settings));
+  } catch (e) {
+    console.error('Lỗi khi lưu cài đặt quyết toán:', e);
+  }
+}
+
+export function getPaymentRecords(): Record<string, PlayerPaymentRecord> {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(STORAGE_KEY_PAYMENT_RECORDS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const result: Record<string, PlayerPaymentRecord> = {};
+        for (const [pid, val] of Object.entries(parsed as Record<string, unknown>)) {
+          if (!pid || !val || typeof val !== 'object' || Array.isArray(val)) continue;
+          const rec = val as Record<string, unknown>;
+          if (rec.status !== 'PENDING_REVIEW' && rec.status !== 'PAID') continue;
+          const cleanRec: PlayerPaymentRecord = { status: rec.status };
+          if (typeof rec.reportedAt === 'number' && Number.isFinite(rec.reportedAt)) {
+            cleanRec.reportedAt = rec.reportedAt;
+          }
+          if (typeof rec.approvedAt === 'number' && Number.isFinite(rec.approvedAt)) {
+            cleanRec.approvedAt = rec.approvedAt;
+          }
+          result[pid] = cleanRec;
+        }
+        return result;
+      }
+    }
+
+    // Migrate ngược từ danh sách legacy badminton_paid_players nếu chưa có key mới
+    const legacyPaid = getPaidPlayerIds();
+    const migrated: Record<string, PlayerPaymentRecord> = {};
+    for (const id of legacyPaid) {
+      if (typeof id === 'string' && id.trim()) {
+        migrated[id] = { status: 'PAID' };
+      }
+    }
+    return migrated;
+  } catch {
+    return {};
+  }
+}
+
+export function savePaymentRecords(records: Record<string, PlayerPaymentRecord>): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const filtered: Record<string, PlayerPaymentRecord> = {};
+    const paidIds: string[] = [];
+    for (const [pid, rec] of Object.entries(records || {})) {
+      if (!pid || !rec) continue;
+      if (rec.status === 'PENDING_REVIEW' || rec.status === 'PAID') {
+        filtered[pid] = rec;
+        if (rec.status === 'PAID') {
+          paidIds.push(pid);
+        }
+      }
+    }
+    localStorage.setItem(STORAGE_KEY_PAYMENT_RECORDS, JSON.stringify(filtered));
+    savePaidPlayerIds(paidIds);
+  } catch (e) {
+    console.error('Lỗi khi lưu trạng thái đóng tiền:', e);
+  }
+}
+
+export function clearPaymentRecords(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(STORAGE_KEY_PAYMENT_RECORDS);
+    localStorage.removeItem(STORAGE_KEY_PAID_PLAYERS);
+  } catch (e) {
+    console.error('Lỗi khi xóa trạng thái đóng tiền:', e);
+  }
+}
 
 export interface ArchivedSessionSummary {
   id: string;
