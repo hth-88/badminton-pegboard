@@ -300,6 +300,12 @@ export function useCloudRoom({
     // A5: Nếu state hiện tại khớp với snapshot vừa nhận từ xa, không gửi ngược lại
     if (areSessionSnapshotsEqual(currentState, lastAppliedRemoteSnapshotRef.current)) {
       isApplyingRemoteRef.current = false;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      hasPendingLocalChangeRef.current = false;
+      setSyncStatus('SYNCED');
       return;
     }
 
@@ -342,6 +348,7 @@ export function useCloudRoom({
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
     };
   }, [currentState, roomCode, role, pinCode, clientId]);
@@ -442,6 +449,11 @@ export function useCloudRoom({
 
   // 7. Rời khỏi phòng (quay về Offline / LocalStorage)
   const leaveRoom = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    hasPendingLocalChangeRef.current = false;
     setRoomCode(null);
     setPinCode(null);
     setRole('OFFLINE');

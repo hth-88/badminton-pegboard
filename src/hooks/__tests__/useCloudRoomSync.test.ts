@@ -587,4 +587,116 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(window.location.href).not.toContain('room=');
     expect(window.location.href).not.toContain('pin=');
   });
+
+  it('8. Mục A1: Bấm Undo nhanh (<250ms) quay về snapshot khớp Cloud phải giải phóng cờ pending, về SYNCED và tiếp tục nhận Realtime', async () => {
+    const baseState = createInitialSessionState();
+    const appliedSnapshots: BadmintonSessionState[] = [];
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: (s) => appliedSnapshots.push(s),
+        onShowToast: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    appliedSnapshots.length = 0;
+    mockUpsertRoom.mockClear();
+
+    const modifiedState: BadmintonSessionState = {
+      ...baseState,
+      mixDebt: { doubles: 3, singles: 0 },
+    };
+    harness.rerender({ state: modifiedState });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(harness.getResult().syncStatus).toBe('SYNCING');
+    expect(mockUpsertRoom).toHaveBeenCalledTimes(0);
+
+    // Undo nhanh quay lại baseState (<250ms)
+    harness.rerender({ state: baseState });
+    expect(harness.getResult().syncStatus).toBe('SYNCED');
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(mockUpsertRoom).toHaveBeenCalledTimes(0);
+
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '1234',
+      session_data: { ...baseState, mixDebt: { doubles: 7, singles: 1 } },
+      updated_at: 5000,
+      updated_by: 'OTHER_HOST',
+    });
+
+    expect(appliedSnapshots.length).toBe(1);
+    expect(appliedSnapshots[0].mixDebt.doubles).toBe(7);
+  });
+
+  it('9. Mục A1: Rời phòng (leaveRoom) khi đang pending debounce (<250ms) phải reset cờ pending để lần vào phòng sau vẫn nhận Realtime', async () => {
+    const baseState = createInitialSessionState();
+    const appliedSnapshots: BadmintonSessionState[] = [];
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: (s) => appliedSnapshots.push(s),
+        onShowToast: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+
+    const modifiedState: BadmintonSessionState = {
+      ...baseState,
+      mixDebt: { doubles: 4, singles: 0 },
+    };
+    harness.rerender({ state: modifiedState });
+    await vi.advanceTimersByTimeAsync(100);
+
+    harness.getResult().leaveRoom();
+    expect(harness.getResult().syncStatus).toBe('OFFLINE');
+
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+    appliedSnapshots.length = 0;
+
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '1234',
+      session_data: { ...baseState, mixDebt: { doubles: 9, singles: 0 } },
+      updated_at: 6000,
+      updated_by: 'OTHER_HOST',
+    });
+
+    expect(appliedSnapshots.length).toBe(1);
+    expect(appliedSnapshots[0].mixDebt.doubles).toBe(9);
+  });
+
 });
