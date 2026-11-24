@@ -700,4 +700,171 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
     expect(evalSingles?.warnings.some((w) => w.includes('Chênh lệch trình độ'))).toBe(true);
     expect(evalSingles?.warnings.some((w) => w.includes('từ chối đánh đơn'))).toBe(true);
   });
+
+  it('14. Mục C1: 2 ô MANUAL ở Đội 1 [p1, p2, null, null] -> SUGGEST_NEXT_UP liên tiếp giữ nguyên p1, p2 ở slot 0, 1 (MANUAL) và xoay đổi 2 đối thủ AUTO ở slot 2, 3', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1'),
+      makePlayer('p2', 'P2'),
+      makePlayer('p3', 'P3'),
+      makePlayer('p4', 'P4'),
+      makePlayer('p5', 'P5'),
+      makePlayer('p6', 'P6'),
+    ];
+
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p2' },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2000 },
+    });
+    const first = state.courts[0].nextUp;
+    expect(first.slots[0]).toBe('p1');
+    expect(first.slots[1]).toBe('p2');
+    expect(first.slotSource).toEqual(['MANUAL', 'MANUAL', 'AUTO', 'AUTO']);
+    expect(first.slots[2]).toBeTruthy();
+    expect(first.slots[3]).toBeTruthy();
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2001 },
+    });
+    const second = state.courts[0].nextUp;
+    expect(second.slots[0]).toBe('p1');
+    expect(second.slots[1]).toBe('p2');
+    expect(second.slotSource).toEqual(['MANUAL', 'MANUAL', 'AUTO', 'AUTO']);
+    expect([second.slots[2], second.slots[3]].sort()).not.toEqual(
+      [first.slots[2], first.slots[3]].sort()
+    );
+  });
+
+  it('15. Mục C1: giữ đúng slotIndex lẻ [null, p1, null, p2] (Đội 1 slot 1 vs Đội 2 slot 3) -> p1 giữ ở slot 1 (MANUAL), p2 giữ ở slot 3 (MANUAL), điền AUTO vào slot 0 và 2', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1'),
+      makePlayer('p2', 'P2'),
+      makePlayer('p3', 'P3'),
+      makePlayer('p4', 'P4'),
+      makePlayer('p5', 'P5'),
+    ];
+
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 3, playerId: 'p2' },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2000 },
+    });
+
+    const nextUp = state.courts[0].nextUp;
+    expect(nextUp.slots[1]).toBe('p1');
+    expect(nextUp.slots[3]).toBe('p2');
+    expect(nextUp.slots[0]).toBeTruthy();
+    expect(nextUp.slots[2]).toBeTruthy();
+    expect(nextUp.slotSource).toEqual(['AUTO', 'MANUAL', 'AUTO', 'MANUAL']);
+  });
+
+  it('16. Mục C1: SINGLES với 1 ô MANUAL (kể cả người đó noSingles: true) -> giữ nguyên slot MANUAL và ghép đối thủ !noSingles là AUTO', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1', 'M', 'tb', { noSingles: true }),
+      makePlayer('p2', 'P2', 'M', 'tb', { noSingles: true }),
+      makePlayer('p3', 'P3', 'M', 'tb', { noSingles: false }),
+    ];
+
+    state = badmintonReducer(state, {
+      type: 'TOGGLE_NEXT_UP_TYPE',
+      payload: { courtId: 'court-1', nextType: 'SINGLES' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p1' },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2000 },
+    });
+
+    expect(state.courts[0].nextUp.type).toBe('SINGLES');
+    expect(state.courts[0].nextUp.slots).toEqual(['p3', 'p1']);
+    expect(state.courts[0].nextUp.slotSource).toEqual(['AUTO', 'MANUAL']);
+  });
+
+  it('17. Mục C1: 2 người MANUAL ở Đội 1 đang có luật AVOID_PARTNER -> vẫn gợi ý thành công (nới Stage 2) và giữ nguyên 2 ô MANUAL', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1'),
+      makePlayer('p2', 'P2'),
+      makePlayer('p3', 'P3'),
+      makePlayer('p4', 'P4'),
+    ];
+    state.pairRules = [
+      { id: 'r1', playerAId: 'p1', playerBId: 'p2', type: 'AVOID_PARTNER' },
+    ];
+
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 1, playerId: 'p2' },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2000 },
+    });
+
+    expect(state.courts[0].nextUp.slots[0]).toBe('p1');
+    expect(state.courts[0].nextUp.slots[1]).toBe('p2');
+    expect(state.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL', 'AUTO', 'AUTO']);
+    expect(isNextUpComplete(state.courts[0].nextUp)).toBe(true);
+  });
+
+  it('18. Mục C1: sau khi bấm CLEAR_NEXT_UP rồi SUGGEST_NEXT_UP -> cả 4 ô trở về gợi ý mới AUTO hoàn toàn', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1'),
+      makePlayer('p2', 'P2'),
+      makePlayer('p3', 'P3'),
+      makePlayer('p4', 'P4'),
+      makePlayer('p5', 'P5'),
+    ];
+
+    state = badmintonReducer(state, {
+      type: 'SET_NEXT_UP_SLOT',
+      payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'CLEAR_NEXT_UP',
+      payload: { courtId: 'court-1' },
+    });
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 2000 },
+    });
+
+    expect(isNextUpComplete(state.courts[0].nextUp)).toBe(true);
+    expect(state.courts[0].nextUp.slotSource).toEqual(['AUTO', 'AUTO', 'AUTO', 'AUTO']);
+  });
 });

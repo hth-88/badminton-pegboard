@@ -1,12 +1,14 @@
 import type {
   BadmintonSessionState,
   Court,
+  FixedSlot,
   Lineup,
   MatchHistory,
   MatchProposal,
   MatchScoreBreakdown,
   MatchType,
   NextUpDraft,
+  NextUpSlotSource,
   PairRule,
   PenaltyWeights,
   Player,
@@ -389,8 +391,59 @@ export function generateSinglesProposals(
   availablePlayers: Player[],
   state: BadmintonSessionState,
   weights: PenaltyWeights,
-  seed: number
+  seed: number,
+  fixedSlot?: FixedSlot
 ): MatchProposal[] {
+  if (fixedSlot) {
+    const fixedPlayer = availablePlayers.find((p) => p.id === fixedSlot.playerId);
+    if (!fixedPlayer) return [];
+
+    const eligibleFillers = availablePlayers.filter(
+      (p) => p.id !== fixedPlayer.id && !p.noSingles
+    );
+    if (eligibleFillers.length === 0) return [];
+
+    const topK = sortPlayersByWaitPriority(eligibleFillers).slice(
+      0,
+      Math.min(6, eligibleFillers.length)
+    );
+    const eligibleForWait = [fixedPlayer, ...eligibleFillers];
+    const proposals: MatchProposal[] = [];
+
+    for (const filler of topK) {
+      const p1 = fixedSlot.team === 1 ? fixedPlayer : filler;
+      const p2 = fixedSlot.team === 1 ? filler : fixedPlayer;
+      const debugScore = calculateSinglesScore(p1, p2, state, weights, eligibleForWait);
+
+      const lineup: Lineup = {
+        type: 'SINGLES',
+        team1: [p1.id],
+        team2: [p2.id],
+        slotSource: {
+          [p1.id]: p1.id === fixedPlayer.id ? 'MANUAL' : 'AUTO',
+          [p2.id]: p2.id === fixedPlayer.id ? 'MANUAL' : 'AUTO',
+        },
+      };
+
+      proposals.push({
+        lineup,
+        debugScore,
+        penalty: debugScore.totalPenalty,
+        relaxed: false,
+        relaxedReasons: [],
+      });
+    }
+
+    proposals.sort((a, b) => {
+      if (a.penalty !== b.penalty) return a.penalty - b.penalty;
+      const hashA = pseudoHash(a.lineup.team1[0] + a.lineup.team2[0], seed);
+      const hashB = pseudoHash(b.lineup.team1[0] + b.lineup.team2[0], seed);
+      return hashA - hashB;
+    });
+
+    return proposals.slice(0, 5);
+  }
+
   // Lọc người không từ chối đánh đơn
   const eligiblePlayers = availablePlayers.filter((p) => !p.noSingles);
   if (eligiblePlayers.length < 2) {
@@ -467,7 +520,8 @@ export function generateDoublesProposals(
   availablePlayers: Player[],
   state: BadmintonSessionState,
   weights: PenaltyWeights,
-  _seed: number
+  _seed: number,
+  fixedSlots?: FixedSlot[]
 ): MatchProposal[] {
   if (availablePlayers.length < 4) {
     return [];
@@ -513,29 +567,94 @@ export function generateDoublesProposals(
     return !conflictPairKeys.has(key);
   });
 
-  // 2. Candidate pool: lấy tối đa 8 người rảnh ưu tiên cao nhất
-  const candidateIds = new Set<string>();
-  const baseK = Math.min(8, sortedAvailable.length);
-  for (let i = 0; i < baseK; i++) {
-    candidateIds.add(sortedAvailable[i].id);
-  }
+  const hasPartialFixed = Boolean(fixedSlots && fixedSlots.length > 0 && fixedSlots.length < 4);
+  const fixedIdSet = new Set<string>();
+  const fixedT1: Player[] = [];
+  const fixedT2: Player[] = [];
+  let candidateCombinations: Array<{ team1: Player[]; team2: Player[] }> = [];
 
-  // Kéo partner của LOCK_PARTNER vào candidate pool nếu 1 người trong candidate pool
-  for (const rule of effectiveLockRules) {
-    const freeA = availableIdSet.has(rule.playerAId);
-    const freeB = availableIdSet.has(rule.playerBId);
-    if (freeA && freeB) {
-      if (candidateIds.has(rule.playerAId)) candidateIds.add(rule.playerBId);
-      if (candidateIds.has(rule.playerBId)) candidateIds.add(rule.playerAId);
+  if (hasPartialFixed && fixedSlots) {
+    const playerById = new Map(sortedAvailable.map((p) => [p.id, p]));
+    for (const fs of fixedSlots) {
+      const p = playerById.get(fs.playerId);
+      if (!p || fixedIdSet.has(p.id)) return [];
+      fixedIdSet.add(p.id);
+      if (fs.team === 1) fixedT1.push(p);
+      else fixedT2.push(p);
+    }
+    if (fixedT1.length > 2 || fixedT2.length > 2) return [];
+
+    const needT1 = 2 - fixedT1.length;
+    const needT2 = 2 - fixedT2.length;
+    const needTotal = needT1 + needT2;
+    const fillerAvailable = sortedAvailable.filter((p) => !fixedIdSet.has(p.id));
+    if (fillerAvailable.length < needTotal) return [];
+
+    const fillerIdSet = new Set(fillerAvailable.map((p) => p.id));
+    const candidateFillerIds = new Set<string>();
+    const baseK = Math.min(8, fillerAvailable.length);
+    for (let i = 0; i < baseK; i++) {
+      candidateFillerIds.add(fillerAvailable[i].id);
+    }
+    for (const rule of effectiveLockRules) {
+      const aInFiller = fillerIdSet.has(rule.playerAId);
+      const bInFiller = fillerIdSet.has(rule.playerBId);
+      if (aInFiller && (candidateFillerIds.has(rule.playerBId) || fixedIdSet.has(rule.playerBId))) {
+        candidateFillerIds.add(rule.playerAId);
+      }
+      if (bInFiller && (candidateFillerIds.has(rule.playerAId) || fixedIdSet.has(rule.playerAId))) {
+        candidateFillerIds.add(rule.playerBId);
+      }
+    }
+
+    const candidateFillers = fillerAvailable.filter((p) => candidateFillerIds.has(p.id));
+    if (candidateFillers.length < needTotal) return [];
+
+    const fillerCombos = getCombinations(candidateFillers, needTotal);
+    for (const fillers of fillerCombos) {
+      const t1Options = getCombinations(fillers, needT1);
+      for (const t1Fillers of t1Options) {
+        const t1FillerIds = new Set(t1Fillers.map((p) => p.id));
+        const t2Fillers = fillers.filter((p) => !t1FillerIds.has(p.id));
+        candidateCombinations.push({
+          team1: [...fixedT1, ...t1Fillers],
+          team2: [...fixedT2, ...t2Fillers],
+        });
+      }
+    }
+  } else {
+    // 2. Candidate pool: lấy tối đa 8 người rảnh ưu tiên cao nhất
+    const candidateIds = new Set<string>();
+    const baseK = Math.min(8, sortedAvailable.length);
+    for (let i = 0; i < baseK; i++) {
+      candidateIds.add(sortedAvailable[i].id);
+    }
+
+    // Kéo partner của LOCK_PARTNER vào candidate pool nếu 1 người trong candidate pool
+    for (const rule of effectiveLockRules) {
+      const freeA = availableIdSet.has(rule.playerAId);
+      const freeB = availableIdSet.has(rule.playerBId);
+      if (freeA && freeB) {
+        if (candidateIds.has(rule.playerAId)) candidateIds.add(rule.playerBId);
+        if (candidateIds.has(rule.playerBId)) candidateIds.add(rule.playerAId);
+      }
+    }
+
+    const candidatePlayers = sortedAvailable.filter((p) => candidateIds.has(p.id));
+    if (candidatePlayers.length < 4) {
+      return [];
+    }
+
+    const candidateCombos = getCombinations(candidatePlayers, 4);
+    for (const combo of candidateCombos) {
+      const [p0, p1, p2, p3] = combo;
+      candidateCombinations.push(
+        { team1: [p0, p1], team2: [p2, p3] },
+        { team1: [p0, p2], team2: [p1, p3] },
+        { team1: [p0, p3], team2: [p1, p2] }
+      );
     }
   }
-
-  const candidatePlayers = sortedAvailable.filter((p) => candidateIds.has(p.id));
-  if (candidatePlayers.length < 4) {
-    return [];
-  }
-
-  const candidateCombos = getCombinations(candidatePlayers, 4);
 
   // 3. Sinh tất cả các phương án xếp đội có thể cho mỗi tổ hợp 4 người
   let foundProposals: MatchProposal[] = [];
@@ -546,17 +665,7 @@ export function generateDoublesProposals(
   // Stage 1: Bỏ qua LOCK_PARTNER (nới tách cặp/thiếu cặp), AVOID_PARTNER vẫn nghiêm ngặt
   // Stage 2: Bỏ cả AVOID_PARTNER
   for (let stage = 0; stage < 3; stage++) {
-    for (const combo of candidateCombos) {
-      const [p0, p1, p2, p3] = combo;
-
-      // Đúng 4 người luôn sinh đủ 3 cách chia cặp:
-      const pairings = [
-        { team1: [p0, p1], team2: [p2, p3] },
-        { team1: [p0, p2], team2: [p1, p3] },
-        { team1: [p0, p3], team2: [p1, p2] },
-      ];
-
-      for (const { team1, team2 } of pairings) {
+    for (const { team1, team2 } of candidateCombinations) {
         const pA = team1[0];
         const pB = team1[1];
         const pC = team2[0];
@@ -634,10 +743,10 @@ export function generateDoublesProposals(
           team1: [pA.id, pB.id],
           team2: [pC.id, pD.id],
           slotSource: {
-            [pA.id]: 'AUTO',
-            [pB.id]: 'AUTO',
-            [pC.id]: 'AUTO',
-            [pD.id]: 'AUTO',
+            [pA.id]: fixedIdSet.has(pA.id) ? 'MANUAL' : 'AUTO',
+            [pB.id]: fixedIdSet.has(pB.id) ? 'MANUAL' : 'AUTO',
+            [pC.id]: fixedIdSet.has(pC.id) ? 'MANUAL' : 'AUTO',
+            [pD.id]: fixedIdSet.has(pD.id) ? 'MANUAL' : 'AUTO',
           },
         };
 
@@ -648,7 +757,6 @@ export function generateDoublesProposals(
           relaxed: stage > 0,
           relaxedReasons,
         });
-      }
     }
 
     if (foundProposals.length > 0) {
@@ -736,6 +844,50 @@ function buildProjectedEnvironment(
   };
 }
 
+interface FixedSlotWithIndex extends FixedSlot {
+  slotIndex: number;
+}
+
+function extractPartialManualSlots(
+  court: Court,
+  state: BadmintonSessionState,
+  playingOnOtherCourts: Set<string>
+): FixedSlotWithIndex[] {
+  const nextUp = court.nextUp;
+  if (!nextUp || !Array.isArray(nextUp.slots) || !Array.isArray(nextUp.slotSource)) {
+    return [];
+  }
+  const draftType: MatchType = nextUp.type === 'SINGLES' ? 'SINGLES' : 'DOUBLES';
+  const expectedCount = draftType === 'SINGLES' ? 2 : 4;
+  const activePlayerIds = new Set(
+    state.players.filter((p) => p.status === 'ACTIVE').map((p) => p.id)
+  );
+  const seenIds = new Set<string>();
+  const result: FixedSlotWithIndex[] = [];
+
+  for (let i = 0; i < expectedCount; i++) {
+    const rawPid = nextUp.slots[i];
+    const pid = typeof rawPid === 'string' && rawPid.trim().length > 0 ? rawPid.trim() : null;
+    if (!pid) continue;
+    if (nextUp.slotSource[i] !== 'MANUAL') continue;
+    if (!activePlayerIds.has(pid)) continue;
+    if (playingOnOtherCourts.has(pid)) continue;
+    if (seenIds.has(pid)) continue;
+
+    seenIds.add(pid);
+    result.push({
+      playerId: pid,
+      team: draftType === 'SINGLES' ? (i === 0 ? 1 : 2) : i < 2 ? 1 : 2,
+      slotIndex: i,
+    });
+  }
+
+  if (result.length === 0 || result.length >= expectedCount) {
+    return [];
+  }
+  return result;
+}
+
 export interface SuggestNextUpOptions {
   isAutoSuggest?: boolean;
 }
@@ -755,12 +907,23 @@ export function suggestNextUpForCourt(
 
   // 1. Tập người đang thi đấu ở bất kỳ sân nào (currentMatch) - CẤM
   const playingPlayerIds = new Set<string>();
+  const playingOnOtherCourts = new Set<string>();
   for (const c of state.courts) {
     if (c.isActive && c.currentMatch) {
-      c.currentMatch.team1.forEach((id) => playingPlayerIds.add(id));
-      c.currentMatch.team2.forEach((id) => playingPlayerIds.add(id));
+      c.currentMatch.team1.forEach((id) => {
+        playingPlayerIds.add(id);
+        if (c.id !== courtId) playingOnOtherCourts.add(id);
+      });
+      c.currentMatch.team2.forEach((id) => {
+        playingPlayerIds.add(id);
+        if (c.id !== courtId) playingOnOtherCourts.add(id);
+      });
     }
   }
+
+  const partialFixedSlots = options?.isAutoSuggest
+    ? []
+    : extractPartialManualSlots(court, state, playingOnOtherCourts);
 
   // 2. Tập người đã nằm trong Next Up của sân KHÁC
   const otherNextUpPlayerIds = new Set<string>();
@@ -808,47 +971,78 @@ export function suggestNextUpForCourt(
   }
 
   let matchType: MatchType = resolveTargetMatchType(court, state, totalFreeCount, now);
+  if (partialFixedSlots.length > 0) {
+    const hardForcedSingles = court.forcedType === 'SINGLES' || court.policy === 'SINGLES_ONLY';
+    const hardForcedDoubles = court.forcedType === 'DOUBLES' || court.policy === 'DOUBLES_ONLY';
+    if (court.nextUp.type === 'SINGLES' && !hardForcedDoubles) {
+      matchType = 'SINGLES';
+    } else if (court.nextUp.type === 'DOUBLES' && !hardForcedSingles) {
+      matchType = 'DOUBLES';
+    }
+  }
 
   const buildProposalsForType = (targetType: MatchType): MatchProposal[] => {
     const neededCount = targetType === 'SINGLES' ? 2 : 4;
-    let effectiveAvailable = [...primaryAvailable];
+    const activeFixed =
+      partialFixedSlots.length > 0 && targetType === court.nextUp.type ? partialFixedSlots : [];
+    const fixedIdSet = new Set(activeFixed.map((f) => f.playerId));
+    const neededFill = neededCount - activeFixed.length;
+
+    let fillerCandidates = primaryAvailable.filter((p) => !fixedIdSet.has(p.id));
     let effectiveState = state;
 
     const hasEnoughPrimary =
       targetType === 'SINGLES'
-        ? effectiveAvailable.filter((p) => !p.noSingles).length >= 2
-        : effectiveAvailable.length >= neededCount;
+        ? fillerCandidates.filter((p) => !p.noSingles).length >= neededFill
+        : fillerCandidates.length >= neededFill;
 
     // Nếu thiếu người: thử dự kiến người từ trận đang đánh trên sân này
     if (!hasEnoughPrimary && court.currentMatch) {
-      const proj = buildProjectedEnvironment(court, effectiveAvailable, state, now);
+      const proj = buildProjectedEnvironment(court, fillerCandidates, state, now);
       if (proj) {
-        effectiveAvailable = proj.projectedAvailable;
+        fillerCandidates = proj.projectedAvailable.filter((p) => !fixedIdSet.has(p.id));
         effectiveState = proj.projectedState;
       }
     }
 
     // Hạng mục 2.1: Nếu vẫn chưa đủ người, bổ sung người từ Next Up sân khác (ưu tiên waitPriority & lọc noSingles cho Đơn)
-    const existingIds = new Set(effectiveAvailable.map((p) => p.id));
+    const existingFillerIds = new Set(fillerCandidates.map((p) => p.id));
     if (targetType === 'SINGLES') {
-      let singlesEligible = effectiveAvailable.filter((p) => !p.noSingles).length;
-      if (singlesEligible < 2) {
+      let singlesEligible = fillerCandidates.filter((p) => !p.noSingles).length;
+      if (singlesEligible < neededFill) {
         for (const p of sortedSecondary) {
-          if (!p.noSingles && !existingIds.has(p.id)) {
-            effectiveAvailable.push(p);
-            existingIds.add(p.id);
+          if (!fixedIdSet.has(p.id) && !p.noSingles && !existingFillerIds.has(p.id)) {
+            fillerCandidates.push(p);
+            existingFillerIds.add(p.id);
             singlesEligible++;
-            if (singlesEligible >= 2) break;
+            if (singlesEligible >= neededFill) break;
           }
         }
       }
-    } else if (effectiveAvailable.length < neededCount) {
+    } else if (fillerCandidates.length < neededFill) {
       for (const p of sortedSecondary) {
-        if (!existingIds.has(p.id)) {
-          effectiveAvailable.push(p);
-          existingIds.add(p.id);
-          if (effectiveAvailable.length >= neededCount) break;
+        if (!fixedIdSet.has(p.id) && !existingFillerIds.has(p.id)) {
+          fillerCandidates.push(p);
+          existingFillerIds.add(p.id);
+          if (fillerCandidates.length >= neededFill) break;
         }
+      }
+    }
+
+    const effectivePlayerMap = new Map(effectiveState.players.map((p) => [p.id, p]));
+    const fixedPlayerObjs: Player[] = [];
+    for (const f of activeFixed) {
+      const pObj = effectivePlayerMap.get(f.playerId);
+      if (!pObj) return [];
+      fixedPlayerObjs.push(pObj);
+    }
+
+    const seenCombined = new Set<string>();
+    const effectiveAvailable: Player[] = [];
+    for (const p of [...fixedPlayerObjs, ...fillerCandidates]) {
+      if (!seenCombined.has(p.id)) {
+        seenCombined.add(p.id);
+        effectiveAvailable.push(p);
       }
     }
 
@@ -861,7 +1055,8 @@ export function suggestNextUpForCourt(
         effectiveAvailable,
         effectiveState,
         effectiveState.settings.weights,
-        42
+        42,
+        activeFixed[0]
       );
     }
 
@@ -870,7 +1065,8 @@ export function suggestNextUpForCourt(
       effectiveAvailable,
       effectiveState,
       effectiveState.settings.weights,
-      42
+      42,
+      activeFixed
     );
   };
 
@@ -882,7 +1078,12 @@ export function suggestNextUpForCourt(
     (state.settings?.matchMix?.singles === 1 && court.forcedType !== 'DOUBLES') ||
     court.nextUp?.type === 'SINGLES';
 
-  if (matchType === 'SINGLES' && rawProposals.length === 0 && !isHardLockedSingles) {
+  if (
+    matchType === 'SINGLES' &&
+    rawProposals.length === 0 &&
+    !isHardLockedSingles &&
+    !(partialFixedSlots.length > 0 && court.nextUp.type === 'SINGLES')
+  ) {
     const fallbackDoubles = buildProposalsForType('DOUBLES');
     if (fallbackDoubles.length > 0) {
       matchType = 'DOUBLES';
@@ -915,6 +1116,56 @@ export function suggestNextUpForCourt(
   }
 
   const chosen = uniqueProposals[pickedIndex];
+  const chosenFixed =
+    partialFixedSlots.length > 0 && matchType === court.nextUp.type ? partialFixedSlots : [];
+
+  if (chosenFixed.length > 0) {
+    const expectedCount = matchType === 'SINGLES' ? 2 : 4;
+    const slots: (string | null)[] = Array(expectedCount).fill(null);
+    const slotSource: (NextUpSlotSource | null)[] = Array(expectedCount).fill(null);
+    const fixedIdSet = new Set(chosenFixed.map((f) => f.playerId));
+
+    for (const f of chosenFixed) {
+      slots[f.slotIndex] = f.playerId;
+      slotSource[f.slotIndex] = 'MANUAL';
+    }
+
+    const autoT1 = chosen.lineup.team1.filter((id) => !fixedIdSet.has(id));
+    const autoT2 = chosen.lineup.team2.filter((id) => !fixedIdSet.has(id));
+
+    if (matchType === 'SINGLES') {
+      if (slots[0] === null && autoT1[0]) {
+        slots[0] = autoT1[0];
+        slotSource[0] = 'AUTO';
+      }
+      if (slots[1] === null && autoT2[0]) {
+        slots[1] = autoT2[0];
+        slotSource[1] = 'AUTO';
+      }
+    } else {
+      let t1Ptr = 0;
+      for (const idx of [0, 1]) {
+        if (slots[idx] === null && autoT1[t1Ptr]) {
+          slots[idx] = autoT1[t1Ptr++];
+          slotSource[idx] = 'AUTO';
+        }
+      }
+      let t2Ptr = 0;
+      for (const idx of [2, 3]) {
+        if (slots[idx] === null && autoT2[t2Ptr]) {
+          slots[idx] = autoT2[t2Ptr++];
+          slotSource[idx] = 'AUTO';
+        }
+      }
+    }
+
+    return {
+      type: matchType,
+      slots,
+      slotSource,
+    };
+  }
+
   if (matchType === 'SINGLES') {
     return {
       type: 'SINGLES',

@@ -621,10 +621,17 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
     !activeCourtIdSet.has(p.assignedPool);
 
   const busyInCurrentMatches = new Set<string>();
+  const busyOnOtherCourts = new Set<string>();
   for (const c of state.courts) {
     if (c.isActive && c.currentMatch) {
-      c.currentMatch.team1.forEach((id) => busyInCurrentMatches.add(id));
-      c.currentMatch.team2.forEach((id) => busyInCurrentMatches.add(id));
+      c.currentMatch.team1.forEach((id) => {
+        busyInCurrentMatches.add(id);
+        if (c.id !== courtId) busyOnOtherCourts.add(id);
+      });
+      c.currentMatch.team2.forEach((id) => {
+        busyInCurrentMatches.add(id);
+        if (c.id !== courtId) busyOnOtherCourts.add(id);
+      });
     }
   }
 
@@ -644,11 +651,59 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
     }
   }
 
-  const potentialPool = [...availableOutside, ...currentCourtActivePlayers];
+  // C1: Gom các ô MANUAL hợp lệ bán phần vào potentialPool để không báo thiếu sai
+  const partialManualIds: string[] = [];
+  if (court.nextUp && Array.isArray(court.nextUp.slots) && Array.isArray(court.nextUp.slotSource)) {
+    const draftType: MatchType = court.nextUp.type === 'SINGLES' ? 'SINGLES' : 'DOUBLES';
+    const expectedCount = draftType === 'SINGLES' ? 2 : 4;
+    const seenManual = new Set<string>();
+    for (let i = 0; i < expectedCount; i++) {
+      const pid = court.nextUp.slots[i];
+      if (
+        typeof pid === 'string' &&
+        pid.trim().length > 0 &&
+        court.nextUp.slotSource[i] === 'MANUAL' &&
+        !busyOnOtherCourts.has(pid) &&
+        !seenManual.has(pid)
+      ) {
+        const p = playerMap.get(pid);
+        if (p && p.status === 'ACTIVE') {
+          seenManual.add(pid);
+          partialManualIds.push(pid);
+        }
+      }
+    }
+    if (partialManualIds.length >= expectedCount) {
+      partialManualIds.length = 0;
+    }
+  }
+
+  const seenPoolIds = new Set<string>();
+  const potentialPool: Player[] = [];
+  for (const p of [...availableOutside, ...currentCourtActivePlayers]) {
+    if (!seenPoolIds.has(p.id)) {
+      seenPoolIds.add(p.id);
+      potentialPool.push(p);
+    }
+  }
+  for (const pid of partialManualIds) {
+    if (!seenPoolIds.has(pid)) {
+      const p = playerMap.get(pid);
+      if (p) {
+        seenPoolIds.add(pid);
+        potentialPool.push(p);
+      }
+    }
+  }
+
   const totalPotential = potentialPool.length;
   const targetType = resolveTargetMatchType(court, state, totalPotential);
 
   if (targetType === 'SINGLES') {
+    if (partialManualIds.length === 1 && court.nextUp?.type === 'SINGLES') {
+      const manualId = partialManualIds[0];
+      return potentialPool.some((p) => p.id !== manualId && !p.noSingles);
+    }
     const singlesEligibleCount = potentialPool.filter((p) => !p.noSingles).length;
     if (singlesEligibleCount >= 2) return true;
     const isHardLockedSingles =
