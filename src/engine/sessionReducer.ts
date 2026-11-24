@@ -996,6 +996,15 @@ export function badmintonReducer(
       if (!target || target.status === 'PAUSED') {
         return state;
       }
+      const isPlayingOnCourt = state.courts.some(
+        (c) =>
+          c.isActive &&
+          c.currentMatch !== null &&
+          (c.currentMatch.team1.includes(pid) || c.currentMatch.team2.includes(pid))
+      );
+      if (isPlayingOnCourt) {
+        return state;
+      }
       const updatedPlayers = baseNextState.players.map((p) =>
         p.id === pid ? { ...p, status: 'PAUSED' as const, waitStreak: 0 } : p
       );

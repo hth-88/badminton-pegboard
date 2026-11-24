@@ -275,6 +275,63 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
         expect(p1.status).toBe('PAUSED');
         expect(p1.waitStreak).toBe(0);
       });
+
+      it('Trường hợp 4 (A10): player đang đánh trong currentMatch của sân active -> chặn và return state', () => {
+        const state = createInitialSessionState();
+        state.players = [
+          createMockPlayer('p1', 'Player 1', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p2', 'Player 2', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p3', 'Player 3', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p4', 'Player 4', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+        ];
+        state.courts[0].isActive = true;
+        state.courts[0].currentMatch = {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
+          startedAt: 1000,
+          id: 'm1',
+        };
+
+        const res = badmintonReducer(state, {
+          type: 'PAUSE_PLAYER',
+          payload: { playerId: 'p1' },
+        });
+
+        expect(res).toBe(state);
+        expect(res.undoStack.length).toBe(0);
+        expect(res.players.find((p) => p.id === 'p1')?.status).toBe('ACTIVE');
+        expect(res.players.find((p) => p.id === 'p1')?.waitStreak).toBe(2);
+      });
+
+      it('Trường hợp 5 (A10): UPDATE_PLAYER đổi status thành PAUSED cho player đang đánh -> chặn và return state', () => {
+        const state = createInitialSessionState();
+        state.players = [
+          createMockPlayer('p1', 'Player 1', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p2', 'Player 2', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p3', 'Player 3', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+          createMockPlayer('p4', 'Player 4', 'M', 'tb', { status: 'ACTIVE', waitStreak: 2 }),
+        ];
+        state.courts[0].isActive = true;
+        state.courts[0].currentMatch = {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
+          startedAt: 1000,
+          id: 'm1',
+        };
+
+        const res = badmintonReducer(state, {
+          type: 'UPDATE_PLAYER',
+          payload: { player: { id: 'p1', status: 'PAUSED' } },
+        });
+
+        expect(res).toBe(state);
+        expect(res.undoStack.length).toBe(0);
+        expect(res.players.find((p) => p.id === 'p1')?.status).toBe('ACTIVE');
+      });
     });
 
     describe('RESUME_PLAYER', () => {
