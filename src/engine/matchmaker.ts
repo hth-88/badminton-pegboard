@@ -54,6 +54,44 @@ export function getLineupCanonicalKey(team1: string[], team2: string[]): string 
 }
 
 /**
+ * Phạt mềm khi lặp lại kèo từng bị gắn LOPSIDED ("Chênh quá") hoặc chênh >= 10 điểm.
+ */
+export function calculateLopsidedHistoryPenalty(
+  team1: string[],
+  team2: string[],
+  history: MatchHistory[]
+): number {
+  if (!history || history.length === 0) return 0;
+
+  const t1Key = [...team1].sort().join('|');
+  const t2Key = [...team2].sort().join('|');
+  const lineupPairSorted = [t1Key, t2Key].sort().join('::');
+
+  let penalty = 0;
+  for (const h of history) {
+    const isLopsided =
+      h.balanceRating === 'LOPSIDED' ||
+      (h.score != null && Math.abs(h.score.team1 - h.score.team2) >= 10);
+    if (!isLopsided) continue;
+
+    const hk1 = [...h.team1].sort().join('|');
+    const hk2 = [...h.team2].sort().join('|');
+    const hLineupKey = [hk1, hk2].sort().join('::');
+
+    if (lineupPairSorted === hLineupKey) {
+      penalty += 1200;
+    } else if (
+      team1.length === 2 &&
+      (t1Key === hk1 || t1Key === hk2 || t2Key === hk1 || t2Key === hk2)
+    ) {
+      penalty += 350;
+    }
+  }
+
+  return penalty;
+}
+
+/**
  * Lấy canonical key cho một MatchProposal hoặc Lineup
  */
 export function getProposalDedupeKey(lineup: Lineup): string {
@@ -191,12 +229,15 @@ export function calculateSinglesScore(
     }
   }
 
+  const lopsidedPenalty = calculateLopsidedHistoryPenalty([p1.id], [p2.id], state.history);
+
   const totalPenalty =
     skillBalancePenalty +
     opponentRepeatPenalty +
     singlesCountPenalty +
     waitPenalty +
-    avoidMatchPenalty;
+    avoidMatchPenalty +
+    lopsidedPenalty;
 
   return {
     waitPenalty,
@@ -357,6 +398,12 @@ export function calculateDoublesScore(
     }
   }
 
+  const lopsidedPenalty = calculateLopsidedHistoryPenalty(
+    [p1.id, p2.id],
+    [p3.id, p4.id],
+    state.history
+  );
+
   const totalPenalty =
     waitPenalty +
     exactQuartetRepeatPenalty +
@@ -365,7 +412,8 @@ export function calculateDoublesScore(
     opponentRepeatPenalty +
     skillBalancePenalty +
     genderStructurePenalty +
-    avoidMatchPenalty;
+    avoidMatchPenalty +
+    lopsidedPenalty;
 
   return {
     waitPenalty,

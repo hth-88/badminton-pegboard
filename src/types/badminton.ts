@@ -65,6 +65,26 @@ export type MatchType = 'DOUBLES' | 'SINGLES';
 /** Team: mảng ID người chơi (1 người với SINGLES, 2 người với DOUBLES) */
 export type Team = string[];
 
+export type MatchBalanceRating = 'BALANCED' | 'SLIGHT_GAP' | 'LOPSIDED';
+
+export type BetCategory = 'DRINK' | 'SHUTTLE' | 'MONEY' | 'CUSTOM';
+export type BetUnit = 'PER_PLAYER' | 'PER_TEAM';
+export type BetPayoutMode = 'TEAM_TO_TEAM' | 'LOSER_TO_FUND';
+
+export interface MatchBet {
+  category: BetCategory;
+  label: string;
+  quantity: number;
+  unit: BetUnit;
+  amountVnd: number;
+  payoutMode: BetPayoutMode;
+}
+
+export interface MatchScore {
+  team1: number;
+  team2: number;
+}
+
 export interface Lineup {
   type: MatchType;
   team1: Team;
@@ -91,7 +111,7 @@ export interface Court {
   isActive: boolean;
   policy: CourtPolicy;
   forcedType?: 'DOUBLES' | 'SINGLES' | null;
-  currentMatch: (Lineup & { startedAt: number; id?: string }) | null;
+  currentMatch: (Lineup & { startedAt: number; id?: string; bet?: MatchBet }) | null;
   nextUp: NextUpDraft;
   suggestCursor: number;
 }
@@ -106,6 +126,10 @@ export interface MatchHistory {
   startedAt: number;
   endedAt: number;
   durationMinutes: number;
+  score?: MatchScore;
+  balanceRating?: MatchBalanceRating;
+  bet?: MatchBet;
+  betWinner?: 1 | 2 | null;
 }
 
 export type CourtMode = 'SHARED_POOL' | 'SPLIT_COURT';
@@ -165,6 +189,8 @@ export interface SessionSettings {
   autoSinglesSnoozeMin: number;
   /** Ưu tiên xếp Nam-Nữ vs Nam-Nữ khi có 2 Nam 2 Nữ (mặc định true) */
   preferMixedDoubles: boolean;
+  /** Hỏi nhanh tỉ số & nhận xét sau khi kết thúc trận (mặc định true) */
+  promptPostMatchReview?: boolean;
   /** Trọng số toàn bộ các hàm phạt để tinh chỉnh */
   weights: PenaltyWeights;
 }

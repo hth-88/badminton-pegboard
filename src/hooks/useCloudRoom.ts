@@ -74,6 +74,12 @@ export function areSessionSnapshotsEqual(
       if (cA.currentMatch.id !== cB.currentMatch.id) return false;
       if (cA.currentMatch.team1?.join(',') !== cB.currentMatch.team1?.join(',')) return false;
       if (cA.currentMatch.team2?.join(',') !== cB.currentMatch.team2?.join(',')) return false;
+      if (
+        JSON.stringify(cA.currentMatch.bet || null) !==
+        JSON.stringify(cB.currentMatch.bet || null)
+      ) {
+        return false;
+      }
     }
 
     // nextUp
@@ -118,6 +124,7 @@ export function areSessionSnapshotsEqual(
     a.settings?.autoSingles !== b.settings?.autoSingles ||
     a.settings?.autoSinglesSnoozeMin !== b.settings?.autoSinglesSnoozeMin ||
     a.settings?.preferMixedDoubles !== b.settings?.preferMixedDoubles ||
+    (a.settings?.promptPostMatchReview ?? true) !== (b.settings?.promptPostMatchReview ?? true) ||
     a.settings?.matchMix?.doubles !== b.settings?.matchMix?.doubles ||
     a.settings?.matchMix?.singles !== b.settings?.matchMix?.singles
   ) {
@@ -164,7 +171,11 @@ export function areSessionSnapshotsEqual(
       hA.courtId !== hB.courtId ||
       hA.endedAt !== hB.endedAt ||
       hA.team1?.join(',') !== hB.team1?.join(',') ||
-      hA.team2?.join(',') !== hB.team2?.join(',')
+      hA.team2?.join(',') !== hB.team2?.join(',') ||
+      (hA.balanceRating || '') !== (hB.balanceRating || '') ||
+      (hA.betWinner ?? null) !== (hB.betWinner ?? null) ||
+      JSON.stringify(hA.score || null) !== JSON.stringify(hB.score || null) ||
+      JSON.stringify(hA.bet || null) !== JSON.stringify(hB.bet || null)
     ) {
       return false;
     }

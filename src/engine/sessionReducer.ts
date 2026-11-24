@@ -5,7 +5,10 @@ import type {
   Court,
   CourtPolicy,
   Lineup,
+  MatchBalanceRating,
+  MatchBet,
   MatchHistory,
+  MatchScore,
   MatchType,
   PairRule,
   Player,
@@ -149,6 +152,7 @@ export function applyEndMatch(
     startedAt: current.startedAt || now - 15 * 60000,
     endedAt: now,
     durationMinutes,
+    ...(current.bet ? { bet: current.bet, betWinner: null } : {}),
   };
 
   const matchPlayers = new Set([...current.team1, ...current.team2]);
@@ -511,6 +515,20 @@ export type BadmintonAction =
   | {
       type: 'SNOOZE_AUTO_SINGLES_WAIT';
       payload: { courtId: string; untilTs: number; queueSize: number };
+    }
+  | {
+      type: 'SET_COURT_BET';
+      payload: { courtId: string; bet: MatchBet | null };
+    }
+  | {
+      type: 'UPDATE_MATCH_RESULT';
+      payload: {
+        matchId: string;
+        score?: MatchScore | null;
+        balanceRating?: MatchBalanceRating | null;
+        bet?: MatchBet | null;
+        betWinner?: 1 | 2 | null;
+      };
     }
   | {
       type: 'DELETE_HISTORY_MATCH';
@@ -1711,6 +1729,76 @@ export function badmintonReducer(
             queueSizeAtSnooze: action.payload.queueSize,
           },
         },
+      };
+    }
+
+    case 'SET_COURT_BET': {
+      const { courtId, bet } = action.payload;
+      const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
+      if (!targetCourt || !targetCourt.currentMatch) {
+        return state;
+      }
+
+      const nextCurrentMatch = { ...targetCourt.currentMatch };
+      if (bet === null) {
+        delete nextCurrentMatch.bet;
+      } else {
+        nextCurrentMatch.bet = bet;
+      }
+
+      return {
+        ...baseNextState,
+        courts: baseNextState.courts.map((c) =>
+          c.id === courtId ? { ...c, currentMatch: nextCurrentMatch } : c
+        ),
+      };
+    }
+
+    case 'UPDATE_MATCH_RESULT': {
+      const { matchId, score, balanceRating, bet, betWinner } = action.payload;
+      const idx = baseNextState.history.findIndex((h) => h.id === matchId);
+      if (idx === -1) {
+        return state;
+      }
+
+      const existing = baseNextState.history[idx];
+      const updated: MatchHistory = { ...existing };
+
+      if (score !== undefined) {
+        if (score === null) {
+          delete updated.score;
+        } else {
+          updated.score = score;
+        }
+      }
+
+      if (balanceRating !== undefined) {
+        if (balanceRating === null) {
+          delete updated.balanceRating;
+        } else {
+          updated.balanceRating = balanceRating;
+        }
+      }
+
+      if (bet !== undefined) {
+        if (bet === null) {
+          delete updated.bet;
+          delete updated.betWinner;
+        } else {
+          updated.bet = bet;
+        }
+      }
+
+      if (betWinner !== undefined && bet !== null) {
+        updated.betWinner = betWinner;
+      }
+
+      const nextHistory = [...baseNextState.history];
+      nextHistory[idx] = updated;
+
+      return {
+        ...baseNextState,
+        history: nextHistory,
       };
     }
 

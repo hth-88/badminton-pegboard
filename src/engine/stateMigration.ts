@@ -1,7 +1,13 @@
 import type {
   BadmintonSessionState,
+  BetCategory,
+  BetPayoutMode,
+  BetUnit,
   Court,
+  MatchBalanceRating,
+  MatchBet,
   MatchHistory,
+  MatchScore,
   Player,
   SessionSettings,
 } from '../types/badminton';
@@ -18,8 +24,75 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   autoSingles: 'ASK',
   autoSinglesSnoozeMin: 5,
   preferMixedDoubles: true,
+  promptPostMatchReview: true,
   weights: { ...DEFAULT_PENALTY_WEIGHTS },
 };
+
+function sanitizeMatchScore(raw: unknown): MatchScore | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const t1 = Number(obj.team1);
+  const t2 = Number(obj.team2);
+  if (
+    !Number.isInteger(t1) ||
+    !Number.isInteger(t2) ||
+    t1 < 0 ||
+    t1 > 99 ||
+    t2 < 0 ||
+    t2 > 99
+  ) {
+    return undefined;
+  }
+  return { team1: t1, team2: t2 };
+}
+
+function sanitizeMatchBet(raw: unknown): MatchBet | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const validCategories: BetCategory[] = ['DRINK', 'SHUTTLE', 'MONEY', 'CUSTOM'];
+  const validUnits: BetUnit[] = ['PER_PLAYER', 'PER_TEAM'];
+  const validPayouts: BetPayoutMode[] = ['TEAM_TO_TEAM', 'LOSER_TO_FUND'];
+
+  const category = validCategories.includes(obj.category as BetCategory)
+    ? (obj.category as BetCategory)
+    : 'CUSTOM';
+  const label = typeof obj.label === 'string' ? obj.label.trim() : '';
+  if (!label) return undefined;
+
+  const rawQty = Number(obj.quantity);
+  const quantity = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
+  const unit = validUnits.includes(obj.unit as BetUnit)
+    ? (obj.unit as BetUnit)
+    : 'PER_PLAYER';
+  const rawAmt = Number(obj.amountVnd);
+  const amountVnd = Number.isFinite(rawAmt) && rawAmt >= 0 ? Math.round(rawAmt) : 0;
+  const payoutMode = validPayouts.includes(obj.payoutMode as BetPayoutMode)
+    ? (obj.payoutMode as BetPayoutMode)
+    : 'TEAM_TO_TEAM';
+
+  return {
+    category,
+    label,
+    quantity,
+    unit,
+    amountVnd,
+    payoutMode,
+  };
+}
+
+function sanitizeCurrentMatch(raw: any) {
+  if (!raw || typeof raw !== 'object') return null;
+  const sanitizedBet = sanitizeMatchBet(raw.bet);
+  if (sanitizedBet) {
+    return { ...raw, bet: sanitizedBet };
+  }
+  if ('bet' in raw) {
+    const clone = { ...raw };
+    delete clone.bet;
+    return clone;
+  }
+  return raw;
+}
 
 /**
  * Tạo sẵn 3 sân cố định (court-1, court-2, court-3), sân 3 mặc định isActive=false
@@ -51,17 +124,38 @@ export function migrateSessionState(raw: any, fallbackNow: number = 0): Badminto
   }
 
   // 1. History
-  const history: MatchHistory[] = (Array.isArray(raw.history) ? raw.history : []).map((h: any) => ({
-    id: String(h.id),
-    courtId: String(h.courtId),
-    type: h.type || 'DOUBLES',
-    team1: Array.isArray(h.team1) ? h.team1 : [],
-    team2: Array.isArray(h.team2) ? h.team2 : [],
-    slotSource: h.slotSource || {},
-    startedAt: Number(h.startedAt) || fallbackNow,
-    endedAt: Number(h.endedAt) || fallbackNow,
-    durationMinutes: Number(h.durationMinutes) || 15,
-  }));
+  const validRatings: MatchBalanceRating[] = ['BALANCED', 'SLIGHT_GAP', 'LOPSIDED'];
+  const history: MatchHistory[] = (Array.isArray(raw.history) ? raw.history : []).map((h: any) => {
+    const item: MatchHistory = {
+      id: String(h.id),
+      courtId: String(h.courtId),
+      type: h.type || 'DOUBLES',
+      team1: Array.isArray(h.team1) ? h.team1 : [],
+      team2: Array.isArray(h.team2) ? h.team2 : [],
+      slotSource: h.slotSource || {},
+      startedAt: Number(h.startedAt) || fallbackNow,
+      endedAt: Number(h.endedAt) || fallbackNow,
+      durationMinutes: Number(h.durationMinutes) || 15,
+    };
+
+    const score = sanitizeMatchScore(h.score);
+    if (score) item.score = score;
+
+    if (validRatings.includes(h.balanceRating)) {
+      item.balanceRating = h.balanceRating;
+    }
+
+    const bet = sanitizeMatchBet(h.bet);
+    if (bet) {
+      item.bet = bet;
+    }
+
+    if (h.betWinner === 1 || h.betWinner === 2 || h.betWinner === null) {
+      item.betWinner = h.betWinner;
+    }
+
+    return item;
+  });
 
   // 2. Ensure court-1..3 exist (court-3 has isActive = false)
   const defaultCourts = createDefaultCourts(3);
@@ -78,7 +172,7 @@ export function migrateSessionState(raw: any, fallbackNow: number = 0): Badminto
     if (!existing) {
       return def;
     }
-    const currentMatch = existing.currentMatch || null;
+    const currentMatch = sanitizeCurrentMatch(existing.currentMatch);
     const nextUp = normalizeNextUp(existing.nextUp, existing.forcedType, existing.policy);
     const suggestCursor = Number.isFinite(Number(existing.suggestCursor)) ? Number(existing.suggestCursor) : 0;
 
@@ -103,7 +197,7 @@ export function migrateSessionState(raw: any, fallbackNow: number = 0): Badminto
         isActive: Boolean(c.isActive ?? true),
         policy: c.policy || 'MIX',
         forcedType: c.forcedType !== undefined ? c.forcedType : null,
-        currentMatch: c.currentMatch || null,
+        currentMatch: sanitizeCurrentMatch(c.currentMatch),
         nextUp: normalizeNextUp(c.nextUp, c.forcedType, c.policy),
         suggestCursor: Number.isFinite(Number(c.suggestCursor)) ? Number(c.suggestCursor) : 0,
       });
