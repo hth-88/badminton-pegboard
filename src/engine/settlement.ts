@@ -148,6 +148,7 @@ export interface SettlementSettings {
   zeroGamesPolicy: ZeroGamesPolicy;
 
   // Thông tin chuyển khoản
+  bankCode: string;
   bankName: string;
   bankAccount: string;
   bankAccountHolder: string;
@@ -181,6 +182,7 @@ export const DEFAULT_SETTLEMENT_SETTINGS: SettlementSettings = {
 
   zeroGamesPolicy: 'FREE',
 
+  bankCode: '',
   bankName: '',
   bankAccount: '',
   bankAccountHolder: '',
