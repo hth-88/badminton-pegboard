@@ -10,6 +10,8 @@ import {
   badmintonReducer,
   createInitialSessionState,
 } from '../sessionReducer';
+import { canSuggestNextUp } from '../nextUp';
+import { suggestNextUpForCourt } from '../matchmaker';
 
 function createMockPlayer(
   id: string,
@@ -517,5 +519,40 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     const { undoStack: _u2, redoStack: _r2, ...state2 } = run2;
 
     expect(state1).toEqual(state2);
+  });
+
+  it('l) Mục A9: SPLIT_COURT tắt Sân 2 trả người về ALL và canSuggestNextUp lọc theo pool + noSingles', () => {
+    let state = createInitialSessionState();
+    state.settings.courtMode = 'SPLIT_COURT';
+    state.players = [
+      createMockPlayer('p1', 'P1', 'M', 'tb', { assignedPool: 'court-2' }),
+      createMockPlayer('p2', 'P2', 'M', 'tb', { assignedPool: 'court-2' }),
+      createMockPlayer('p3', 'P3', 'M', 'tb', { assignedPool: 'court-2' }),
+      createMockPlayer('p4', 'P4', 'M', 'tb', { assignedPool: 'court-2' }),
+    ];
+
+    // Sân 2 đang bật: Sân 1 không có người trong pool của mình -> canSuggestNextUp false
+    expect(canSuggestNextUp(state, 'court-1')).toBe(false);
+
+    // Tắt Sân 2 -> người assignedPool = 'court-2' được trả về 'ALL'
+    state = badmintonReducer(state, {
+      type: 'UPDATE_COURT',
+      payload: { courtId: 'court-2', updates: { isActive: false }, now: 1000 },
+    });
+
+    expect(state.players.every((p) => p.assignedPool === 'ALL')).toBe(true);
+    expect(canSuggestNextUp(state, 'court-1')).toBe(true);
+    const draft = suggestNextUpForCourt(state, 'court-1', 1000);
+    expect(draft).not.toBeNull();
+    expect(draft?.slots.length).toBe(4);
+
+    // Sân 1 forced SINGLES với 2 người nhưng 1 người noSingles -> canSuggestNextUp false
+    const singlesState = createInitialSessionState();
+    singlesState.courts[0].forcedType = 'SINGLES';
+    singlesState.players = [
+      createMockPlayer('s1', 'S1', 'M', 'tb', { noSingles: true }),
+      createMockPlayer('s2', 'S2', 'M', 'tb', { noSingles: false }),
+    ];
+    expect(canSuggestNextUp(singlesState, 'court-1')).toBe(false);
   });
 });

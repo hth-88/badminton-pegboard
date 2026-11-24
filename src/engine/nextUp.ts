@@ -531,6 +531,13 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
   const court = state.courts.find((c) => c.id === courtId);
   if (!court || !court.isActive) return false;
 
+  const activeCourtIdSet = new Set(state.courts.filter((c) => c.isActive).map((c) => c.id));
+  const matchesCourtPool = (p: Player) =>
+    state.settings?.courtMode !== 'SPLIT_COURT' ||
+    p.assignedPool === court.id ||
+    p.assignedPool === 'ALL' ||
+    !activeCourtIdSet.has(p.assignedPool);
+
   const busyInCurrentMatches = new Set<string>();
   for (const c of state.courts) {
     if (c.isActive && c.currentMatch) {
@@ -539,18 +546,30 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
     }
   }
 
-  // Tập người rảnh (không đang đánh trực tiếp trên bất kỳ sân nào)
+  // Tập người rảnh hợp lệ với pool của sân này
   const availableOutside = state.players.filter(
-    (p) => p.status === 'ACTIVE' && !busyInCurrentMatches.has(p.id)
+    (p) => p.status === 'ACTIVE' && !busyInCurrentMatches.has(p.id) && matchesCourtPool(p)
   );
 
-  let totalPotential = availableOutside.length;
+  const playerMap = new Map(state.players.map((p) => [p.id, p]));
+  const currentCourtActivePlayers: Player[] = [];
   if (court.currentMatch) {
-    totalPotential += court.currentMatch.team1.length + court.currentMatch.team2.length;
+    for (const pid of [...court.currentMatch.team1, ...court.currentMatch.team2]) {
+      const p = playerMap.get(pid);
+      if (p && p.status === 'ACTIVE') {
+        currentCourtActivePlayers.push(p);
+      }
+    }
   }
 
+  const potentialPool = [...availableOutside, ...currentCourtActivePlayers];
+  const totalPotential = potentialPool.length;
   const targetType = resolveTargetMatchType(court, state, totalPotential);
-  const needed = targetType === 'SINGLES' ? 2 : 4;
 
-  return totalPotential >= needed;
+  if (targetType === 'SINGLES') {
+    const singlesEligibleCount = potentialPool.filter((p) => !p.noSingles).length;
+    return singlesEligibleCount >= 2;
+  }
+
+  return totalPotential >= 4;
 }

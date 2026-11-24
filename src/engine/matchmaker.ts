@@ -765,15 +765,19 @@ export function suggestNextUpForCourt(
     }
   }
 
+  const activeCourtIdSet = new Set(state.courts.filter((c) => c.isActive).map((c) => c.id));
+  const matchesCourtPool = (p: Player) =>
+    state.settings.courtMode !== 'SPLIT_COURT' ||
+    p.assignedPool === court.id ||
+    p.assignedPool === 'ALL' ||
+    !activeCourtIdSet.has(p.assignedPool);
+
   // 3. Pool chính (ưu tiên): ACTIVE, không thi đấu ở bất kỳ sân nào, không nằm trong nextUp sân khác
   const primaryAvailable = state.players.filter((p) => {
     if (p.status !== 'ACTIVE') return false;
     if (playingPlayerIds.has(p.id)) return false;
     if (otherNextUpPlayerIds.has(p.id)) return false;
-    if (state.settings.courtMode === 'SPLIT_COURT') {
-      return p.assignedPool === court.id || p.assignedPool === 'ALL';
-    }
-    return true;
+    return matchesCourtPool(p);
   });
 
   // 4. Pool mở rộng (khi thiếu người): ACTIVE, không thi đấu ở bất kỳ sân nào, nhưng đang ở nextUp sân khác
@@ -781,10 +785,7 @@ export function suggestNextUpForCourt(
     if (p.status !== 'ACTIVE') return false;
     if (playingPlayerIds.has(p.id)) return false;
     if (!otherNextUpPlayerIds.has(p.id)) return false;
-    if (state.settings.courtMode === 'SPLIT_COURT') {
-      return p.assignedPool === court.id || p.assignedPool === 'ALL';
-    }
-    return true;
+    return matchesCourtPool(p);
   });
 
   const totalFreeCount = primaryAvailable.length + secondaryAvailable.length;

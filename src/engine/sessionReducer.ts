@@ -1493,14 +1493,19 @@ export function badmintonReducer(
       });
 
       let nextReadyQueue = baseNextState.readyQueue;
+      let nextPlayers = baseNextState.players;
       if (isDeactivating) {
         nextReadyQueue = nextReadyQueue.map((item) =>
           item.courtId === courtId ? { ...item, courtId: undefined } : item
+        );
+        nextPlayers = nextPlayers.map((p) =>
+          p.assignedPool === courtId ? { ...p, assignedPool: 'ALL' as const } : p
         );
       }
 
       let nextState: BadmintonSessionState = {
         ...baseNextState,
+        players: nextPlayers,
         courts: updatedCourts,
         readyQueue: nextReadyQueue,
         autoSinglesSnooze: nextAutoSnooze,
