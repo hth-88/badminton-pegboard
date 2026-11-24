@@ -25,8 +25,8 @@ import type {
 } from '../types/badminton';
 import {
   calculateSettlement,
-  DEFAULT_SETTLEMENT_SETTINGS,
   formatVND,
+  type CloudSettlementData,
   type SettlementSettings,
   type UnderPlayedDiscountType,
 } from '../engine/settlement';
@@ -36,9 +36,8 @@ import {
   clearAllArchivedSessions,
   deleteArchivedSession,
   getArchivedSessions,
-  getPaidPlayerIds,
-  savePaidPlayerIds,
 } from '../engine/storage';
+import type { RoomRole } from '../hooks/useCloudRoom';
 import { EquityTable } from './EquityTable';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 
@@ -47,6 +46,13 @@ interface SettlementTabProps {
   history: MatchHistory[];
   stats: MatchmakingStats;
   currentState?: BadmintonSessionState;
+  role: RoomRole;
+  roomCode: string | null;
+  settlementData: CloudSettlementData;
+  onUpdateSettlementSettings: (updates: Partial<SettlementSettings>) => void;
+  onToggleApprovePayment: (playerId: string) => void;
+  onRejectPendingPayment: (playerId: string) => void;
+  onReportPlayerPayment: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
   onExportJson: () => string;
   onImportJson: (json: string) => { ok: true } | { ok: false; error: string };
   onNewSessionKeepPlayers: () => void;
@@ -58,6 +64,13 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   history,
   stats,
   currentState,
+  role,
+  roomCode,
+  settlementData,
+  onUpdateSettlementSettings,
+  onToggleApprovePayment,
+  onRejectPendingPayment,
+  onReportPlayerPayment,
   onExportJson,
   onImportJson,
   onNewSessionKeepPlayers,
@@ -65,27 +78,13 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'CALC' | 'EQUITY'>('CALC');
   const [hideZeroCostInZalo, setHideZeroCostInZalo] = useState(true);
-  const [settings, setSettings] = useState<SettlementSettings>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem('badminton_settlement_settings');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          // Tự động nâng cấp giá cũ sang giá thực chiến mới (160k/h, 30k/quả, 0đ phụ phí)
-          if (parsed.courtHourlyRate === 90000) parsed.courtHourlyRate = 160000;
-          if (parsed.shuttlePrice === 22000) parsed.shuttlePrice = 30000;
-          if (parsed.extraCost === 30000 && parsed.extraCostNote === 'Nước uống') parsed.extraCost = 0;
-          return { ...DEFAULT_SETTLEMENT_SETTINGS, ...parsed };
-        } catch {
-          // Fallback
-        }
-      }
-    }
-    return { ...DEFAULT_SETTLEMENT_SETTINGS };
-  });
 
-  // Trạng thái tick đóng tiền bền vững qua localStorage
-  const [paidPlayerIds, setPaidPlayerIds] = useState<string[]>(() => getPaidPlayerIds());
+  const { settings, payments } = settlementData;
+  const isViewer = role === 'VIEWER';
+
+  const [confirmReportPlayerId, setConfirmReportPlayerId] = useState<string | null>(null);
+  const [reportingPlayerId, setReportingPlayerId] = useState<string | null>(null);
+  const [copiedBankAccount, setCopiedBankAccount] = useState(false);
 
   // Danh sách các buổi lưu trữ (Archive tối đa 20 buổi)
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionSummary[]>(() =>
@@ -103,23 +102,35 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
   // Lưu cài đặt tính tiền khi thay đổi
   const updateSettings = (updates: Partial<SettlementSettings>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...updates };
-      localStorage.setItem('badminton_settlement_settings', JSON.stringify(next));
-      return next;
-    });
+    if (isViewer) return;
+    onUpdateSettlementSettings(updates);
   };
 
-  // Bật/tắt trạng thái đóng tiền của người chơi
-  const togglePaidPlayer = (playerId: string) => {
+  const handleReportPayment = async (playerId: string) => {
+    setReportingPlayerId(playerId);
+    try {
+      const res = await onReportPlayerPayment(playerId);
+      if (res.ok) {
+        vibrateSuccess();
+        setConfirmReportPlayerId(null);
+      } else {
+        vibrateWarning();
+      }
+    } finally {
+      setReportingPlayerId(null);
+    }
+  };
+
+  const handleCopyBankAccount = async () => {
+    if (!settings.bankAccount) return;
     vibrateSuccess();
-    setPaidPlayerIds((prev) => {
-      const next = prev.includes(playerId)
-        ? prev.filter((id) => id !== playerId)
-        : [...prev, playerId];
-      savePaidPlayerIds(next);
-      return next;
-    });
+    try {
+      await navigator.clipboard.writeText(settings.bankAccount);
+      setCopiedBankAccount(true);
+      setTimeout(() => setCopiedBankAccount(false), 2000);
+    } catch {
+      alert('Không thể sao chép tự động.');
+    }
   };
 
   // Lưu phiên hiện tại vào Archive
@@ -271,6 +282,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
         <EquityTable players={players} stats={stats} />
       ) : (
         <div className="space-y-4">
+          {isViewer && (
+            <div className="bg-indigo-950/60 border border-indigo-700/60 text-indigo-200 rounded-2xl p-3 text-xs leading-relaxed">
+              Chế độ Thành viên (Chỉ xem){roomCode ? ` — Phòng ${roomCode}` : ''} — Xem số tiền cần đóng, thông tin chuyển khoản và bấm &quot;Tôi đã chuyển&quot; cạnh tên mình để Chủ sân duyệt.
+            </div>
+          )}
+
           {/* ========================================================= */}
           {/* 1. NHẬP CHI PHÍ BUỔI ĐÁNH */}
           {/* ========================================================= */}
@@ -281,24 +298,26 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <span>1. Chi phí buổi chơi</span>
               </h3>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrateSuccess();
-                    updateSettings({
-                      courtHourlyRate: 160000,
-                      shuttlePrice: 30000,
-                      extraCost: 0,
-                      extraCostNote: 'Nước uống / Phụ phí',
-                      genderRatioMalePercent: 60,
-                      genderRatioFemalePercent: 40,
-                    });
-                  }}
-                  title="Đặt lại mức giá mặc định CLB (160k/h, 30k/quả, 0đ phụ phí)"
-                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline decoration-dotted transition"
-                >
-                  Đặt lại giá chuẩn CLB
-                </button>
+                {!isViewer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      vibrateSuccess();
+                      updateSettings({
+                        courtHourlyRate: 160000,
+                        shuttlePrice: 30000,
+                        extraCost: 0,
+                        extraCostNote: 'Nước uống / Phụ phí',
+                        genderRatioMalePercent: 60,
+                        genderRatioFemalePercent: 40,
+                      });
+                    }}
+                    title="Đặt lại mức giá mặc định CLB (160k/h, 30k/quả, 0đ phụ phí)"
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline decoration-dotted transition"
+                  >
+                    Đặt lại giá chuẩn CLB
+                  </button>
+                )}
                 <span className="text-emerald-400 font-black text-base">
                   {formatVND(settlementResult.totalCost)}
                 </span>
@@ -311,8 +330,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <span className="font-bold text-slate-300">Tiền sân:</span>
                 <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800">
                   <button
+                    type="button"
+                    disabled={isViewer}
                     onClick={() => updateSettings({ courtCostMode: 'HOURLY' })}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${settings.courtCostMode === 'HOURLY'
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-60 ${settings.courtCostMode === 'HOURLY'
                         ? 'bg-slate-800 text-emerald-400'
                         : 'text-slate-400'
                       }`}
@@ -320,8 +341,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     Theo giờ
                   </button>
                   <button
+                    type="button"
+                    disabled={isViewer}
                     onClick={() => updateSettings({ courtCostMode: 'DIRECT' })}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${settings.courtCostMode === 'DIRECT'
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-60 ${settings.courtCostMode === 'DIRECT'
                         ? 'bg-slate-800 text-emerald-400'
                         : 'text-slate-400'
                       }`}
@@ -338,9 +361,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <input
                       type="number"
                       step="10000"
+                      disabled={isViewer}
                       value={settings.courtHourlyRate}
                       onChange={(e) => updateSettings({ courtHourlyRate: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -349,9 +373,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                       type="number"
                       step="0.5"
                       min="0.5"
+                      disabled={isViewer}
                       value={settings.courtHours}
                       onChange={(e) => updateSettings({ courtHours: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -361,9 +386,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   <input
                     type="number"
                     step="10000"
+                    disabled={isViewer}
                     value={settings.courtCostDirect}
                     onChange={(e) => updateSettings({ courtCostDirect: Number(e.target.value) })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                   />
                 </div>
               )}
@@ -375,8 +401,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <span className="font-bold text-slate-300">Tiền cầu:</span>
                 <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800">
                   <button
+                    type="button"
+                    disabled={isViewer}
                     onClick={() => updateSettings({ shuttleCostMode: 'BY_SHUTTLE' })}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${settings.shuttleCostMode === 'BY_SHUTTLE'
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-60 ${settings.shuttleCostMode === 'BY_SHUTTLE'
                         ? 'bg-slate-800 text-emerald-400'
                         : 'text-slate-400'
                       }`}
@@ -384,8 +412,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     Theo quả
                   </button>
                   <button
+                    type="button"
+                    disabled={isViewer}
                     onClick={() => updateSettings({ shuttleCostMode: 'BY_TUBE' })}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${settings.shuttleCostMode === 'BY_TUBE'
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-60 ${settings.shuttleCostMode === 'BY_TUBE'
                         ? 'bg-slate-800 text-emerald-400'
                         : 'text-slate-400'
                       }`}
@@ -393,8 +423,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     Theo ống
                   </button>
                   <button
+                    type="button"
+                    disabled={isViewer}
                     onClick={() => updateSettings({ shuttleCostMode: 'DIRECT' })}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${settings.shuttleCostMode === 'DIRECT'
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-60 ${settings.shuttleCostMode === 'DIRECT'
                         ? 'bg-slate-800 text-emerald-400'
                         : 'text-slate-400'
                       }`}
@@ -411,9 +443,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <input
                       type="number"
                       min="0"
+                      disabled={isViewer}
                       value={settings.shuttleCount}
                       onChange={(e) => updateSettings({ shuttleCount: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -421,9 +454,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <input
                       type="number"
                       step="1000"
+                      disabled={isViewer}
                       value={settings.shuttlePrice}
                       onChange={(e) => updateSettings({ shuttlePrice: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -434,9 +468,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <input
                       type="number"
                       min="0"
+                      disabled={isViewer}
                       value={settings.shuttleTubeCount}
                       onChange={(e) => updateSettings({ shuttleTubeCount: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -444,9 +479,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <input
                       type="number"
                       step="10000"
+                      disabled={isViewer}
                       value={settings.shuttleTubePrice}
                       onChange={(e) => updateSettings({ shuttleTubePrice: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -456,9 +492,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   <input
                     type="number"
                     step="10000"
+                    disabled={isViewer}
                     value={settings.shuttleCostDirect}
                     onChange={(e) => updateSettings({ shuttleCostDirect: Number(e.target.value) })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                   />
                 </div>
               )}
@@ -471,19 +508,21 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <input
                   type="number"
                   step="5000"
+                  disabled={isViewer}
                   value={settings.extraCost}
                   onChange={(e) => updateSettings({ extraCost: Number(e.target.value) })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                 />
               </div>
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Ghi chú chi phí khác</label>
                 <input
                   type="text"
+                  disabled={isViewer}
                   value={settings.extraCostNote}
                   onChange={(e) => updateSettings({ extraCostNote: e.target.value })}
                   placeholder="Nước uống, gửi xe..."
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 text-xs border border-slate-700"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 text-xs border border-slate-700 disabled:opacity-60"
                 />
               </div>
             </div>
@@ -504,8 +543,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
+                  disabled={isViewer}
                   onClick={() => updateSettings({ splitMode: 'EQUAL' })}
-                  className={`p-2 rounded-xl border text-center font-bold transition ${settings.splitMode === 'EQUAL'
+                  className={`p-2 rounded-xl border text-center font-bold transition disabled:opacity-60 ${settings.splitMode === 'EQUAL'
                       ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300'
                       : 'bg-slate-800/80 border-slate-700 text-slate-400'
                     }`}
@@ -515,8 +555,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
                 <button
                   type="button"
+                  disabled={isViewer}
                   onClick={() => updateSettings({ splitMode: 'GENDER_RATIO' })}
-                  className={`p-2 rounded-xl border text-center font-bold transition ${settings.splitMode === 'GENDER_RATIO'
+                  className={`p-2 rounded-xl border text-center font-bold transition disabled:opacity-60 ${settings.splitMode === 'GENDER_RATIO'
                       ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300'
                       : 'bg-slate-800/80 border-slate-700 text-slate-400'
                     }`}
@@ -526,8 +567,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
                 <button
                   type="button"
+                  disabled={isViewer}
                   onClick={() => updateSettings({ splitMode: 'MALE_EXTRA' })}
-                  className={`p-2 rounded-xl border text-center font-bold transition ${settings.splitMode === 'MALE_EXTRA'
+                  className={`p-2 rounded-xl border text-center font-bold transition disabled:opacity-60 ${settings.splitMode === 'MALE_EXTRA'
                       ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300'
                       : 'bg-slate-800/80 border-slate-700 text-slate-400'
                     }`}
@@ -574,6 +616,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     min={30}
                     max={80}
                     step={1}
+                    disabled={isViewer}
                     value={settings.genderRatioMalePercent}
                     onChange={(e) => {
                       const m = Number(e.target.value);
@@ -582,7 +625,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         genderRatioFemalePercent: 100 - m,
                       });
                     }}
-                    className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   <div className="flex justify-between text-[10px] text-slate-500 font-mono">
                     <span>Nam 30%</span>
@@ -604,13 +647,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     <button
                       key={preset.label}
                       type="button"
+                      disabled={isViewer}
                       onClick={() =>
                         updateSettings({
                           genderRatioMalePercent: preset.m,
                           genderRatioFemalePercent: preset.f,
                         })
                       }
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition disabled:opacity-60 ${
                         settings.genderRatioMalePercent === preset.m
                           ? 'bg-emerald-600 text-white shadow'
                           : 'bg-slate-800 hover:bg-slate-750 text-slate-300'
@@ -635,9 +679,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <input
                   type="number"
                   step="5000"
+                  disabled={isViewer}
                   value={settings.maleExtraAmount}
                   onChange={(e) => updateSettings({ maleExtraAmount: Number(e.target.value) })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-bold border border-slate-700 disabled:opacity-60"
                 />
               </div>
             )}
@@ -653,9 +698,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 </div>
                 <input
                   type="checkbox"
+                  disabled={isViewer}
                   checked={settings.discountUnderPlayed}
                   onChange={(e) => updateSettings({ discountUnderPlayed: e.target.checked })}
-                  className="w-4 h-4 rounded bg-slate-800 text-emerald-500"
+                  className="w-4 h-4 rounded bg-slate-800 text-emerald-500 disabled:opacity-60"
                 />
               </div>
 
@@ -664,9 +710,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   <div>
                     <label className="text-[11px] text-slate-400 block mb-1">Ngưỡng trận giảm</label>
                     <select
+                      disabled={isViewer}
                       value={settings.underPlayedThreshold}
                       onChange={(e) => updateSettings({ underPlayedThreshold: Number(e.target.value) })}
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-2 py-1.5 font-semibold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-2 py-1.5 font-semibold border border-slate-700 disabled:opacity-60"
                     >
                       <option value={1}>Từ 1 trận trở xuống</option>
                       <option value={2}>Từ 2 trận trở xuống (chuẩn)</option>
@@ -677,13 +724,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   <div>
                     <label className="text-[11px] text-slate-400 block mb-1">Cách tính giảm</label>
                     <select
+                      disabled={isViewer}
                       value={settings.underPlayedDiscountType}
                       onChange={(e) =>
                         updateSettings({
                           underPlayedDiscountType: e.target.value as UnderPlayedDiscountType,
                         })
                       }
-                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-2 py-1.5 font-semibold border border-slate-700"
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl px-2 py-1.5 font-semibold border border-slate-700 disabled:opacity-60"
                     >
                       <option value="PROPORTIONAL">Theo tỉ lệ số trận</option>
                       <option value="PERCENT_50">Giảm 50% tiền</option>
@@ -698,11 +746,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
               <span className="text-slate-400">Người chơi 0 trận (hoặc tạm nghỉ suốt buổi):</span>
               <select
+                disabled={isViewer}
                 value={settings.zeroGamesPolicy}
                 onChange={(e) =>
                   updateSettings({ zeroGamesPolicy: e.target.value as 'FREE' | 'FULL' })
                 }
-                className="bg-slate-800 text-slate-200 rounded-lg px-2 py-1 font-semibold border border-slate-700"
+                className="bg-slate-800 text-slate-200 rounded-lg px-2 py-1 font-semibold border border-slate-700 disabled:opacity-60"
               >
                 <option value="FREE">Miễn phí (0đ)</option>
                 <option value="FULL">Đóng đủ như mọi người</option>
@@ -713,126 +762,231 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           {/* ========================================================= */}
           {/* 3. BẢNG KẾT QUẢ ĐÓNG TIỀN CHI TIẾT */}
           {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-                <Banknote className="w-4 h-4 text-emerald-400" />
-                <span>3. Bảng thu tiền từng người</span>
-              </h3>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
-                  Đã thu: {settlementResult.players.filter((p) => paidPlayerIds.includes(p.playerId)).length} / {settlementResult.players.length} người
-                </span>
-                {settlementResult.surplus > 0 && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60">
-                    Dư chẵn: +{formatVND(settlementResult.surplus)}
-                  </span>
+          {(() => {
+            const paidCount = settlementResult.players.filter(
+              (p) => payments[p.playerId]?.status === 'PAID'
+            ).length;
+            const pendingCount = settlementResult.players.filter(
+              (p) => payments[p.playerId]?.status === 'PENDING_REVIEW'
+            ).length;
+
+            return (
+              <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                    <Banknote className="w-4 h-4 text-emerald-400" />
+                    <span>3. Bảng thu tiền từng người</span>
+                  </h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
+                      Đã thu: {paidCount} / {settlementResult.players.length} người
+                    </span>
+                    {pendingCount > 0 && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/60">
+                        Chờ duyệt: {pendingCount}
+                      </span>
+                    )}
+                    {settlementResult.surplus > 0 && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+                        Dư chẵn: +{formatVND(settlementResult.surplus)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {settlementResult.warning && (
+                  <div className="bg-amber-950/40 border border-amber-700/60 text-amber-200 rounded-2xl p-3 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span>{settlementResult.warning}</span>
+                  </div>
                 )}
-              </div>
-            </div>
 
-            {settlementResult.warning && (
-              <div className="bg-amber-950/40 border border-amber-700/60 text-amber-200 rounded-2xl p-3 text-xs flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <span>{settlementResult.warning}</span>
-              </div>
-            )}
-
-            <div className="overflow-x-auto no-scrollbar">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-2 px-2 font-semibold text-center w-12">Đã đóng</th>
-                    <th className="py-2 px-2 font-semibold">Tên</th>
-                    <th className="py-2 px-2 font-semibold text-center">Trận</th>
-                    <th className="py-2 px-2 font-semibold text-right">Số tiền đóng</th>
-                    <th className="py-2 px-2 font-semibold text-right">Ghi chú</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {settlementResult.players.map((item) => {
-                    const isPaid = paidPlayerIds.includes(item.playerId);
-                    return (
-                      <tr
-                        key={item.playerId}
-                        className={`transition ${
-                          isPaid ? 'bg-emerald-950/20' : 'hover:bg-slate-850'
-                        }`}
-                      >
-                        <td className="py-2.5 px-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isPaid}
-                            onChange={() => togglePaidPlayer(item.playerId)}
-                            aria-label={`Đã đóng tiền: ${item.name}`}
-                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2.5 px-2">
-                          <div className="flex items-center gap-1.5 truncate max-w-[140px]">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                item.sex === 'M' ? 'bg-sky-400' : 'bg-pink-400'
-                              }`}
-                            />
-                            <span
-                              className={`font-semibold truncate ${
-                                isPaid ? 'text-emerald-300' : 'text-slate-200'
-                              }`}
-                            >
-                              {item.name}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-slate-400">
-                          {item.gamesPlayed}
-                        </td>
-                        <td className="py-2.5 px-2 text-right font-black text-sm">
-                          {item.roundedAmount === 0 ? (
-                            <span className="text-slate-500 font-normal">Miễn phí</span>
-                          ) : (
-                            <span className={isPaid ? 'text-emerald-300' : 'text-emerald-400'}>
-                              {formatVND(item.roundedAmount)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-2 text-right text-[11px] text-slate-400">
-                          {item.discountNote ? (
-                            <span className="text-amber-400/90 font-medium">
-                              {item.discountNote}
-                            </span>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
+                <div className="overflow-x-auto no-scrollbar">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400">
+                        <th className="py-2 px-2 font-semibold text-center min-w-[110px]">
+                          {isViewer ? 'Trạng thái' : 'Đã đóng'}
+                        </th>
+                        <th className="py-2 px-2 font-semibold">Tên</th>
+                        <th className="py-2 px-2 font-semibold text-center">Trận</th>
+                        <th className="py-2 px-2 font-semibold text-right">Số tiền đóng</th>
+                        <th className="py-2 px-2 font-semibold text-right">Ghi chú</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {settlementResult.players.map((item) => {
+                        const status = payments[item.playerId]?.status ?? 'UNPAID';
+                        const isPaid = status === 'PAID';
+                        const isPending = status === 'PENDING_REVIEW';
 
-            {/* Nút Sao chép tin nhắn Zalo & Toggle ẩn 0 trận */}
-            <div className="pt-2 space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 font-medium px-1 select-none hover:text-white transition">
-                <input
-                  type="checkbox"
-                  checked={hideZeroCostInZalo}
-                  onChange={(e) => setHideZeroCostInZalo(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-800 accent-emerald-500 cursor-pointer"
-                />
-                <span>Ẩn người 0 trận (Miễn phí) khỏi bảng thu tiền gửi Zalo</span>
-              </label>
+                        return (
+                          <tr
+                            key={item.playerId}
+                            className={`transition ${
+                              isPaid
+                                ? 'bg-emerald-950/20'
+                                : isPending
+                                ? 'bg-amber-950/30'
+                                : 'hover:bg-slate-850'
+                            }`}
+                          >
+                            <td className="py-2.5 px-2 text-center">
+                              {!isViewer ? (
+                                isPending ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        vibrateSuccess();
+                                        onToggleApprovePayment(item.playerId);
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow transition"
+                                    >
+                                      Duyệt ✓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Chưa nhận được tiền / hoàn tác"
+                                      onClick={() => {
+                                        vibrateWarning();
+                                        onRejectPendingPayment(item.playerId);
+                                      }}
+                                      className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border border-slate-700 text-[11px] font-bold transition"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <input
+                                    type="checkbox"
+                                    checked={isPaid}
+                                    onChange={() => {
+                                      vibrateSuccess();
+                                      onToggleApprovePayment(item.playerId);
+                                    }}
+                                    aria-label={`Đã đóng tiền: ${item.name}`}
+                                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                                  />
+                                )
+                              ) : item.roundedAmount === 0 ? (
+                                <span className="text-[11px] text-slate-500">Miễn phí</span>
+                              ) : isPaid ? (
+                                <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 text-[11px] font-bold">
+                                  ✅ Đã đóng
+                                </span>
+                              ) : isPending ? (
+                                <span className="inline-block px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/60 text-[11px] font-bold">
+                                  ⏳ Chờ duyệt
+                                </span>
+                              ) : confirmReportPlayerId === item.playerId ? (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={reportingPlayerId === item.playerId}
+                                    onClick={() => handleReportPayment(item.playerId)}
+                                    className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-[11px] font-bold shadow transition"
+                                  >
+                                    {reportingPlayerId === item.playerId ? 'Đang gửi...' : 'Xác nhận'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={reportingPlayerId === item.playerId}
+                                    onClick={() => setConfirmReportPlayerId(null)}
+                                    className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition"
+                                  >
+                                    Hủy
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmReportPlayerId(item.playerId)}
+                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-700/50 text-[11px] font-semibold transition"
+                                >
+                                  Tôi đã chuyển
+                                </button>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="flex items-center gap-1.5 truncate max-w-[140px]">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    item.sex === 'M' ? 'bg-sky-400' : 'bg-pink-400'
+                                  }`}
+                                />
+                                <span
+                                  className={`font-semibold truncate ${
+                                    isPaid
+                                      ? 'text-emerald-300'
+                                      : isPending
+                                      ? 'text-amber-200'
+                                      : 'text-slate-200'
+                                  }`}
+                                >
+                                  {item.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2 text-center text-slate-400">
+                              {item.gamesPlayed}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-black text-sm">
+                              {item.roundedAmount === 0 ? (
+                                <span className="text-slate-500 font-normal">Miễn phí</span>
+                              ) : (
+                                <span
+                                  className={
+                                    isPaid
+                                      ? 'text-emerald-300'
+                                      : isPending
+                                      ? 'text-amber-300'
+                                      : 'text-emerald-400'
+                                  }
+                                >
+                                  {formatVND(item.roundedAmount)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2 text-right text-[11px] text-slate-400">
+                              {item.discountNote ? (
+                                <span className="text-amber-400/90 font-medium">
+                                  {item.discountNote}
+                                </span>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
 
-              <button
-                onClick={handleCopyZalo}
-                className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"
-              >
-                {copiedZalo ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5" />}
-                <span>{copiedZalo ? 'ĐÃ SAO CHÉP VÀO CLIPBOARD!' : 'SAO CHÉP TIN NHẮN ZALO'}</span>
-              </button>
-            </div>
-          </div>
+                {/* Nút Sao chép tin nhắn Zalo & Toggle ẩn 0 trận */}
+                <div className="pt-2 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 font-medium px-1 select-none hover:text-white transition">
+                    <input
+                      type="checkbox"
+                      checked={hideZeroCostInZalo}
+                      onChange={(e) => setHideZeroCostInZalo(e.target.checked)}
+                      className="w-4 h-4 rounded bg-slate-800 accent-emerald-500 cursor-pointer"
+                    />
+                    <span>Ẩn người 0 trận (Miễn phí) khỏi bảng thu tiền gửi Zalo</span>
+                  </label>
+
+                  <button
+                    onClick={handleCopyZalo}
+                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"
+                  >
+                    {copiedZalo ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5" />}
+                    <span>{copiedZalo ? 'ĐÃ SAO CHÉP VÀO CLIPBOARD!' : 'SAO CHÉP TIN NHẮN ZALO'}</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ========================================================= */}
           {/* 4. THÔNG TIN CHUYỂN KHOẢN (BANK INFO) */}
@@ -843,56 +997,107 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               <span>4. Thông tin tài khoản nhận tiền</span>
             </h3>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Ngân hàng</label>
-                <input
-                  type="text"
-                  placeholder="Vietcombank, MB..."
-                  value={settings.bankName}
-                  onChange={(e) => updateSettings({ bankName: e.target.value })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
-                />
-              </div>
+            {isViewer ? (
+              settings.bankAccount || settings.bankName ? (
+                <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] text-slate-400">Ngân hàng</div>
+                      <div className="font-bold text-slate-100 text-sm">
+                        {settings.bankName || '-'}
+                      </div>
+                    </div>
+                    {settings.bankAccount && (
+                      <button
+                        type="button"
+                        onClick={handleCopyBankAccount}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition"
+                      >
+                        {copiedBankAccount ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedBankAccount ? 'Đã chép STK!' : 'Sao chép STK'}</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/80">
+                    <div>
+                      <div className="text-[11px] text-slate-400">Số tài khoản</div>
+                      <div className="font-mono font-bold text-emerald-300 text-sm">
+                        {settings.bankAccount || '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-400">Chủ tài khoản</div>
+                      <div className="font-bold text-slate-200 uppercase">
+                        {settings.bankAccountHolder || '-'}
+                      </div>
+                    </div>
+                  </div>
+                  {settings.bankNote && (
+                    <div className="pt-1 border-t border-slate-800/80">
+                      <span className="text-[11px] text-slate-400">Nội dung CK: </span>
+                      <span className="font-semibold text-slate-200">{settings.bankNote}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-400 text-xs py-2">
+                  Chủ sân chưa nhập thông tin tài khoản nhận tiền.
+                </p>
+              )
+            ) : (
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Ngân hàng</label>
+                  <input
+                    type="text"
+                    placeholder="Vietcombank, MB..."
+                    value={settings.bankName}
+                    onChange={(e) => updateSettings({ bankName: e.target.value })}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
+                  />
+                </div>
 
-              <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Số tài khoản</label>
-                <input
-                  type="text"
-                  placeholder="0123456789"
-                  value={settings.bankAccount}
-                  onChange={(e) => updateSettings({ bankAccount: e.target.value })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-mono border border-slate-700"
-                />
-              </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Số tài khoản</label>
+                  <input
+                    type="text"
+                    placeholder="0123456789"
+                    value={settings.bankAccount}
+                    onChange={(e) => updateSettings({ bankAccount: e.target.value })}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-mono border border-slate-700"
+                  />
+                </div>
 
-              <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Chủ tài khoản</label>
-                <input
-                  type="text"
-                  placeholder="NGUYEN VAN A"
-                  value={settings.bankAccountHolder}
-                  onChange={(e) => updateSettings({ bankAccountHolder: e.target.value })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 uppercase border border-slate-700"
-                />
-              </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Chủ tài khoản</label>
+                  <input
+                    type="text"
+                    placeholder="NGUYEN VAN A"
+                    value={settings.bankAccountHolder}
+                    onChange={(e) => updateSettings({ bankAccountHolder: e.target.value })}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 uppercase border border-slate-700"
+                  />
+                </div>
 
-              <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Cú pháp chuyển khoản</label>
-                <input
-                  type="text"
-                  placeholder="Tien cau long"
-                  value={settings.bankNote}
-                  onChange={(e) => updateSettings({ bankNote: e.target.value })}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
-                />
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Cú pháp chuyển khoản</label>
+                  <input
+                    type="text"
+                    placeholder="Tien cau long"
+                    value={settings.bankNote}
+                    onChange={(e) => updateSettings({ bankNote: e.target.value })}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* ========================================================= */}
-          {/* 5. QUẢN LÝ DỮ LIỆU & BUỔI MỚI */}
-          {/* ========================================================= */}
+          {!isViewer && (
+            <>
+              {/* ========================================================= */}
+              {/* 5. QUẢN LÝ DỮ LIỆU & BUỔI MỚI */}
+              {/* ========================================================= */}
           <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
             <h3 className="font-bold text-sm text-slate-200 flex items-center justify-between">
               <span>5. Quản lý dữ liệu &amp; Bắt đầu buổi mới</span>
@@ -1066,6 +1271,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
       )}
 

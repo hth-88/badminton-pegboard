@@ -2,7 +2,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
-import { useCloudRoom } from './hooks/useCloudRoom';
+import { useCloudRoom, type RoomRole } from './hooks/useCloudRoom';
+import { useSettlementState } from './hooks/useSettlementState';
+import type { CloudSettlementData } from './engine/settlement';
 import { Header } from './components/Header';
 import { BottomNav, type NavTab } from './components/BottomNav';
 import { CourtCard } from './components/CourtCard';
@@ -87,6 +89,23 @@ export function App() {
   const [pinError, setPinError] = useState<string | null>(null);
 
   const {
+    settlementData,
+    updateSettlementSettings,
+    toggleApprovePayment,
+    rejectPendingPayment,
+    resetPaymentsForNewSession,
+    applyCloudSettlement,
+    reloadLocalSettlement,
+  } = useSettlementState();
+
+  const handleApplyCloudSettlement = useCallback(
+    (remoteData: CloudSettlementData, assignedRole: RoomRole) => {
+      applyCloudSettlement(remoteData, assignedRole !== 'VIEWER');
+    },
+    [applyCloudSettlement]
+  );
+
+  const {
     roomCode,
     pinCode,
     role,
@@ -99,10 +118,13 @@ export function App() {
     upgradeToCoHost,
     leaveRoom,
     guardAction,
+    reportPlayerPayment,
   } = useCloudRoom({
     currentState: state,
     onApplyCloudState: loadCloudState,
     onShowToast: handleCloudToast,
+    currentSettlement: settlementData,
+    onApplyCloudSettlement: handleApplyCloudSettlement,
   });
 
   // Tính số sân đang bật
@@ -451,6 +473,19 @@ export function App() {
             history={history}
             stats={stats}
             currentState={state}
+            role={role}
+            roomCode={roomCode}
+            settlementData={settlementData}
+            onUpdateSettlementSettings={(updates) =>
+              guardAction(() => updateSettlementSettings(updates))
+            }
+            onToggleApprovePayment={(playerId) =>
+              guardAction(() => toggleApprovePayment(playerId))
+            }
+            onRejectPendingPayment={(playerId) =>
+              guardAction(() => rejectPendingPayment(playerId))
+            }
+            onReportPlayerPayment={reportPlayerPayment}
             onExportJson={exportSession}
             onImportJson={(json) => {
               if (role === 'VIEWER') {
@@ -459,8 +494,18 @@ export function App() {
               }
               return importSession(json);
             }}
-            onNewSessionKeepPlayers={() => guardAction(newSessionKeepPlayers)}
-            onResetSession={() => guardAction(resetSession)}
+            onNewSessionKeepPlayers={() =>
+              guardAction(() => {
+                newSessionKeepPlayers();
+                resetPaymentsForNewSession();
+              })
+            }
+            onResetSession={() =>
+              guardAction(() => {
+                resetSession();
+                resetPaymentsForNewSession();
+              })
+            }
           />
         )}
       </main>
@@ -506,9 +551,17 @@ export function App() {
         syncStatus={syncStatus}
         errorMessage={cloudError}
         currentState={state}
-        onCreateRoom={createRoom}
+        onCreateRoom={(code, pin, stateToSync) =>
+          createRoom(code, pin, stateToSync, settlementData)
+        }
         onJoinRoom={joinRoom}
-        onLeaveRoom={leaveRoom}
+        onLeaveRoom={() => {
+          const wasViewer = role === 'VIEWER';
+          leaveRoom();
+          if (wasViewer) {
+            reloadLocalSettlement();
+          }
+        }}
         onUpgradeToCoHost={upgradeToCoHost}
       />
     </div>
