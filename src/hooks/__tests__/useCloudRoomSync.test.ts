@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
 import { useCloudRoom, areSessionSnapshotsEqual } from '../useCloudRoom';
+import { createDefaultCloudSettlementData, type CloudSettlementData } from '../../engine/settlement';
 import { createInitialSessionState, badmintonReducer } from '../../engine/sessionReducer';
 import { migrateSessionState } from '../../engine/stateMigration';
 import type { BadmintonRoomRecord } from '../../services/supabaseSync';
@@ -9,6 +10,7 @@ import type { BadmintonSessionState } from '../../types/badminton';
 // Mock supabaseSync
 const mockFetchRoom = vi.fn();
 const mockUpsertRoom = vi.fn();
+const mockUpdateRoomSettlementOnly = vi.fn();
 let realtimeSubscriber: ((record: BadmintonRoomRecord) => void) | null = null;
 const mockSubscribeToRoom = vi.fn((_roomCode: string, callback: (record: BadmintonRoomRecord) => void) => {
   realtimeSubscriber = callback;
@@ -20,6 +22,8 @@ const mockSubscribeToRoom = vi.fn((_roomCode: string, callback: (record: Badmint
 vi.mock('../../services/supabaseSync', () => ({
   fetchRoom: (code: string) => mockFetchRoom(code),
   upsertRoom: (record: any) => mockUpsertRoom(record),
+  updateRoomSettlementOnly: (code: string, data: any, ts: number, by: string) =>
+    mockUpdateRoomSettlementOnly(code, data, ts, by),
   subscribeToRoom: (roomCode: string, cb: any) => mockSubscribeToRoom(roomCode, cb),
   getClientId: () => 'CLIENT_TEST_123',
   STORAGE_KEY_CLOUD_ROOM: 'badminton_cloud_room_state_v1',
@@ -142,6 +146,7 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     realtimeSubscriber = null;
     mockFetchRoom.mockReset();
     mockUpsertRoom.mockReset();
+    mockUpdateRoomSettlementOnly.mockReset();
     mockSubscribeToRoom.mockClear();
 
     currentHref = 'https://badminton-pegboard.vercel.app/';
@@ -941,5 +946,250 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(mockUpsertRoom).toHaveBeenCalledTimes(1);
     expect(mockUpsertRoom.mock.calls[0][0].session_data.mixDebt).toEqual({ doubles: 6, singles: 1 });
     expect(localStorage.getItem('badminton_cloud_room_state_v1_pending_ts')).toBeNull();
+  });
+
+  it('14. Mục C4: CO_HOST thay đổi settlementData -> debounce 250ms gọi updateRoomSettlementOnly (KHÔNG gọi upsertRoom)', async () => {
+    const baseState = createInitialSessionState();
+    const baseSettlement = createDefaultCloudSettlementData(1000);
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: baseSettlement,
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+    mockUpdateRoomSettlementOnly.mockResolvedValue({ error: null });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState, settlement: baseSettlement });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    mockUpsertRoom.mockClear();
+    mockUpdateRoomSettlementOnly.mockClear();
+
+    const updatedSettlement: CloudSettlementData = {
+      ...baseSettlement,
+      settings: { ...baseSettlement.settings, shuttleCount: 12 },
+      updatedAt: 2000,
+    };
+    harness.rerender({ state: baseState, settlement: updatedSettlement });
+
+    expect(mockUpdateRoomSettlementOnly).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(mockUpdateRoomSettlementOnly).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRoomSettlementOnly.mock.calls[0][0]).toBe('SAN-49');
+    expect(mockUpdateRoomSettlementOnly.mock.calls[0][1].settings.shuttleCount).toBe(12);
+    expect(mockUpsertRoom).not.toHaveBeenCalled();
+  });
+
+  it('15. Mục C4: VIEWER gọi reportPlayerPayment -> fetchRoom lấy settings mới nhất của Host, merge đúng 1 player PENDING_REVIEW và gọi updateRoomSettlementOnly (không đụng upsertRoom / session_data)', async () => {
+    const baseState = createInitialSessionState();
+    const hostSettlement: CloudSettlementData = {
+      ...createDefaultCloudSettlementData(1000),
+      settings: { ...createDefaultCloudSettlementData(1000).settings, bankAccount: '999888777' },
+      payments: { p2: { status: 'PAID', approvedAt: 900 } },
+    };
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: hostSettlement,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+    mockUpdateRoomSettlementOnly.mockResolvedValue({ error: null });
+
+    const appliedSettlements: CloudSettlementData[] = [];
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: (data) => appliedSettlements.push(data),
+      })
+    );
+
+    harness.render({ state: baseState, settlement: createDefaultCloudSettlementData(0) });
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+
+    expect(harness.getResult().role).toBe('VIEWER');
+    mockUpsertRoom.mockClear();
+    mockUpdateRoomSettlementOnly.mockClear();
+
+    const res = await harness.getResult().reportPlayerPayment('p1');
+    expect(res.ok).toBe(true);
+    expect(mockUpdateRoomSettlementOnly).toHaveBeenCalledTimes(1);
+    expect(mockUpsertRoom).not.toHaveBeenCalled();
+
+    const sentPayload: CloudSettlementData = mockUpdateRoomSettlementOnly.mock.calls[0][1];
+    expect(sentPayload.settings.bankAccount).toBe('999888777');
+    expect(sentPayload.payments.p2.status).toBe('PAID');
+    expect(sentPayload.payments.p1.status).toBe('PENDING_REVIEW');
+  });
+
+  it('16. Mục C4: VIEWER gọi reportPlayerPayment khi player đã PAID trên Cloud -> không hạ cấp về PENDING_REVIEW và không gọi updateRoomSettlementOnly', async () => {
+    const baseState = createInitialSessionState();
+    const paidSettlement: CloudSettlementData = {
+      ...createDefaultCloudSettlementData(2000),
+      payments: { p1: { status: 'PAID', approvedAt: 1500 } },
+    };
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: paidSettlement,
+        updated_at: 2000,
+        updated_by: 'HOST',
+      },
+    });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState, settlement: createDefaultCloudSettlementData(0) });
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+    mockUpdateRoomSettlementOnly.mockClear();
+
+    const res = await harness.getResult().reportPlayerPayment('p1');
+    expect(res.ok).toBe(true);
+    expect(mockUpdateRoomSettlementOnly).not.toHaveBeenCalled();
+  });
+
+  it('17. Mục C4: Realtime chỉ đổi settlement_data (giữ nguyên session_data) -> máy CO_HOST gọi onApplyCloudSettlement nhưng KHÔNG gọi onApplyCloudState (giữ nguyên undoStack)', async () => {
+    const baseState = createInitialSessionState();
+    const baseSettlement = createDefaultCloudSettlementData(1000);
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: baseSettlement,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+
+    const onApplyStateSpy = vi.fn();
+    const onApplySettlementSpy = vi.fn();
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: onApplyStateSpy,
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: onApplySettlementSpy,
+      })
+    );
+
+    harness.render({ state: baseState, settlement: baseSettlement });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    onApplyStateSpy.mockClear();
+    onApplySettlementSpy.mockClear();
+
+    const remoteSettlement: CloudSettlementData = {
+      ...baseSettlement,
+      payments: { p1: { status: 'PENDING_REVIEW', reportedAt: 3000 } },
+      updatedAt: 3000,
+    };
+
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '1234',
+      session_data: baseState,
+      settlement_data: remoteSettlement,
+      updated_at: 3000,
+      updated_by: 'VIEWER_CLIENT',
+    });
+
+    expect(onApplyStateSpy).not.toHaveBeenCalled();
+    expect(onApplySettlementSpy).toHaveBeenCalledTimes(1);
+    expect(onApplySettlementSpy.mock.calls[0][0].payments.p1.status).toBe('PENDING_REVIEW');
+  });
+
+  it('18. Mục C4: CO_HOST nhận settlement_data mới từ Realtime rồi re-render -> không bị ping-pong đẩy ngược lên Cloud', async () => {
+    const baseState = createInitialSessionState();
+    const baseSettlement = createDefaultCloudSettlementData(1000);
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: baseSettlement,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+    mockUpdateRoomSettlementOnly.mockResolvedValue({ error: null });
+
+    let latestApplied: CloudSettlementData = baseSettlement;
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: (data) => {
+          latestApplied = data;
+        },
+      })
+    );
+
+    harness.render({ state: baseState, settlement: baseSettlement });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    mockUpdateRoomSettlementOnly.mockClear();
+
+    const remoteSettlement: CloudSettlementData = {
+      ...baseSettlement,
+      payments: { p1: { status: 'PENDING_REVIEW', reportedAt: 4000 } },
+      updatedAt: 4000,
+    };
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '1234',
+      session_data: baseState,
+      settlement_data: remoteSettlement,
+      updated_at: 4000,
+      updated_by: 'VIEWER_CLIENT',
+    });
+
+    harness.rerender({ state: baseState, settlement: latestApplied });
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(mockUpdateRoomSettlementOnly).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  areSettlementDataEqual,
+  createDefaultCloudSettlementData,
+  normalizeCloudSettlementData,
+  type CloudSettlementData,
+} from '../engine/settlement';
 import type { BadmintonSessionSnapshot, BadmintonSessionState } from '../types/badminton';
 import {
   fetchRoom,
@@ -6,6 +12,7 @@ import {
   STORAGE_KEY_CLOUD_ROOM,
   type StoredCloudRoom,
   subscribeToRoom,
+  updateRoomSettlementOnly,
   upsertRoom,
 } from '../services/supabaseSync';
 
@@ -16,6 +23,8 @@ interface UseCloudRoomProps {
   currentState: BadmintonSessionState;
   onApplyCloudState: (newState: BadmintonSessionState) => void;
   onShowToast?: (message: string) => void;
+  currentSettlement?: CloudSettlementData;
+  onApplyCloudSettlement?: (data: CloudSettlementData, role: RoomRole) => void;
 }
 
 /**
@@ -185,6 +194,8 @@ export function useCloudRoom({
   currentState,
   onApplyCloudState,
   onShowToast,
+  currentSettlement,
+  onApplyCloudSettlement,
 }: UseCloudRoomProps) {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [pinCode, setPinCode] = useState<string | null>(null);
@@ -211,6 +222,15 @@ export function useCloudRoom({
   const currentStateRef = useRef(currentState);
   currentStateRef.current = currentState;
 
+  const onApplySettlementRef = useRef(onApplyCloudSettlement);
+  onApplySettlementRef.current = onApplyCloudSettlement;
+
+  const currentSettlementRef = useRef(currentSettlement);
+  currentSettlementRef.current = currentSettlement;
+
+  const roleRef = useRef(role);
+  roleRef.current = role;
+
   const pendingStorageKey = `${STORAGE_KEY_CLOUD_ROOM}_pending_ts`;
 
   // A2: Cờ guard kết nối khởi động đúng 1 lần
@@ -218,11 +238,15 @@ export function useCloudRoom({
 
   // A4 (ii): Cờ đánh dấu có thay đổi local đang pending hoặc đang bay lên cloud
   const hasPendingLocalChangeRef = useRef<boolean>(false);
+  const hasPendingSettlementChangeRef = useRef<boolean>(false);
 
   const lastAppliedTimestampRef = useRef<number>(0);
   const lastAppliedRemoteSnapshotRef = useRef<BadmintonSessionSnapshot | BadmintonSessionState | null>(null);
+  const lastAppliedSettlementTsRef = useRef<number>(0);
+  const lastAppliedRemoteSettlementRef = useRef<CloudSettlementData | null>(null);
   const isApplyingRemoteRef = useRef<boolean>(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settlementDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingActionRef = useRef<(() => void) | null>(null);
 
   // 1. Vào phòng có sẵn (Viewer hoặc Co-Host)
@@ -283,6 +307,23 @@ export function useCloudRoom({
         } catch {
           // Bỏ qua
         }
+      }
+
+      // Nạp settlement_data độc lập nếu có (đặt ref TRƯỚC setRoomCode/setRole để useEffect không bắn debounce thừa)
+      const normalizedSettlement = normalizeCloudSettlementData(roomData.settlement_data);
+      if (normalizedSettlement) {
+        lastAppliedSettlementTsRef.current =
+          normalizedSettlement.updatedAt || roomData.updated_at;
+        lastAppliedRemoteSettlementRef.current = normalizedSettlement;
+        onApplySettlementRef.current?.(normalizedSettlement, assignedRole);
+      } else if (assignedRole === 'VIEWER') {
+        const empty = createDefaultCloudSettlementData(0);
+        lastAppliedSettlementTsRef.current = 0;
+        lastAppliedRemoteSettlementRef.current = empty;
+        onApplySettlementRef.current?.(empty, 'VIEWER');
+      } else {
+        lastAppliedSettlementTsRef.current = 0;
+        lastAppliedRemoteSettlementRef.current = null;
       }
 
       setRoomCode(cleanCode);
@@ -372,36 +413,49 @@ export function useCloudRoom({
     setSyncStatus('SYNCED');
 
     const unsubscribe = subscribeToRoom(roomCode, (record) => {
-      // A4 (ii): Bỏ qua nếu đang có thay đổi local chưa đẩy lên Supabase (hoặc đang bay)
-      // Last-write-wins: Nếu đang có thay đổi local chưa đẩy lên Supabase (hoặc đang bay),
-      // bỏ qua snapshot từ xa để tránh đè mất thao tác vừa bấm. Lưu ý: 2 Co-Host cùng chỉnh sửa đồng thời
-      // vẫn có thể ghi đè nếu thao tác sát giờ nhau, chấp nhận được cho app cầu lông này.
-      if (hasPendingLocalChangeRef.current) {
-        return;
-      }
-
       // A4 (i): Bỏ qua nếu gói tin do chính tab này gửi lên (Anti-Echo Loop)
       if (record.updated_by === clientId) {
         return;
       }
 
-      // A4 (i): Bỏ qua nếu gói tin cũ hơn bản ghi mới nhất đã nạp
-      if (record.updated_at <= lastAppliedTimestampRef.current) {
-        return;
+      // Nhánh 1: session_data (chỉ cập nhật khi không pending và dữ liệu thực sự mới & khác)
+      if (
+        !hasPendingLocalChangeRef.current &&
+        record.updated_at > lastAppliedTimestampRef.current &&
+        record.session_data &&
+        !areSessionSnapshotsEqual(record.session_data, lastAppliedRemoteSnapshotRef.current)
+      ) {
+        lastAppliedTimestampRef.current = record.updated_at;
+        lastAppliedRemoteSnapshotRef.current = record.session_data;
+        isApplyingRemoteRef.current = true;
+
+        onApplyRef.current(record.session_data);
+        setSyncStatus('SYNCED');
+        try {
+          localStorage.removeItem(pendingStorageKey);
+        } catch {
+          // Bỏ qua
+        }
       }
 
-      // Đánh dấu thời điểm và ghi nhận snapshot từ xa
-      lastAppliedTimestampRef.current = record.updated_at;
-      lastAppliedRemoteSnapshotRef.current = record.session_data;
-      isApplyingRemoteRef.current = true;
-
-      // Nạp dữ liệu vào state thông qua ref callback
-      onApplyRef.current(record.session_data);
-      setSyncStatus('SYNCED');
-      try {
-        localStorage.removeItem(pendingStorageKey);
-      } catch {
-        // Bỏ qua
+      // Nhánh 2: settlement_data độc lập (không chạm session_data hay undoStack)
+      if (
+        onApplySettlementRef.current &&
+        !hasPendingSettlementChangeRef.current &&
+        record.settlement_data != null
+      ) {
+        const normalized = normalizeCloudSettlementData(record.settlement_data);
+        if (normalized) {
+          const remoteTs = normalized.updatedAt || record.updated_at;
+          if (
+            remoteTs > lastAppliedSettlementTsRef.current &&
+            !areSettlementDataEqual(normalized, lastAppliedRemoteSettlementRef.current)
+          ) {
+            lastAppliedSettlementTsRef.current = remoteTs;
+            lastAppliedRemoteSettlementRef.current = normalized;
+            onApplySettlementRef.current(normalized, roleRef.current);
+          }
+        }
       }
     });
 
@@ -490,12 +544,63 @@ export function useCloudRoom({
     };
   }, [currentState, roomCode, role, pinCode, clientId]);
 
-  // 5. Tạo phòng mới (Host chính)
+  // 5. Đẩy thay đổi bảng Quyết toán lên Supabase (Debounce 250ms, chỉ dành cho CO_HOST)
+  useEffect(() => {
+    if (!roomCode || role !== 'CO_HOST' || !currentSettlement) {
+      return;
+    }
+
+    if (areSettlementDataEqual(currentSettlement, lastAppliedRemoteSettlementRef.current)) {
+      if (settlementDebounceTimerRef.current) {
+        clearTimeout(settlementDebounceTimerRef.current);
+        settlementDebounceTimerRef.current = null;
+      }
+      hasPendingSettlementChangeRef.current = false;
+      return;
+    }
+
+    if (settlementDebounceTimerRef.current) {
+      clearTimeout(settlementDebounceTimerRef.current);
+    }
+
+    hasPendingSettlementChangeRef.current = true;
+    settlementDebounceTimerRef.current = setTimeout(async () => {
+      const now = Date.now();
+      const payloadToSync: CloudSettlementData = {
+        ...currentSettlement,
+        updatedAt: now,
+      };
+      try {
+        const res = await updateRoomSettlementOnly(roomCode, payloadToSync, now, clientId);
+        if (res?.error) {
+          setSyncStatus('ERROR');
+          setErrorMessage(res.error);
+        } else {
+          lastAppliedSettlementTsRef.current = now;
+          lastAppliedRemoteSettlementRef.current = payloadToSync;
+          setSyncStatus('SYNCED');
+          setErrorMessage(null);
+        }
+      } finally {
+        hasPendingSettlementChangeRef.current = false;
+      }
+    }, 250);
+
+    return () => {
+      if (settlementDebounceTimerRef.current) {
+        clearTimeout(settlementDebounceTimerRef.current);
+        settlementDebounceTimerRef.current = null;
+      }
+    };
+  }, [currentSettlement, roomCode, role, clientId]);
+
+  // 6. Tạo phòng mới (Host chính)
   const createRoom = useCallback(
     async (
       code: string,
       pin: string,
-      stateToSync: BadmintonSessionState
+      stateToSync: BadmintonSessionState,
+      settlementToSync?: CloudSettlementData
     ): Promise<{ ok: boolean; error?: string }> => {
       const cleanCode = code.toUpperCase().trim();
       const cleanPin = pin.trim() || '1234';
@@ -506,6 +611,7 @@ export function useCloudRoom({
         room_code: cleanCode,
         pin_code: cleanPin,
         session_data: stateToSync,
+        settlement_data: settlementToSync,
         updated_at: now,
         updated_by: clientId,
       });
@@ -522,6 +628,10 @@ export function useCloudRoom({
       setSyncStatus('SYNCED');
       lastAppliedTimestampRef.current = now;
       lastAppliedRemoteSnapshotRef.current = stateToSync;
+      if (settlementToSync) {
+        lastAppliedSettlementTsRef.current = now;
+        lastAppliedRemoteSettlementRef.current = settlementToSync;
+      }
 
       // Lưu trạng thái phòng vào localStorage
       try {
@@ -590,7 +700,14 @@ export function useCloudRoom({
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
+    if (settlementDebounceTimerRef.current) {
+      clearTimeout(settlementDebounceTimerRef.current);
+      settlementDebounceTimerRef.current = null;
+    }
     hasPendingLocalChangeRef.current = false;
+    hasPendingSettlementChangeRef.current = false;
+    lastAppliedSettlementTsRef.current = 0;
+    lastAppliedRemoteSettlementRef.current = null;
     setRoomCode(null);
     setPinCode(null);
     setRole('OFFLINE');
@@ -634,6 +751,65 @@ export function useCloudRoom({
     [role]
   );
 
+  // 9. Thành viên (VIEWER) báo "Tôi đã chuyển" (chỉ cập nhật 1 entry PENDING_REVIEW qua updateRoomSettlementOnly)
+  const reportPlayerPayment = useCallback(
+    async (playerId: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!roomCode) {
+        return { ok: false, error: 'Chưa kết nối phòng Online' };
+      }
+
+      const res = await fetchRoom(roomCode);
+      if (res.error || !res.data) {
+        const err = res.error || 'Không thể tải trạng thái phòng mới nhất';
+        onToastRef.current?.(err);
+        return { ok: false, error: err };
+      }
+
+      const latest =
+        normalizeCloudSettlementData(res.data.settlement_data) ??
+        currentSettlementRef.current ??
+        createDefaultCloudSettlementData(0);
+
+      if (latest.payments[playerId]?.status === 'PAID') {
+        lastAppliedRemoteSettlementRef.current = latest;
+        lastAppliedSettlementTsRef.current = latest.updatedAt || res.data.updated_at;
+        onApplySettlementRef.current?.(latest, roleRef.current);
+        onToastRef.current?.('Thành viên này đã được Chủ sân xác nhận đã đóng rồi!');
+        return { ok: true };
+      }
+
+      const now = Date.now();
+      const merged: CloudSettlementData = {
+        settings: latest.settings,
+        payments: {
+          ...latest.payments,
+          [playerId]: {
+            status: 'PENDING_REVIEW',
+            reportedAt: now,
+          },
+        },
+        updatedAt: now,
+      };
+
+      hasPendingSettlementChangeRef.current = true;
+      try {
+        const upd = await updateRoomSettlementOnly(roomCode, merged, now, clientId);
+        if (upd?.error) {
+          onToastRef.current?.(upd.error);
+          return { ok: false, error: upd.error };
+        }
+        lastAppliedSettlementTsRef.current = now;
+        lastAppliedRemoteSettlementRef.current = merged;
+        onApplySettlementRef.current?.(merged, roleRef.current);
+        onToastRef.current?.('Đã báo chuyển khoản! Chờ Chủ sân duyệt.');
+        return { ok: true };
+      } finally {
+        hasPendingSettlementChangeRef.current = false;
+      }
+    },
+    [roomCode, clientId]
+  );
+
   return {
     roomCode,
     pinCode,
@@ -647,5 +823,6 @@ export function useCloudRoom({
     upgradeToCoHost,
     leaveRoom,
     guardAction,
+    reportPlayerPayment,
   };
 }
