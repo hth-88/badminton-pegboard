@@ -395,7 +395,7 @@ export type BadmintonAction =
     }
   | {
       type: 'SUGGEST_NEXT_UP';
-      payload: { courtId: string; now?: number };
+      payload: { courtId: string; now: number };
     }
   | {
       type: 'SET_NEXT_UP_SLOT';
@@ -484,6 +484,7 @@ export type BadmintonAction =
       payload: {
         courtId: string;
         updates: { name?: string; policy?: CourtPolicy; isActive?: boolean; forcedType?: 'DOUBLES' | 'SINGLES' | null };
+        now: number;
       };
     }
   | {
@@ -1458,7 +1459,7 @@ export function badmintonReducer(
       };
 
       if (isActivating) {
-        const draft = suggestNextUpForCourt(nextState, courtId);
+        const draft = suggestNextUpForCourt(nextState, courtId, action.payload.now);
         if (draft) {
           nextState = {
             ...nextState,

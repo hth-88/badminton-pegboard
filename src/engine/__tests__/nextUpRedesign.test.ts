@@ -172,7 +172,7 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
     // Bật Sân 2 lên, Sân 1 vẫn gợi ý bình thường
     state = badmintonReducer(state, {
       type: 'UPDATE_COURT',
-      payload: { courtId: 'court-2', updates: { isActive: true } },
+      payload: { courtId: 'court-2', updates: { isActive: true }, now: 1500 },
     });
 
     state = badmintonReducer(state, {

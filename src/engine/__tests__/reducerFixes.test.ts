@@ -537,6 +537,7 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
         payload: {
           courtId: 'court-1',
           updates: { isActive: false },
+          now: 1000,
         },
       });
 

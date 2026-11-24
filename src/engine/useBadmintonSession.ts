@@ -131,7 +131,7 @@ export function useBadmintonSession() {
   );
 
   const suggestNextUp = useCallback((courtId: string, now?: number) => {
-    dispatch({ type: 'SUGGEST_NEXT_UP', payload: { courtId, now } });
+    dispatch({ type: 'SUGGEST_NEXT_UP', payload: { courtId, now: now ?? Date.now() } });
   }, []);
 
   const setNextUpSlot = useCallback(
@@ -247,7 +247,7 @@ export function useBadmintonSession() {
         forcedType?: 'DOUBLES' | 'SINGLES' | null;
       }
     ) => {
-      dispatch({ type: 'UPDATE_COURT', payload: { courtId, updates } });
+      dispatch({ type: 'UPDATE_COURT', payload: { courtId, updates, now: Date.now() } });
     },
     []
   );

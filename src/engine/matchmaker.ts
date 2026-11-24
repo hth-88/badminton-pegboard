@@ -743,7 +743,7 @@ function buildProjectedEnvironment(
 export function suggestNextUpForCourt(
   state: BadmintonSessionState,
   courtId: string,
-  now: number = Date.now()
+  now: number
 ): NextUpDraft | null {
   const court = state.courts.find((c) => c.id === courtId);
   if (!court || !court.isActive) return null;

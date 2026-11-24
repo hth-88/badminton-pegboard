@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   badmintonReducer,
   createInitialSessionState,
 } from '../sessionReducer';
 import { suggestNextUpForCourt } from '../matchmaker';
-import { resolveTargetMatchType } from '../nextUp';
+import { nextUpMemberIds, resolveTargetMatchType } from '../nextUp';
 import type { BadmintonSessionState, Player } from '../../types/badminton';
 
 function createMockPlayer(id: string, name: string): Player {
@@ -67,7 +67,7 @@ describe('Hạng mục Business Rules - Test bắt buộc', () => {
 
       state = badmintonReducer(state, {
         type: 'UPDATE_COURT',
-        payload: { courtId: 'court-1', updates: { forcedType: 'SINGLES' } },
+        payload: { courtId: 'court-1', updates: { forcedType: 'SINGLES' }, now: 1000 },
       });
 
       expect(state.courts[0].forcedType).toBe('SINGLES');
@@ -235,6 +235,77 @@ describe('Hạng mục Business Rules - Test bắt buộc', () => {
       expect(state.players.find((p) => p.id === 'p1')?.status).toBe('PAUSED');
       expect(state.players.find((p) => p.id === 'p2')?.status).toBe('PAUSED');
       expect(state.courts[0].nextUp.slots[1]).toBeNull();
+    });
+  });
+
+  describe('Rule 1 (A11): Pure Reducer không gọi ngầm Date.now()', () => {
+    it('UPDATE_COURT (bật sân) và SUGGEST_NEXT_UP dùng action.payload.now và tuyệt đối không gọi Date.now()', () => {
+      const initial = createInitialSessionState();
+      const baseState: BadmintonSessionState = {
+        ...initial,
+        courts: initial.courts.map((c, idx) =>
+          idx === 0
+            ? {
+                ...c,
+                isActive: false,
+                forcedType: null,
+                policy: 'MIX',
+                nextUp: {
+                  type: 'DOUBLES',
+                  slots: [null, null, null, null],
+                  slotSource: [null, null, null, null],
+                },
+              }
+            : c
+        ),
+        players: [
+          createMockPlayer('p1', 'Player 1'),
+          createMockPlayer('p2', 'Player 2'),
+        ],
+        settings: {
+          ...initial.settings,
+          autoSingles: 'AUTO',
+          matchMix: { doubles: 1, singles: 0 },
+        },
+        autoSinglesSnooze: {
+          'court-1': { untilTs: 15000, queueSizeAtSnooze: 2 },
+        },
+      };
+
+      const dateNowSpy = vi.spyOn(Date, 'now');
+      try {
+        const s1 = badmintonReducer(baseState, {
+          type: 'UPDATE_COURT',
+          payload: { courtId: 'court-1', updates: { isActive: true }, now: 12000 },
+        });
+        expect(s1.courts[0].isActive).toBe(true);
+        expect(s1.courts[0].nextUp.slots).toEqual([null, null, null, null]);
+
+        const s2 = badmintonReducer(baseState, {
+          type: 'UPDATE_COURT',
+          payload: { courtId: 'court-1', updates: { isActive: true }, now: 16000 },
+        });
+        expect(s2.courts[0].isActive).toBe(true);
+        expect(s2.courts[0].nextUp.type).toBe('SINGLES');
+        expect(nextUpMemberIds(s2.courts[0].nextUp).sort()).toEqual(['p1', 'p2']);
+
+        const s3 = badmintonReducer(s1, {
+          type: 'SUGGEST_NEXT_UP',
+          payload: { courtId: 'court-1', now: 12000 },
+        });
+        expect(s3).toBe(s1);
+
+        const s4 = badmintonReducer(s1, {
+          type: 'SUGGEST_NEXT_UP',
+          payload: { courtId: 'court-1', now: 16000 },
+        });
+        expect(s4.courts[0].nextUp.type).toBe('SINGLES');
+        expect(nextUpMemberIds(s4.courts[0].nextUp).sort()).toEqual(['p1', 'p2']);
+
+        expect(dateNowSpy).toHaveBeenCalledTimes(0);
+      } finally {
+        dateNowSpy.mockRestore();
+      }
     });
   });
 });

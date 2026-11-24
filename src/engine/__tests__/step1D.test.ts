@@ -299,14 +299,14 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     const stateBefore = state;
     const stateAfter = badmintonReducer(state, {
       type: 'UPDATE_COURT',
-      payload: { courtId: 'court-1', updates: { isActive: false } },
+      payload: { courtId: 'court-1', updates: { isActive: false }, now: 1000 },
     });
     expect(stateAfter).toBe(stateBefore);
 
     // Tắt Sân 2 (đang rảnh) -> thành công, nextUp bị reset rỗng, suggestCursor = 0, xóa snooze
     const stateAfterTurnOff2 = badmintonReducer(state, {
       type: 'UPDATE_COURT',
-      payload: { courtId: 'court-2', updates: { isActive: false } },
+      payload: { courtId: 'court-2', updates: { isActive: false }, now: 1000 },
     });
 
     const c2 = stateAfterTurnOff2.courts[1];
