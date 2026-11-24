@@ -16,6 +16,10 @@ import { CloudRoomModal } from './components/CloudRoomModal';
 import { InfoToast, UndoToast } from './components/Toast';
 import { Eye, KeyRound, Lock } from 'lucide-react';
 import {
+  deleteReceiptFiles,
+  deleteRoomReceipts,
+} from './services/supabaseSync';
+import {
   getLastLoadStatus,
   getLatestCorruptBackup,
   type LoadStatus,
@@ -482,8 +486,14 @@ export function App() {
             onToggleApprovePayment={(playerId) =>
               guardAction(() => toggleApprovePayment(playerId))
             }
-            onRejectPendingPayment={(playerId) =>
-              guardAction(() => rejectPendingPayment(playerId))
+            onRejectPendingPayment={(playerId, reason) =>
+              guardAction(() => {
+                const receiptPath = settlementData.payments[playerId]?.receiptPath;
+                if (receiptPath) {
+                  deleteReceiptFiles([receiptPath]).catch(() => {});
+                }
+                rejectPendingPayment(playerId, reason);
+              })
             }
             onReportPlayerPayment={reportPlayerPayment}
             onExportJson={exportSession}
@@ -498,12 +508,18 @@ export function App() {
               guardAction(() => {
                 newSessionKeepPlayers();
                 resetPaymentsForNewSession();
+                if (roomCode) {
+                  deleteRoomReceipts(roomCode).catch(() => {});
+                }
               })
             }
             onResetSession={() =>
               guardAction(() => {
                 resetSession();
                 resetPaymentsForNewSession();
+                if (roomCode) {
+                  deleteRoomReceipts(roomCode).catch(() => {});
+                }
               })
             }
           />

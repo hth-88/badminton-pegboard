@@ -16,6 +16,10 @@ import {
   RotateCcw,
   Trash2,
   Calendar,
+  QrCode,
+  Image as ImageIcon,
+  X,
+  AlertCircle,
 } from 'lucide-react';
 import type {
   BadmintonSessionState,
@@ -39,6 +43,9 @@ import {
 } from '../engine/storage';
 import type { RoomRole } from '../hooks/useCloudRoom';
 import { EquityTable } from './EquityTable';
+import { PaymentQrModal } from './PaymentQrModal';
+import { VIETNAM_BANKS, resolveBankOption } from '../engine/vietqr';
+import { deleteRoomReceipts } from '../services/supabaseSync';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 
 interface SettlementTabProps {
@@ -51,8 +58,11 @@ interface SettlementTabProps {
   settlementData: CloudSettlementData;
   onUpdateSettlementSettings: (updates: Partial<SettlementSettings>) => void;
   onToggleApprovePayment: (playerId: string) => void;
-  onRejectPendingPayment: (playerId: string) => void;
-  onReportPlayerPayment: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
+  onRejectPendingPayment: (playerId: string, reason?: string) => void;
+  onReportPlayerPayment: (
+    playerId: string,
+    options?: { receiptUrl?: string; receiptPath?: string }
+  ) => Promise<{ ok: boolean; error?: string }>;
   onExportJson: () => string;
   onImportJson: (json: string) => { ok: true } | { ok: false; error: string };
   onNewSessionKeepPlayers: () => void;
@@ -86,6 +96,22 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   const [reportingPlayerId, setReportingPlayerId] = useState<string | null>(null);
   const [copiedBankAccount, setCopiedBankAccount] = useState(false);
 
+  // VietQR & Lightbox biên lai (Nhóm 3 & 4)
+  const [qrModalTarget, setQrModalTarget] = useState<{
+    playerId: string;
+    playerName: string;
+    amount: number;
+  } | null>(null);
+  const [reviewReceiptTarget, setReviewReceiptTarget] = useState<{
+    playerId: string;
+    playerName: string;
+    amount: number;
+    receiptUrl?: string;
+    isPending: boolean;
+  } | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [cleaningReceipts, setCleaningReceipts] = useState(false);
+
   // Danh sách các buổi lưu trữ (Archive tối đa 20 buổi)
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionSummary[]>(() =>
     getArchivedSessions()
@@ -106,18 +132,40 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     onUpdateSettlementSettings(updates);
   };
 
-  const handleReportPayment = async (playerId: string) => {
+  const handleReportPayment = async (
+    playerId: string,
+    options?: { receiptUrl?: string; receiptPath?: string }
+  ): Promise<{ ok: boolean; error?: string }> => {
     setReportingPlayerId(playerId);
     try {
-      const res = await onReportPlayerPayment(playerId);
+      const res = await onReportPlayerPayment(playerId, options);
       if (res.ok) {
         vibrateSuccess();
         setConfirmReportPlayerId(null);
       } else {
         vibrateWarning();
       }
+      return res;
     } finally {
       setReportingPlayerId(null);
+    }
+  };
+
+  const handleCleanupRoomReceipts = async () => {
+    if (!roomCode) return;
+    if (!window.confirm(`Xóa toàn bộ ảnh biên lai cũ trong phòng ${roomCode}?`)) return;
+    setCleaningReceipts(true);
+    try {
+      const res = await deleteRoomReceipts(roomCode);
+      if (res.error) {
+        vibrateWarning();
+        alert(`Không thể dọn ảnh: ${res.error}`);
+      } else {
+        vibrateSuccess();
+        alert(`Đã dọn sạch ${res.deletedCount} ảnh biên lai cũ.`);
+      }
+    } finally {
+      setCleaningReceipts(false);
     }
   };
 
@@ -816,9 +864,11 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
                       {settlementResult.players.map((item) => {
-                        const status = payments[item.playerId]?.status ?? 'UNPAID';
+                        const rec = payments[item.playerId];
+                        const status = rec?.status ?? 'UNPAID';
                         const isPaid = status === 'PAID';
                         const isPending = status === 'PENDING_REVIEW';
+                        const isRejected = status === 'REJECTED';
 
                         return (
                           <tr
@@ -828,13 +878,35 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                 ? 'bg-emerald-950/20'
                                 : isPending
                                 ? 'bg-amber-950/30'
+                                : isRejected
+                                ? 'bg-rose-950/20'
                                 : 'hover:bg-slate-850'
                             }`}
                           >
                             <td className="py-2.5 px-2 text-center">
                               {!isViewer ? (
                                 isPending ? (
-                                  <div className="inline-flex items-center gap-1">
+                                  <div className="inline-flex items-center gap-1 flex-wrap justify-center">
+                                    {rec?.receiptUrl && (
+                                      <button
+                                        type="button"
+                                        title="Xem ảnh biên lai"
+                                        onClick={() => {
+                                          setRejectReasonInput('');
+                                          setReviewReceiptTarget({
+                                            playerId: item.playerId,
+                                            playerName: item.name,
+                                            amount: item.roundedAmount,
+                                            receiptUrl: rec.receiptUrl,
+                                            isPending: true,
+                                          });
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-600/40 text-[11px] font-bold flex items-center gap-1 transition"
+                                      >
+                                        <ImageIcon className="w-3 h-3" />
+                                        <span>Ảnh</span>
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -847,10 +919,17 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                     </button>
                                     <button
                                       type="button"
-                                      title="Chưa nhận được tiền / hoàn tác"
+                                      title="Từ chối / Chưa nhận được tiền"
                                       onClick={() => {
                                         vibrateWarning();
-                                        onRejectPendingPayment(item.playerId);
+                                        setRejectReasonInput('');
+                                        setReviewReceiptTarget({
+                                          playerId: item.playerId,
+                                          playerName: item.name,
+                                          amount: item.roundedAmount,
+                                          receiptUrl: rec?.receiptUrl,
+                                          isPending: true,
+                                        });
                                       }}
                                       className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border border-slate-700 text-[11px] font-bold transition"
                                     >
@@ -858,16 +937,45 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                     </button>
                                   </div>
                                 ) : (
-                                  <input
-                                    type="checkbox"
-                                    checked={isPaid}
-                                    onChange={() => {
-                                      vibrateSuccess();
-                                      onToggleApprovePayment(item.playerId);
-                                    }}
-                                    aria-label={`Đã đóng tiền: ${item.name}`}
-                                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
-                                  />
+                                  <div className="inline-flex items-center gap-1.5 justify-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isPaid}
+                                      onChange={() => {
+                                        vibrateSuccess();
+                                        onToggleApprovePayment(item.playerId);
+                                      }}
+                                      aria-label={`Đã đóng tiền: ${item.name}`}
+                                      className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                                    />
+                                    {rec?.receiptUrl && (
+                                      <button
+                                        type="button"
+                                        title="Xem lại ảnh biên lai"
+                                        onClick={() => {
+                                          setRejectReasonInput('');
+                                          setReviewReceiptTarget({
+                                            playerId: item.playerId,
+                                            playerName: item.name,
+                                            amount: item.roundedAmount,
+                                            receiptUrl: rec.receiptUrl,
+                                            isPending: false,
+                                          });
+                                        }}
+                                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 transition"
+                                      >
+                                        <ImageIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    {isRejected && (
+                                      <span
+                                        title={rec?.rejectionReason || 'Đã từ chối'}
+                                        className="text-[10px] font-bold text-rose-400"
+                                      >
+                                        Từ chối
+                                      </span>
+                                    )}
+                                  </div>
                                 )
                               ) : item.roundedAmount === 0 ? (
                                 <span className="text-[11px] text-slate-500">Miễn phí</span>
@@ -876,9 +984,49 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                   ✅ Đã đóng
                                 </span>
                               ) : isPending ? (
-                                <span className="inline-block px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/60 text-[11px] font-bold">
-                                  ⏳ Chờ duyệt
-                                </span>
+                                <div className="inline-flex items-center gap-1 flex-wrap justify-center">
+                                  <span className="inline-block px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/60 text-[11px] font-bold">
+                                    ⏳ Chờ duyệt
+                                  </span>
+                                  {rec?.receiptUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setReviewReceiptTarget({
+                                          playerId: item.playerId,
+                                          playerName: item.name,
+                                          amount: item.roundedAmount,
+                                          receiptUrl: rec.receiptUrl,
+                                          isPending: false,
+                                        })
+                                      }
+                                      className="text-[10px] underline text-sky-300"
+                                    >
+                                      Ảnh
+                                    </button>
+                                  )}
+                                </div>
+                              ) : isRejected ? (
+                                <div className="space-y-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setQrModalTarget({
+                                        playerId: item.playerId,
+                                        playerName: item.name,
+                                        amount: item.roundedAmount,
+                                      })
+                                    }
+                                    className="px-2 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-600/60 text-[11px] font-bold transition"
+                                  >
+                                    ❌ Gửi lại
+                                  </button>
+                                  {rec?.rejectionReason && (
+                                    <div className="text-[10px] text-rose-300 max-w-[110px] mx-auto leading-tight">
+                                      {rec.rejectionReason}
+                                    </div>
+                                  )}
+                                </div>
                               ) : confirmReportPlayerId === item.playerId ? (
                                 <div className="inline-flex items-center gap-1">
                                   <button
@@ -901,7 +1049,13 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => setConfirmReportPlayerId(item.playerId)}
+                                  onClick={() =>
+                                    setQrModalTarget({
+                                      playerId: item.playerId,
+                                      playerName: item.name,
+                                      amount: item.roundedAmount,
+                                    })
+                                  }
                                   className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-700/50 text-[11px] font-semibold transition"
                                 >
                                   Tôi đã chuyển
@@ -921,6 +1075,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                       ? 'text-emerald-300'
                                       : isPending
                                       ? 'text-amber-200'
+                                      : isRejected
+                                      ? 'text-rose-200'
                                       : 'text-slate-200'
                                   }`}
                                 >
@@ -935,17 +1091,33 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               {item.roundedAmount === 0 ? (
                                 <span className="text-slate-500 font-normal">Miễn phí</span>
                               ) : (
-                                <span
-                                  className={
-                                    isPaid
-                                      ? 'text-emerald-300'
-                                      : isPending
-                                      ? 'text-amber-300'
-                                      : 'text-emerald-400'
-                                  }
-                                >
-                                  {formatVND(item.roundedAmount)}
-                                </span>
+                                <div className="inline-flex items-center justify-end gap-1.5">
+                                  <span
+                                    className={
+                                      isPaid
+                                        ? 'text-emerald-300'
+                                        : isPending
+                                        ? 'text-amber-300'
+                                        : 'text-emerald-400'
+                                    }
+                                  >
+                                    {formatVND(item.roundedAmount)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    title={`Mở mã VietQR cho ${item.name}`}
+                                    onClick={() =>
+                                      setQrModalTarget({
+                                        playerId: item.playerId,
+                                        playerName: item.name,
+                                        amount: item.roundedAmount,
+                                      })
+                                    }
+                                    className="p-1 rounded-lg bg-slate-800 hover:bg-emerald-950 text-emerald-400 border border-slate-700 hover:border-emerald-600/60 transition"
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               )}
                             </td>
                             <td className="py-2.5 px-2 text-right text-[11px] text-slate-400">
@@ -1045,50 +1217,80 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 </p>
               )
             ) : (
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Ngân hàng</label>
-                  <input
-                    type="text"
-                    placeholder="Vietcombank, MB..."
-                    value={settings.bankName}
-                    onChange={(e) => updateSettings({ bankName: e.target.value })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
-                  />
-                </div>
+              <div className="space-y-2.5">
+                {(() => {
+                  const selectedBank = resolveBankOption(settings.bankCode, settings.bankName);
+                  return (
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">
+                          Ngân hàng (VietQR)
+                        </label>
+                        <select
+                          value={selectedBank?.code || ''}
+                          onChange={(e) => {
+                            const found = VIETNAM_BANKS.find((b) => b.code === e.target.value);
+                            if (found) {
+                              updateSettings({
+                                bankCode: found.code,
+                                bankName: found.shortName,
+                              });
+                            } else {
+                              updateSettings({ bankCode: '', bankName: '' });
+                            }
+                          }}
+                          className="w-full bg-slate-800 text-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-700 font-semibold"
+                        >
+                          <option value="">-- Chọn ngân hàng (VietQR) --</option>
+                          {VIETNAM_BANKS.map((bank) => (
+                            <option key={bank.code} value={bank.code}>
+                              {bank.shortName} ({bank.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Số tài khoản</label>
-                  <input
-                    type="text"
-                    placeholder="0123456789"
-                    value={settings.bankAccount}
-                    onChange={(e) => updateSettings({ bankAccount: e.target.value })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-mono border border-slate-700"
-                  />
-                </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">Số tài khoản</label>
+                        <input
+                          type="text"
+                          placeholder="0123456789"
+                          value={settings.bankAccount}
+                          onChange={(e) => updateSettings({ bankAccount: e.target.value })}
+                          className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 font-mono border border-slate-700"
+                        />
+                      </div>
 
-                <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Chủ tài khoản</label>
-                  <input
-                    type="text"
-                    placeholder="NGUYEN VAN A"
-                    value={settings.bankAccountHolder}
-                    onChange={(e) => updateSettings({ bankAccountHolder: e.target.value })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 uppercase border border-slate-700"
-                  />
-                </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">Chủ tài khoản</label>
+                        <input
+                          type="text"
+                          placeholder="NGUYEN VAN A"
+                          value={settings.bankAccountHolder}
+                          onChange={(e) => updateSettings({ bankAccountHolder: e.target.value })}
+                          className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 uppercase border border-slate-700"
+                        />
+                      </div>
 
-                <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Cú pháp chuyển khoản</label>
-                  <input
-                    type="text"
-                    placeholder="Tien cau long"
-                    value={settings.bankNote}
-                    onChange={(e) => updateSettings({ bankNote: e.target.value })}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
-                  />
-                </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">Cú pháp chuyển khoản</label>
+                        <input
+                          type="text"
+                          placeholder="Tien cau long"
+                          value={settings.bankNote}
+                          onChange={(e) => updateSettings({ bankNote: e.target.value })}
+                          className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-1.5 border border-slate-700"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+                {resolveBankOption(settings.bankCode, settings.bankName) &&
+                  settings.bankAccount.trim() && (
+                    <div className="text-[11px] text-emerald-400 font-semibold">
+                      ✅ Đã sẵn sàng tạo mã VietQR tự động theo đúng số tiền từng người
+                    </div>
+                  )}
               </div>
             )}
           </div>
@@ -1159,6 +1361,18 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
                 <span>Xóa sạch toàn bộ (Reset All)</span>
               </button>
+
+              {roomCode && (
+                <button
+                  type="button"
+                  disabled={cleaningReceipts}
+                  onClick={handleCleanupRoomReceipts}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sky-300 rounded-xl text-xs font-semibold transition"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>{cleaningReceipts ? 'Đang dọn ảnh...' : 'Dọn ảnh biên lai cũ'}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1395,6 +1609,120 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               >
                 Tải vào ứng dụng
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 4: QR Chuyển khoản & Nộp ảnh biên lai từng người */}
+      <PaymentQrModal
+        isOpen={Boolean(qrModalTarget)}
+        onClose={() => setQrModalTarget(null)}
+        playerId={qrModalTarget?.playerId || ''}
+        playerName={qrModalTarget?.playerName || ''}
+        amount={qrModalTarget?.amount || 0}
+        settings={settings}
+        paymentRecord={qrModalTarget ? payments[qrModalTarget.playerId] : undefined}
+        roomCode={roomCode}
+        isViewer={isViewer}
+        onReportPayment={handleReportPayment}
+      />
+
+      {/* MODAL 5: Lightbox xem ảnh biên lai & Duyệt / Từ chối (kiểu Alobo) */}
+      {reviewReceiptTarget && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md text-slate-100 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+              <div className="min-w-0">
+                <h4 className="font-bold text-sm text-white truncate">
+                  Biên lai — {reviewReceiptTarget.playerName}
+                </h4>
+                <p className="text-[11px] text-emerald-400 font-bold">
+                  Cần đóng: {formatVND(reviewReceiptTarget.amount)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewReceiptTarget(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              {reviewReceiptTarget.receiptUrl ? (
+                <div className="bg-slate-950 rounded-2xl p-2 border border-slate-800 text-center">
+                  <img
+                    src={reviewReceiptTarget.receiptUrl}
+                    alt={`Biên lai của ${reviewReceiptTarget.playerName}`}
+                    className="max-h-80 w-auto mx-auto rounded-xl object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center text-slate-400 flex flex-col items-center gap-1.5">
+                  <AlertCircle className="w-5 h-5 text-amber-400" />
+                  <span>Thành viên xác nhận không kèm ảnh biên lai.</span>
+                </div>
+              )}
+
+              {!isViewer && reviewReceiptTarget.isPending && (
+                <div className="space-y-3 pt-1 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      vibrateSuccess();
+                      onToggleApprovePayment(reviewReceiptTarget.playerId);
+                      setReviewReceiptTarget(null);
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-sm shadow transition"
+                  >
+                    Duyệt đã nhận đủ tiền ✓
+                  </button>
+
+                  <div className="p-3 rounded-2xl bg-rose-950/30 border border-rose-800/50 space-y-2">
+                    <div className="font-bold text-rose-300 text-[11px]">
+                      Hoặc từ chối (gửi lý do để thành viên nộp lại):
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Ảnh mờ / khó đọc', 'Thiếu tiền', 'Chưa thấy tiền vào TK'].map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setRejectReasonInput(chip)}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                            rejectReasonInput === chip
+                              ? 'bg-rose-600 text-white border-rose-500'
+                              : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          }`}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Nhập lý do khác (hoặc để trống)..."
+                      value={rejectReasonInput}
+                      onChange={(e) => setRejectReasonInput(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        vibrateWarning();
+                        onRejectPendingPayment(
+                          reviewReceiptTarget.playerId,
+                          rejectReasonInput.trim() || 'Chưa nhận được tiền'
+                        );
+                        setReviewReceiptTarget(null);
+                      }}
+                      className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition"
+                    >
+                      Từ chối &amp; Yêu cầu gửi lại
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
