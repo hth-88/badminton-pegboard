@@ -208,6 +208,11 @@ export function useCloudRoom({
   const onToastRef = useRef(onShowToast);
   onToastRef.current = onShowToast;
 
+  const currentStateRef = useRef(currentState);
+  currentStateRef.current = currentState;
+
+  const pendingStorageKey = `${STORAGE_KEY_CLOUD_ROOM}_pending_ts`;
+
   // A2: Cờ guard kết nối khởi động đúng 1 lần
   const hasConnectedInitialRef = useRef<boolean>(false);
 
@@ -225,7 +230,8 @@ export function useCloudRoom({
   const joinRoom = useCallback(
     async (
       code: string,
-      pin?: string
+      pin?: string,
+      options?: { isAutoReconnect?: boolean }
     ): Promise<{ ok: boolean; role: RoomRole; error?: string }> => {
       const cleanCode = code.toUpperCase().trim();
       const cleanPin = pin?.trim() || '';
@@ -244,11 +250,40 @@ export function useCloudRoom({
       const isCoHost = Boolean(cleanPin && cleanPin === roomData.pin_code);
       const assignedRole: RoomRole = isCoHost ? 'CO_HOST' : 'VIEWER';
 
-      // Nạp dữ liệu phòng vào ứng dụng
+      let shouldPreservePendingLocal = false;
+      if (options?.isAutoReconnect && isCoHost) {
+        try {
+          const rawPending = localStorage.getItem(pendingStorageKey);
+          if (rawPending) {
+            const parsedPending = JSON.parse(rawPending) as { roomCode?: string; updatedAt?: number };
+            if (
+              parsedPending.roomCode === cleanCode &&
+              typeof parsedPending.updatedAt === 'number' &&
+              parsedPending.updatedAt > roomData.updated_at &&
+              !areSessionSnapshotsEqual(currentStateRef.current, roomData.session_data)
+            ) {
+              shouldPreservePendingLocal = true;
+            }
+          }
+        } catch {
+          // Bỏ qua lỗi đọc pending_ts
+        }
+      }
+
+      // Nạp dữ liệu phòng vào ứng dụng (hoặc giữ nguyên bản local mới hơn khi F5 lúc đang debounce)
       lastAppliedTimestampRef.current = roomData.updated_at;
       lastAppliedRemoteSnapshotRef.current = roomData.session_data;
-      isApplyingRemoteRef.current = true;
-      onApplyRef.current(roomData.session_data);
+      if (shouldPreservePendingLocal) {
+        hasPendingLocalChangeRef.current = true;
+      } else {
+        isApplyingRemoteRef.current = true;
+        onApplyRef.current(roomData.session_data);
+        try {
+          localStorage.removeItem(pendingStorageKey);
+        } catch {
+          // Bỏ qua
+        }
+      }
 
       setRoomCode(cleanCode);
       setPinCode(isCoHost ? roomData.pin_code : null);
@@ -319,7 +354,7 @@ export function useCloudRoom({
       if (saved) {
         const parsed = JSON.parse(saved) as StoredCloudRoom;
         if (parsed.roomCode) {
-          joinRoom(parsed.roomCode, parsed.pinCode);
+          joinRoom(parsed.roomCode, parsed.pinCode, { isAutoReconnect: true });
         }
       }
     } catch {
@@ -363,6 +398,11 @@ export function useCloudRoom({
       // Nạp dữ liệu vào state thông qua ref callback
       onApplyRef.current(record.session_data);
       setSyncStatus('SYNCED');
+      try {
+        localStorage.removeItem(pendingStorageKey);
+      } catch {
+        // Bỏ qua
+      }
     });
 
     return () => {
@@ -385,6 +425,11 @@ export function useCloudRoom({
       }
       hasPendingLocalChangeRef.current = false;
       setSyncStatus('SYNCED');
+      try {
+        localStorage.removeItem(pendingStorageKey);
+      } catch {
+        // Bỏ qua
+      }
       return;
     }
 
@@ -398,6 +443,14 @@ export function useCloudRoom({
     // A4 (ii): Đánh dấu đang có thay đổi cục bộ chờ đẩy lên cloud
     hasPendingLocalChangeRef.current = true;
     setSyncStatus('SYNCING');
+    try {
+      localStorage.setItem(
+        pendingStorageKey,
+        JSON.stringify({ roomCode, updatedAt: Date.now() })
+      );
+    } catch {
+      // Bỏ qua
+    }
 
     debounceTimerRef.current = setTimeout(async () => {
       const now = Date.now();
@@ -418,6 +471,11 @@ export function useCloudRoom({
           lastAppliedRemoteSnapshotRef.current = currentState;
           setSyncStatus('SYNCED');
           setErrorMessage(null);
+          try {
+            localStorage.removeItem(pendingStorageKey);
+          } catch {
+            // Bỏ qua
+          }
         }
       } finally {
         hasPendingLocalChangeRef.current = false;
@@ -541,6 +599,7 @@ export function useCloudRoom({
 
     try {
       localStorage.removeItem(STORAGE_KEY_CLOUD_ROOM);
+      localStorage.removeItem(pendingStorageKey);
     } catch {
       // Bỏ qua
     }

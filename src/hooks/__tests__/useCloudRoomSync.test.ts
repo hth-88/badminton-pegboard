@@ -894,4 +894,52 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(harness.getResult().pinCode).toBe('1234');
     expect(blockedActionSpy).not.toHaveBeenCalled();
   });
+
+  it('13. Mục B7: F5 auto-reconnect khi có thay đổi local chưa đẩy mới hơn Cloud -> không bị đè xuống và tự đẩy lên Cloud', async () => {
+    const cloudBaseState = createInitialSessionState();
+    const localNewerState: BadmintonSessionState = {
+      ...cloudBaseState,
+      mixDebt: { doubles: 6, singles: 1 },
+    };
+
+    // Giả lập trạng thái trong localStorage trước khi F5 trong cửa sổ debounce 250ms
+    localStorage.setItem(
+      'badminton_cloud_room_state_v1',
+      JSON.stringify({ roomCode: 'SAN-49', pinCode: '1234', role: 'CO_HOST' })
+    );
+    localStorage.setItem(
+      'badminton_cloud_room_state_v1_pending_ts',
+      JSON.stringify({ roomCode: 'SAN-49', updatedAt: 5000 })
+    );
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: cloudBaseState,
+        updated_at: 1000, // Cloud cũ hơn local pending (5000)
+        updated_by: 'CLIENT_TEST_123',
+      },
+    });
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+
+    const onApplySpy = vi.fn();
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: onApplySpy,
+        onShowToast: vi.fn(),
+      })
+    );
+
+    harness.render({ state: localNewerState });
+    await vi.runAllTimersAsync();
+
+    // Không bị bản Cloud cũ đè mất localNewerState
+    expect(onApplySpy).not.toHaveBeenCalled();
+    expect(mockUpsertRoom).toHaveBeenCalledTimes(1);
+    expect(mockUpsertRoom.mock.calls[0][0].session_data.mixDebt).toEqual({ doubles: 6, singles: 1 });
+    expect(localStorage.getItem('badminton_cloud_room_state_v1_pending_ts')).toBeNull();
+  });
 });
