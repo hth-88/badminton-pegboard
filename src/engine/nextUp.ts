@@ -568,7 +568,13 @@ export function canSuggestNextUp(state: BadmintonSessionState, courtId: string):
 
   if (targetType === 'SINGLES') {
     const singlesEligibleCount = potentialPool.filter((p) => !p.noSingles).length;
-    return singlesEligibleCount >= 2;
+    if (singlesEligibleCount >= 2) return true;
+    const isHardLockedSingles =
+      court.forcedType === 'SINGLES' ||
+      court.policy === 'SINGLES_ONLY' ||
+      (state.settings?.matchMix?.singles === 1 && court.forcedType !== 'DOUBLES') ||
+      court.nextUp?.type === 'SINGLES';
+    return !isHardLockedSingles && totalPotential >= 4;
   }
 
   return totalPotential >= 4;

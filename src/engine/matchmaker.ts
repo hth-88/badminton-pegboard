@@ -788,54 +788,89 @@ export function suggestNextUpForCourt(
     return matchesCourtPool(p);
   });
 
-  const totalFreeCount = primaryAvailable.length + secondaryAvailable.length;
+  const sortedSecondary = sortPlayersByWaitPriority(secondaryAvailable);
+  const totalFreeCount = primaryAvailable.length + sortedSecondary.length;
   let matchType: MatchType = resolveTargetMatchType(court, state, totalFreeCount, now);
-  const neededCount = matchType === 'SINGLES' ? 2 : 4;
 
-  let effectiveAvailable = [...primaryAvailable];
-  let effectiveState = state;
+  const buildProposalsForType = (targetType: MatchType): MatchProposal[] => {
+    const neededCount = targetType === 'SINGLES' ? 2 : 4;
+    let effectiveAvailable = [...primaryAvailable];
+    let effectiveState = state;
 
-  // Nếu thiếu người: thử dự kiến người từ trận đang đánh trên sân này
-  if (effectiveAvailable.length < neededCount && court.currentMatch) {
-    const proj = buildProjectedEnvironment(court, effectiveAvailable, state, now);
-    if (proj) {
-      effectiveAvailable = proj.projectedAvailable;
-      effectiveState = proj.projectedState;
-    }
-  }
+    const hasEnoughPrimary =
+      targetType === 'SINGLES'
+        ? effectiveAvailable.filter((p) => !p.noSingles).length >= 2
+        : effectiveAvailable.length >= neededCount;
 
-  // Hạng mục 2.1: Nếu vẫn chưa đủ người, bổ sung người từ Next Up sân khác (chưa vào trận)
-  if (effectiveAvailable.length < neededCount) {
-    const existingIds = new Set(effectiveAvailable.map((p) => p.id));
-    for (const p of secondaryAvailable) {
-      if (!existingIds.has(p.id)) {
-        effectiveAvailable.push(p);
-        existingIds.add(p.id);
-        if (effectiveAvailable.length >= neededCount) break;
+    // Nếu thiếu người: thử dự kiến người từ trận đang đánh trên sân này
+    if (!hasEnoughPrimary && court.currentMatch) {
+      const proj = buildProjectedEnvironment(court, effectiveAvailable, state, now);
+      if (proj) {
+        effectiveAvailable = proj.projectedAvailable;
+        effectiveState = proj.projectedState;
       }
     }
-  }
 
-  if (effectiveAvailable.length < neededCount) {
-    return null;
-  }
+    // Hạng mục 2.1: Nếu vẫn chưa đủ người, bổ sung người từ Next Up sân khác (ưu tiên waitPriority & lọc noSingles cho Đơn)
+    const existingIds = new Set(effectiveAvailable.map((p) => p.id));
+    if (targetType === 'SINGLES') {
+      let singlesEligible = effectiveAvailable.filter((p) => !p.noSingles).length;
+      if (singlesEligible < 2) {
+        for (const p of sortedSecondary) {
+          if (!p.noSingles && !existingIds.has(p.id)) {
+            effectiveAvailable.push(p);
+            existingIds.add(p.id);
+            singlesEligible++;
+            if (singlesEligible >= 2) break;
+          }
+        }
+      }
+    } else if (effectiveAvailable.length < neededCount) {
+      for (const p of sortedSecondary) {
+        if (!existingIds.has(p.id)) {
+          effectiveAvailable.push(p);
+          existingIds.add(p.id);
+          if (effectiveAvailable.length >= neededCount) break;
+        }
+      }
+    }
 
-  let rawProposals: MatchProposal[] = [];
-  if (matchType === 'SINGLES') {
-    rawProposals = generateSinglesProposals(
-      effectiveAvailable,
-      effectiveState,
-      effectiveState.settings.weights,
-      42
-    );
-  } else {
-    rawProposals = generateDoublesProposals(
+    if (effectiveAvailable.length < neededCount) {
+      return [];
+    }
+
+    if (targetType === 'SINGLES') {
+      return generateSinglesProposals(
+        effectiveAvailable,
+        effectiveState,
+        effectiveState.settings.weights,
+        42
+      );
+    }
+
+    return generateDoublesProposals(
       court.id,
       effectiveAvailable,
       effectiveState,
       effectiveState.settings.weights,
       42
     );
+  };
+
+  let rawProposals = buildProposalsForType(matchType);
+
+  const isHardLockedSingles =
+    court.forcedType === 'SINGLES' ||
+    court.policy === 'SINGLES_ONLY' ||
+    (state.settings?.matchMix?.singles === 1 && court.forcedType !== 'DOUBLES') ||
+    court.nextUp?.type === 'SINGLES';
+
+  if (matchType === 'SINGLES' && rawProposals.length === 0 && !isHardLockedSingles) {
+    const fallbackDoubles = buildProposalsForType('DOUBLES');
+    if (fallbackDoubles.length > 0) {
+      matchType = 'DOUBLES';
+      rawProposals = fallbackDoubles;
+    }
   }
 
   if (rawProposals.length === 0) {

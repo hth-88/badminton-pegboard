@@ -254,4 +254,47 @@ describe('Engine Matchmaker 1B - Pure Multi-Court & Singles/Doubles Engine', () 
       expect(inT1 || inT2).toBe(true);
     }
   });
+
+  it('Mục A8: 5 người rảnh, mixDebt chọn SINGLES nhưng 4 người noSingles -> fallback sang DOUBLES thay vì trả null', () => {
+    const state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.settings.matchMix = { doubles: 0.7, singles: 0.3 };
+    state.mixDebt = { doubles: 0, singles: 2 };
+    state.players = [
+      makePlayer('p1', 'P1', 'M', 'tb', { noSingles: true }),
+      makePlayer('p2', 'P2', 'M', 'tb', { noSingles: true }),
+      makePlayer('p3', 'P3', 'M', 'tb', { noSingles: true }),
+      makePlayer('p4', 'P4', 'M', 'tb', { noSingles: true }),
+      makePlayer('p5', 'P5', 'M', 'tb', { noSingles: false }),
+    ];
+
+    const draft = suggestNextUpForCourt(state, 'court-1', 10000);
+    expect(draft).not.toBeNull();
+    expect(draft?.type).toBe('DOUBLES');
+    expect(draft?.slots.filter(Boolean).length).toBe(4);
+  });
+
+  it('Mục A8: mượn từ secondaryAvailable cho SINGLES sắp xếp theo waitPriority và bỏ qua người noSingles', () => {
+    const state = createInitialSessionState();
+    state.courts = createDefaultCourts(2);
+    state.courts[0].forcedType = 'SINGLES';
+    state.players = [
+      makePlayer('p1', 'P1', 'M', 'tb', { waitStreak: 5, noSingles: false }),
+      makePlayer('p2', 'P2', 'M', 'tb', { waitStreak: 4, noSingles: true }),
+      makePlayer('p3', 'P3', 'M', 'tb', { waitStreak: 1, noSingles: false }),
+      makePlayer('p4', 'P4', 'M', 'tb', { waitStreak: 6, noSingles: false }),
+    ];
+    // p2, p3, p4 nằm ở nextUp sân 2 (secondaryAvailable cho sân 1)
+    state.courts[1].nextUp = {
+      type: 'DOUBLES',
+      slots: ['p2', 'p3', 'p4', null],
+      slotSource: ['AUTO', 'AUTO', 'AUTO', null],
+    };
+
+    const draft = suggestNextUpForCourt(state, 'court-1', 10000);
+    expect(draft).not.toBeNull();
+    expect(draft?.type).toBe('SINGLES');
+    // Bỏ qua p2 (noSingles), ưu tiên p4 (waitStreak=6) hơn p3 (waitStreak=1)
+    expect([...draft!.slots].sort()).toEqual(['p1', 'p4']);
+  });
 });
