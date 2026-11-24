@@ -8,16 +8,33 @@ import {
   Award,
   ArrowUpDown,
 } from 'lucide-react';
-import type { MatchmakingStats, Player } from '../types/badminton';
+import type {
+  BadmintonRank,
+  MatchHistory,
+  MatchmakingStats,
+  Player,
+} from '../types/badminton';
 import { RANK_METADATA } from '../engine/skillConfig';
 import { getOpponentCount, getPartnerCount } from '../engine/statsManager';
+import { RankAdvisorPanel } from './RankAdvisorPanel';
 
 interface EquityTableProps {
   players: Player[];
   stats: MatchmakingStats;
+  history?: MatchHistory[];
+  maleBonus?: number;
+  isViewer?: boolean;
+  onApplyRank?: (playerId: string, rank: BadmintonRank) => void;
 }
 
-export const EquityTable: React.FC<EquityTableProps> = ({ players, stats }) => {
+export const EquityTable: React.FC<EquityTableProps> = ({
+  players,
+  stats,
+  history,
+  maleBonus = 1.5,
+  isViewer = false,
+  onApplyRank,
+}) => {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
     players[0]?.id || ''
   );
@@ -350,6 +367,16 @@ export const EquityTable: React.FC<EquityTableProps> = ({ players, stats }) => {
           </div>
         )}
       </div>
+
+      {/* 4. PHÂN TÍCH TRÌNH ĐỘ & AI GEMINI (CHỈ CHỦ SÂN, ẨN TUYỆT ĐỐI VỚI VIEWER) */}
+      {!isViewer && onApplyRank && history && (
+        <RankAdvisorPanel
+          players={players}
+          history={history}
+          maleBonus={maleBonus}
+          onApplyRank={onApplyRank}
+        />
+      )}
     </div>
   );
 };

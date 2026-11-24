@@ -23,6 +23,7 @@ import {
   Flame,
 } from 'lucide-react';
 import type {
+  BadmintonRank,
   BadmintonSessionState,
   MatchHistory,
   MatchmakingStats,
@@ -72,6 +73,8 @@ interface SettlementTabProps {
   ) => Promise<{ ok: boolean; error?: string }>;
   onToggleBetPaid?: (obligationId: string) => void;
   onQuickEditMatchResult?: (match: MatchHistory) => void;
+  maleBonus?: number;
+  onEditRank?: (playerId: string, rank: BadmintonRank) => void;
   onExportJson: () => string;
   onImportJson: (json: string) => { ok: true } | { ok: false; error: string };
   onNewSessionKeepPlayers: () => void;
@@ -92,6 +95,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   onReportPlayerPayment,
   onToggleBetPaid,
   onQuickEditMatchResult,
+  maleBonus = 1.5,
+  onEditRank,
   onExportJson,
   onImportJson,
   onNewSessionKeepPlayers,
@@ -380,7 +385,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
       </div>
 
       {subTab === 'EQUITY' ? (
-        <EquityTable players={players} stats={stats} />
+        <EquityTable
+          players={players}
+          stats={stats}
+          history={history}
+          maleBonus={maleBonus}
+          isViewer={isViewer}
+          onApplyRank={onEditRank}
+        />
       ) : (
         <div className="space-y-4">
           {isViewer && (

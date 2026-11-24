@@ -546,6 +546,8 @@ export function App() {
                 setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
               )
             }
+            maleBonus={settings.maleBonus}
+            onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
             onExportJson={exportSession}
             onImportJson={(json) => {
               if (role === 'VIEWER') {
