@@ -15,6 +15,8 @@ import {
   X,
   AlertOctagon,
   Flame,
+  MoreHorizontal,
+  Trash2,
 } from 'lucide-react';
 import type {
   BadmintonRank,
@@ -101,6 +103,10 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   // Ref chống bấm đúp nút Kết thúc
   const lastEndClickRef = useRef<number>(0);
 
+  // Menu tùy chọn gọn (•••) cho sân (Auto/Đôi/Đơn, Bật/Tắt sân, Bật/tắt chỉnh trình nhanh)
+  const [showCourtMenu, setShowCourtMenu] = useState(false);
+  const [showQuickRankControls, setShowQuickRankControls] = useState(false);
+
   // Popup chỉnh kèo độ live trên sân
   const [showBetEditor, setShowBetEditor] = useState(false);
   const [betLabelInput, setBetLabelInput] = useState('1 nước');
@@ -152,7 +158,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
   const getPlayer = (id: string): Player | undefined => playerMap.get(id);
 
-  // Hạng mục 2.2: Tìm xem người chơi có đang đánh ở sân khác không
+  // Tìm xem người chơi có đang đánh ở sân khác không
   const getPlayingCourtName = (playerId: string): string | null => {
     for (const c of state.courts) {
       if (c.id !== court.id && c.isActive && c.currentMatch) {
@@ -384,15 +390,19 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     onTriggerUndoToast(`Đã bắt đầu trận trên ${court.name}`);
   };
 
-  // Render thẻ người chơi cho trận đang đánh (CURRENT match)
-  const renderCurrentPlayerBadge = (
-    playerId: string,
-    onClick?: () => void
-  ) => {
+  const filledNextCount = safeNextUp.slots.filter(Boolean).length;
+  const maxNextCount = safeNextUp.type === 'SINGLES' ? 2 : 4;
+  const isPlaying = Boolean(court.isActive && court.currentMatch);
+
+  // Render thẻ người chơi cho trận đang đánh (CURRENT match) — 3px gender bar + gọn + đủ nút chỉnh trình khi cần
+  const renderCurrentPlayerBadge = (playerId: string, onClick?: () => void) => {
     const player = getPlayer(playerId);
     if (!player) {
       return (
-        <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-500">
+        <div
+          className="vo-tile px-2.5 py-2 rounded-xl text-xs"
+          style={{ color: 'var(--text-muted)' }}
+        >
           Chưa rõ
         </div>
       );
@@ -403,27 +413,30 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     return (
       <div
         onClick={onClick}
-        className="p-2 rounded-xl bg-slate-900 border border-slate-700/80 hover:border-slate-600 transition cursor-pointer flex items-center justify-between gap-2"
+        className={`vo-tile ${
+          player.sex === 'M' ? 'vo-gender-bar-m' : 'vo-gender-bar-f'
+        } pl-3 pr-2 py-2 rounded-xl cursor-pointer flex items-center justify-between gap-1.5 min-w-0 active:scale-[0.98]`}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <span className="font-semibold text-xs text-slate-100 truncate">
+        <div className="min-w-0 flex-1 flex items-center justify-between gap-1.5">
+          <span
+            className="font-semibold text-[13.5px] tracking-[-0.015em] truncate"
+            style={{ color: 'var(--text-primary)' }}
+          >
             {player.name}
           </span>
           <span
-            className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-              player.sex === 'M' ? 'bg-sky-950 text-sky-300' : 'bg-pink-950 text-pink-300'
-            }`}
-          >
-            {player.sex === 'M' ? 'Nam' : 'Nữ'}
-          </span>
-          <span
-            className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
+            className="shrink-0 text-[10px] font-bold font-mono-tabular px-1.5 py-0.5 rounded-md"
+            style={{
+              background: 'var(--bg-pill-track)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
           >
             {rankMeta.code}
           </span>
         </div>
 
-        {onEditRank && (
+        {showQuickRankControls && onEditRank && !isViewer && (
           <div
             className="flex items-center gap-0.5 shrink-0"
             onClick={(e) => e.stopPropagation()}
@@ -432,17 +445,17 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               type="button"
               onClick={() => onEditRank(player.id, stepRankDown(player.rank))}
               title="Hạ 1 bậc trình"
-              className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition flex items-center justify-center text-[10px]"
+              className="vo-btn-subtle w-6 h-6 rounded-md flex items-center justify-center"
             >
-              <Minus className="w-2.5 h-2.5" />
+              <Minus className="w-3 h-3" />
             </button>
             <button
               type="button"
               onClick={() => onEditRank(player.id, stepRankUp(player.rank))}
               title="Tăng 1 bậc trình"
-              className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition flex items-center justify-center text-[10px]"
+              className="vo-btn-subtle w-6 h-6 rounded-md flex items-center justify-center"
             >
-              <Plus className="w-2.5 h-2.5" />
+              <Plus className="w-3 h-3" />
             </button>
           </div>
         )}
@@ -451,469 +464,593 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   };
 
   return (
-    <div
-      className={`rounded-3xl border transition duration-200 overflow-hidden shadow-xl ${
-        court.isActive
-          ? 'bg-slate-950/80 border-slate-800/80'
-          : 'bg-slate-950/40 border-slate-900 opacity-60'
+    <article
+      className={`rounded-[22px] overflow-hidden transition-all duration-200 ${
+        isPlaying
+          ? 'vo-glass-card-active'
+          : court.isActive
+          ? 'vo-glass-card'
+          : 'vo-glass-card opacity-55'
       }`}
     >
       {/* ==================================================== */}
-      {/* 1. HEADER SÂN */}
+      {/* 1. HEADER SÂN (Gọn + Đủ tùy chọn qua menu •••) */}
       {/* ==================================================== */}
-      <div className="p-3.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between gap-3">
+      <div className="px-4 pt-3.5 pb-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${
-              court.isActive
-                ? court.currentMatch
-                  ? 'bg-emerald-400 animate-pulse'
-                  : 'bg-amber-400'
-                : 'bg-slate-600'
-            }`}
-          />
-          <h2 className="font-extrabold text-base text-slate-100 truncate tracking-wide">
+          <h2
+            className="font-bold text-[17px] tracking-[-0.025em] truncate"
+            style={{ color: 'var(--text-primary)' }}
+          >
             {court.name}
           </h2>
-          {court.policy !== 'MIX' && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-              {court.policy === 'DOUBLES_ONLY' ? 'Chỉ đôi' : 'Chỉ đơn'}
+
+          {court.isActive ? (
+            court.currentMatch ? (
+              <span
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10.5px] font-bold tracking-[0.03em]"
+                style={{
+                  background: 'var(--live-soft)',
+                  color: 'var(--live)',
+                }}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{
+                    background: 'var(--live)',
+                    boxShadow: '0 0 8px var(--live)',
+                  }}
+                />
+                <span>ĐANG ĐÁNH</span>
+              </span>
+            ) : (
+              <span
+                className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
+                style={{
+                  background: 'var(--bg-pill-track)',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                Đang trống
+              </span>
+            )
+          ) : (
+            <span
+              className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
+              style={{
+                background: 'var(--bg-pill-track)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              Đang tắt
             </span>
           )}
 
-          {/* Hạng mục 1.1: Khôi phục cụm nút chọn Auto | Đôi | Đơn */}
-          <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 text-[10px] font-bold shrink-0">
+          {court.forcedType && (
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+              style={{
+                background: 'var(--accent-lime-soft)',
+                color: 'var(--accent-lime)',
+                border: '1px solid var(--accent-lime-border)',
+              }}
+            >
+              {court.forcedType === 'DOUBLES' ? 'Ép Đôi' : 'Ép Đơn'}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {court.currentMatch && (
+            <div
+              className={`flex items-center gap-1 px-2.5 h-8 rounded-xl text-xs font-semibold font-mono-tabular ${
+                isOvertime ? 'animate-pulse' : ''
+              }`}
+              style={
+                isOvertime
+                  ? {
+                      background: 'var(--live-soft)',
+                      color: 'var(--live)',
+                      border: '1px solid rgba(251, 113, 133, 0.35)',
+                    }
+                  : {
+                      background: 'var(--bg-stage)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border-subtle)',
+                    }
+              }
+            >
+              <Clock className="w-3.5 h-3.5" style={{ color: isOvertime ? 'var(--live)' : 'var(--accent-lime)' }} />
+              <span>{matchDurationMinutes}p</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowCourtMenu((prev) => !prev)}
+            title={`Tùy chọn ${court.name}`}
+            aria-label={`Tùy chọn ${court.name}`}
+            className="vo-btn-subtle w-8 h-8 rounded-xl flex items-center justify-center"
+            style={
+              showCourtMenu
+                ? {
+                    background: 'var(--accent-lime-soft)',
+                    borderColor: 'var(--accent-lime-border)',
+                    color: 'var(--accent-lime)',
+                  }
+                : undefined
+            }
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Inline Collapsible Court Options Drawer (Auto | Đôi | Đơn, Chỉnh trình, Tắt/Bật sân) */}
+      {showCourtMenu && (
+        <div className="mx-3.5 mb-2.5 p-2.5 rounded-2xl vo-stage space-y-2 text-xs">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              Kiểu sân:
+            </span>
+            <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: 'var(--bg-pill-track)' }}>
+              {(
+                [
+                  { val: null, label: 'Auto' },
+                  { val: 'DOUBLES', label: 'Đôi' },
+                  { val: 'SINGLES', label: 'Đơn' },
+                ] as const
+              ).map((opt) => {
+                const active = (court.forcedType ?? null) === opt.val;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => onUpdateCourt(court.id, { forcedType: opt.val })}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition"
+                    style={
+                      active
+                        ? {
+                            background: 'var(--accent-cta)',
+                            color: 'var(--text-on-accent)',
+                          }
+                        : { color: 'var(--text-secondary)' }
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-white/5">
+            {onEditRank && !isViewer && court.currentMatch && (
+              <button
+                type="button"
+                onClick={() => setShowQuickRankControls((v) => !v)}
+                className="vo-btn-subtle flex-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1"
+                style={
+                  showQuickRankControls
+                    ? {
+                        background: 'var(--accent-lime-soft)',
+                        borderColor: 'var(--accent-lime-border)',
+                        color: 'var(--accent-lime)',
+                      }
+                    : undefined
+                }
+              >
+                <span>{showQuickRankControls ? 'Ẩn nút ± trình' : 'Hiện nút ± trình'}</span>
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => onUpdateCourt(court.id, { forcedType: null })}
-              title="Theo tỷ lệ chung trên thanh tiêu đề"
-              className={`px-2 py-0.5 rounded-md transition ${
-                court.forcedType === null || court.forcedType === undefined
-                  ? 'bg-emerald-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              onClick={() => {
+                onUpdateCourt(court.id, { isActive: !court.isActive });
+                setShowCourtMenu(false);
+              }}
+              className="vo-btn-subtle flex-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5"
+              style={
+                !court.isActive
+                  ? {
+                      background: 'var(--accent-lime-soft)',
+                      borderColor: 'var(--accent-lime-border)',
+                      color: 'var(--accent-lime)',
+                    }
+                  : undefined
+              }
             >
-              Auto
-            </button>
-            <button
-              type="button"
-              onClick={() => onUpdateCourt(court.id, { forcedType: 'DOUBLES' })}
-              title="Ép sân này chỉ đánh Đôi (4 ô)"
-              className={`px-2 py-0.5 rounded-md transition ${
-                court.forcedType === 'DOUBLES'
-                  ? 'bg-emerald-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Đôi
-            </button>
-            <button
-              type="button"
-              onClick={() => onUpdateCourt(court.id, { forcedType: 'SINGLES' })}
-              title="Ép sân này chỉ đánh Đơn (2 ô)"
-              className={`px-2 py-0.5 rounded-md transition ${
-                court.forcedType === 'SINGLES'
-                  ? 'bg-emerald-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Đơn
+              <Power className="w-3.5 h-3.5" />
+              <span>{court.isActive ? 'Tắt sân này' : 'Bật sân này'}</span>
             </button>
           </div>
         </div>
-
-        {/* Nút bật/tắt sân */}
-        <button
-          type="button"
-          onClick={() => onUpdateCourt(court.id, { isActive: !court.isActive })}
-          title={court.isActive ? 'Tắt sân này' : 'Bật sân này'}
-          className={`p-2 rounded-xl transition ${
-            court.isActive
-              ? 'bg-emerald-950/50 text-emerald-400 hover:bg-emerald-900/50 border border-emerald-800/50'
-              : 'bg-slate-800 text-slate-500 hover:bg-slate-700 border border-slate-700'
-          }`}
-        >
-          <Power className="w-4 h-4" />
-        </button>
-      </div>
+      )}
 
       {court.isActive ? (
-        <div className="p-3.5 space-y-3.5">
+        <div className="px-3.5 pb-3.5 space-y-3">
           {/* ==================================================== */}
           {/* 2. KHUNG TRẬN ĐANG ĐÁNH (CURRENT MATCH) */}
           {/* ==================================================== */}
-          <div className="rounded-2xl bg-slate-900/40 border border-slate-800/60 p-3">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <span>Đang đánh</span>
-                {court.currentMatch && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                    {court.currentMatch.type === 'DOUBLES' ? 'Trận Đôi' : 'Trận Đơn'}
-                  </span>
-                )}
-              </span>
-
-              {/* Timer badge */}
-              {court.currentMatch && (
-                <div
-                  className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border transition ${
-                    isOvertime
-                      ? 'bg-rose-950/80 text-rose-300 border-rose-700/80 animate-pulse'
-                      : 'bg-slate-800/80 text-slate-300 border-slate-700'
-                  }`}
+          {court.currentMatch ? (
+            <div className="space-y-2.5">
+              {/* Nhãn Kèo Đánh Độ Live (Hiển thị cho cả VIEWER tạo không khí) */}
+              {court.currentMatch.bet && (
+                <button
+                  type="button"
+                  disabled={isViewer || !onSetCourtBet}
+                  onClick={() => !isViewer && openLiveBetEditor()}
+                  className="w-full px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-xs font-bold text-left disabled:cursor-default transition"
+                  style={{
+                    background: 'var(--amber-soft)',
+                    border: '1px solid var(--amber-border)',
+                    color: 'var(--amber)',
+                  }}
                 >
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{matchDurationMinutes} phút</span>
-                </div>
-              )}
-            </div>
-
-            {court.currentMatch ? (
-              <>
-                {/* Nhãn Kèo Đánh Độ Live (Hiển thị cho cả VIEWER tạo không khí) */}
-                {court.currentMatch.bet && (
-                  <button
-                    type="button"
-                    disabled={isViewer || !onSetCourtBet}
-                    onClick={() => !isViewer && openLiveBetEditor()}
-                    className="w-full mb-2.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/50 text-amber-200 flex items-center justify-between gap-2 text-xs font-bold text-left disabled:cursor-default hover:bg-amber-500/20 transition"
-                  >
-                    <span className="flex items-center gap-1.5 min-w-0 truncate">
-                      <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="truncate">
-                        KÈO ĐỘ: {court.currentMatch.bet.label} (
-                        {court.currentMatch.bet.unit === 'PER_PLAYER' ? 'mỗi người' : 'cả đội'}
-                        {' • '}
-                        {court.currentMatch.bet.payoutMode === 'LOSER_TO_FUND'
-                          ? 'Góp quỹ'
-                          : 'Trả đội thắng'}
-                        )
-                      </span>
+                  <span className="flex items-center gap-1.5 min-w-0 truncate">
+                    <Flame className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">
+                      KÈO ĐỘ: {court.currentMatch.bet.label} (
+                      {court.currentMatch.bet.unit === 'PER_PLAYER' ? 'mỗi người' : 'cả đội'}
+                      {' • '}
+                      {court.currentMatch.bet.payoutMode === 'LOSER_TO_FUND'
+                        ? 'Góp quỹ'
+                        : 'Trả đội thắng'}
+                      )
                     </span>
-                    {!isViewer && onSetCourtBet && (
-                      <span className="text-[10px] text-amber-400 underline shrink-0">Sửa</span>
-                    )}
-                  </button>
-                )}
+                  </span>
+                  {!isViewer && onSetCourtBet && (
+                    <span className="text-[10.5px] underline shrink-0">Sửa</span>
+                  )}
+                </button>
+              )}
 
-                {/* Popup mini chỉnh nhanh kèo độ live */}
-                {showBetEditor && !isViewer && onSetCourtBet && (
-                  <div className="mb-3 p-3 rounded-2xl bg-slate-950 border border-amber-600/50 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-amber-300 flex items-center gap-1">
-                        <Flame className="w-3.5 h-3.5" />
-                        <span>Cài kèo độ trực tiếp</span>
-                      </span>
+              {/* Popup mini chỉnh nhanh kèo độ live */}
+              {showBetEditor && !isViewer && onSetCourtBet && (
+                <div className="p-3 rounded-2xl vo-stage border border-amber-500/40 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-400 flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5" />
+                      <span>Cài kèo độ trực tiếp</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowBetEditor(false)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '1 nước', amt: 0, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                      { label: '1 quả cầu', amt: 0, unit: 'PER_TEAM' as BetUnit, pay: 'LOSER_TO_FUND' as BetPayoutMode },
+                      { label: '20k/người', amt: 20000, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                      { label: '50k/đội', amt: 50000, unit: 'PER_TEAM' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                    ].map((p) => (
                       <button
+                        key={p.label}
                         type="button"
-                        onClick={() => setShowBetEditor(false)}
-                        className="text-slate-400 hover:text-white"
+                        onClick={() => {
+                          setBetLabelInput(p.label);
+                          setBetAmountInput(p.amt);
+                          setBetUnitInput(p.unit);
+                          setBetPayoutInput(p.pay);
+                        }}
+                        className="vo-btn-subtle px-2.5 py-1 rounded-lg font-semibold text-[11px]"
                       >
-                        <X className="w-4 h-4" />
+                        {p.label}
                       </button>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { label: '1 nước', amt: 0, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
-                        { label: '1 quả cầu', amt: 0, unit: 'PER_TEAM' as BetUnit, pay: 'LOSER_TO_FUND' as BetPayoutMode },
-                        { label: '20k/người', amt: 20000, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
-                        { label: '50k/đội', amt: 50000, unit: 'PER_TEAM' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
-                      ].map((p) => (
-                        <button
-                          key={p.label}
-                          type="button"
-                          onClick={() => {
-                            setBetLabelInput(p.label);
-                            setBetAmountInput(p.amt);
-                            setBetUnitInput(p.unit);
-                            setBetPayoutInput(p.pay);
-                          }}
-                          className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 font-semibold text-[11px] transition"
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <input
-                        type="text"
-                        placeholder="Tên kèo..."
-                        value={betLabelInput}
-                        onChange={(e) => setBetLabelInput(e.target.value)}
-                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
-                      />
-                      <input
-                        type="number"
-                        step={5000}
-                        min={0}
-                        placeholder="Tiền VNĐ (0=vật)"
-                        value={betAmountInput}
-                        onChange={(e) => setBetAmountInput(Number(e.target.value) || 0)}
-                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-amber-300"
-                      />
-                      <select
-                        value={betUnitInput}
-                        onChange={(e) => setBetUnitInput(e.target.value as BetUnit)}
-                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[11px]"
-                      >
-                        <option value="PER_PLAYER">Mỗi người</option>
-                        <option value="PER_TEAM">Cả đội</option>
-                      </select>
-                      <select
-                        value={betPayoutInput}
-                        onChange={(e) => setBetPayoutInput(e.target.value as BetPayoutMode)}
-                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[11px]"
-                      >
-                        <option value="TEAM_TO_TEAM">Trả đội thắng</option>
-                        <option value="LOSER_TO_FUND">Góp Quỹ chung</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center justify-end gap-1.5">
-                      {court.currentMatch.bet && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSetCourtBet(court.id, null);
-                            setShowBetEditor(false);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-rose-950/70 text-rose-300 border border-rose-700/60 text-[11px] font-bold"
-                        >
-                          Tắt kèo
-                        </button>
-                      )}
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="Tên kèo..."
+                      value={betLabelInput}
+                      onChange={(e) => setBetLabelInput(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100"
+                    />
+                    <input
+                      type="number"
+                      step={5000}
+                      min={0}
+                      placeholder="Tiền VNĐ (0=vật)"
+                      value={betAmountInput}
+                      onChange={(e) => setBetAmountInput(Number(e.target.value) || 0)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-amber-300 font-mono-tabular"
+                    />
+                    <select
+                      value={betUnitInput}
+                      onChange={(e) => setBetUnitInput(e.target.value as BetUnit)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-100"
+                    >
+                      <option value="PER_PLAYER">Mỗi người</option>
+                      <option value="PER_TEAM">Cả đội</option>
+                    </select>
+                    <select
+                      value={betPayoutInput}
+                      onChange={(e) => setBetPayoutInput(e.target.value as BetPayoutMode)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-100"
+                    >
+                      <option value="TEAM_TO_TEAM">Trả đội thắng</option>
+                      <option value="LOSER_TO_FUND">Góp Quỹ chung</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5">
+                    {court.currentMatch.bet && (
                       <button
                         type="button"
                         onClick={() => {
-                          const clean = betLabelInput.trim() || '1 nước';
-                          onSetCourtBet(court.id, {
-                            category: betAmountInput > 0 ? 'MONEY' : 'DRINK',
-                            label: clean,
-                            quantity: 1,
-                            unit: betUnitInput,
-                            amountVnd: Math.max(0, Math.round(betAmountInput)),
-                            payoutMode: betPayoutInput,
-                          });
+                          onSetCourtBet(court.id, null);
                           setShowBetEditor(false);
                         }}
-                        className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-extrabold"
+                        className="px-2.5 py-1 rounded-lg bg-rose-950/70 text-rose-300 border border-rose-700/60 text-[11px] font-bold"
                       >
-                        Áp dụng
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Match Teams Grid */}
-                <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-3">
-                  {/* Team 1 */}
-                  <div className="space-y-1.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-[11px] font-bold text-slate-400 block mb-1">
-                      ĐỘI 1
-                    </span>
-                    {court.currentMatch.team1.map((pid, idx) => (
-                      <div key={pid}>
-                        {renderCurrentPlayerBadge(pid, () =>
-                          setSlotSheetTarget({
-                            target: 'CURRENT',
-                            team: 1,
-                            index: idx,
-                            baseLineup: court.currentMatch!,
-                          })
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* VS Divider on Mobile */}
-                  <div className="sm:hidden flex items-center justify-center my-0.5">
-                    <div className="h-px bg-slate-800 flex-1" />
-                    <span className="px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-black text-amber-400 tracking-wider">
-                      VS
-                    </span>
-                    <div className="h-px bg-slate-800 flex-1" />
-                  </div>
-
-                  {/* Team 2 */}
-                  <div className="space-y-1.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-[11px] font-bold text-slate-400 block mb-1">
-                      ĐỘI 2
-                    </span>
-                    {court.currentMatch.team2.map((pid, idx) => (
-                      <div key={pid}>
-                        {renderCurrentPlayerBadge(pid, () =>
-                          setSlotSheetTarget({
-                            target: 'CURRENT',
-                            team: 2,
-                            index: idx,
-                            baseLineup: court.currentMatch!,
-                          })
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Skill diff description */}
-                {(() => {
-                  const desc = describeLineup(court.currentMatch, state);
-                  const colorClass =
-                    desc.label === 'Cân kèo'
-                      ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/50'
-                      : desc.label === 'Lệch nhẹ'
-                      ? 'bg-amber-950/40 text-amber-300 border-amber-800/50'
-                      : 'bg-rose-950/40 text-rose-300 border-rose-800/50';
-
-                  return (
-                    <div
-                      className={`mb-3 px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-medium ${colorClass}`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span className="font-bold">{desc.label}</span>
-                      </div>
-                      <span className="text-[11px] opacity-80">
-                        Chênh: {desc.diff}đ ({desc.team1Skill} vs {desc.team2Skill})
-                      </span>
-                    </div>
-                  );
-                })()}
-
-                {/* Match Action Buttons */}
-                <div className="space-y-2">
-                  {/* Hàng phụ: Đảo cặp, Cân kèo (nếu Đôi) và Nút "⏹ Chỉ kết thúc" */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {court.currentMatch.type === 'DOUBLES' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleRotatePairings}
-                          title="Xoay 3 thế đứng (Đảo cặp)"
-                          className="flex-1 min-w-[70px] py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition flex items-center justify-center gap-1"
-                        >
-                          <Shuffle className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Đảo cặp</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAutoBalancePairings}
-                          title="Tự động xếp cặp có chênh lệch trình độ nhỏ nhất"
-                          className="flex-1 min-w-[70px] py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-800/40 font-semibold text-xs transition flex items-center justify-center gap-1"
-                        >
-                          <Scale className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Cân kèo</span>
-                        </button>
-                      </>
-                    )}
-
-                    {/* Nút "🔥 Độ" bật kèo trực tiếp */}
-                    {!isViewer && onSetCourtBet && (
-                      <button
-                        type="button"
-                        onClick={openLiveBetEditor}
-                        title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
-                        className={`py-2 px-2.5 rounded-xl border font-semibold text-xs transition flex items-center justify-center gap-1 ${
-                          court.currentMatch.bet
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                            : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
-                        }`}
-                      >
-                        <Flame className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Độ</span>
+                        Tắt kèo
                       </button>
                     )}
-
-                    {/* Nút "⏹ Chỉ kết thúc" */}
                     <button
                       type="button"
                       onClick={() => {
-                        const now = Date.now();
-                        if (now - lastEndClickRef.current < 600) return;
-                        lastEndClickRef.current = now;
-                        vibrateSuccess();
-                        onEndMatch(court.id, court.currentMatch?.id);
-                        onTriggerUndoToast(
-                          `Đã kết thúc trận trên ${court.name} (sân trống để thong thả xếp tiếp)`
-                        );
+                        const clean = betLabelInput.trim() || '1 nước';
+                        onSetCourtBet(court.id, {
+                          category: betAmountInput > 0 ? 'MONEY' : 'DRINK',
+                          label: clean,
+                          quantity: 1,
+                          unit: betUnitInput,
+                          amountVnd: Math.max(0, Math.round(betAmountInput)),
+                          payoutMode: betPayoutInput,
+                        });
+                        setShowBetEditor(false);
                       }}
-                      title="Kết thúc trận hiện tại để người chơi ra nghỉ, giữ sân trống và KHÔNG tự đẩy lượt mới vào"
-                      className="flex-1 min-w-[105px] py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      className="vo-cta-lime px-3 py-1 rounded-lg text-[11px] font-extrabold"
                     >
-                      <Square className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                      <span>Chỉ kết thúc</span>
+                      Áp dụng
                     </button>
                   </div>
+                </div>
+              )}
 
-                  {/* Nút chính lớn: KẾT THÚC & VÀO LƯỢT MỚI */}
+              {/* Match Stage: 2 Columns + Subtle Badminton Net Center Line */}
+              <div className="vo-stage rounded-2xl p-2.5 grid grid-cols-[1fr_22px_1fr] items-stretch gap-1.5">
+                {/* Team 1 */}
+                <div className="flex flex-col gap-1.5 min-w-0">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] pl-1"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 1
+                  </span>
+                  {court.currentMatch.team1.map((pid, idx) => (
+                    <div key={pid}>
+                      {renderCurrentPlayerBadge(pid, () =>
+                        setSlotSheetTarget({
+                          target: 'CURRENT',
+                          team: 1,
+                          index: idx,
+                          baseLineup: court.currentMatch!,
+                        })
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Subtle Badminton Net Divider */}
+                <div className="vo-court-net" aria-hidden="true">
+                  <span
+                    className="relative z-10 w-[22px] h-[22px] rounded-md flex items-center justify-center text-[9px] font-extrabold tracking-wide"
+                    style={{
+                      background: 'var(--bg-card-solid)',
+                      border: '1px solid var(--border-card)',
+                      color: 'var(--accent-lime)',
+                    }}
+                  >
+                    VS
+                  </span>
+                </div>
+
+                {/* Team 2 */}
+                <div className="flex flex-col gap-1.5 min-w-0">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] text-right pr-1"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 2
+                  </span>
+                  {court.currentMatch.team2.map((pid, idx) => (
+                    <div key={pid}>
+                      {renderCurrentPlayerBadge(pid, () =>
+                        setSlotSheetTarget({
+                          target: 'CURRENT',
+                          team: 2,
+                          index: idx,
+                          baseLineup: court.currentMatch!,
+                        })
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Compact Skill Balance Bar */}
+              {(() => {
+                const desc = describeLineup(court.currentMatch, state);
+                const accentColor =
+                  desc.label === 'Cân kèo'
+                    ? 'var(--accent-lime)'
+                    : desc.label === 'Lệch nhẹ'
+                    ? 'var(--amber)'
+                    : 'var(--live)';
+
+                return (
+                  <div
+                    className="px-2.5 py-1.5 rounded-xl flex items-center justify-between text-[11.5px] font-medium"
+                    style={{
+                      background: 'var(--bg-tile)',
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5" style={{ color: accentColor }}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-bold">{desc.label}</span>
+                    </div>
+                    <span className="font-mono-tabular text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Chênh {desc.diff}đ ({desc.team1Skill} vs {desc.team2Skill})
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* Primary One-Handed CTA (Glossy Volt Lime Pill) */}
+              <button
+                type="button"
+                onClick={handleEndMatchClick}
+                className="vo-cta-lime w-full min-h-[48px] py-2.5 px-4 rounded-full font-extrabold text-[13.5px] tracking-[-0.015em] flex items-center justify-center gap-1.5 select-none"
+              >
+                <span>
+                  {isNextUpComplete(court.nextUp)
+                    ? 'Kết thúc & Vào lượt mới'
+                    : 'Kết thúc trận'}
+                </span>
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              </button>
+
+              {/* Compact 1-Row Quick Match Controls (Giữ đủ 100% tính năng: Đảo cặp, Cân kèo, Độ, Chỉ kết thúc) */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {court.currentMatch.type === 'DOUBLES' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleRotatePairings}
+                      title="Xoay 3 thế đứng (Đảo cặp)"
+                      className="vo-btn-subtle flex-1 min-w-[70px] h-8 px-2 rounded-xl text-[11.5px] font-semibold flex items-center justify-center gap-1"
+                    >
+                      <Shuffle className="w-3 h-3" style={{ color: 'var(--accent-lime)' }} />
+                      <span>Đảo cặp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAutoBalancePairings}
+                      title="Tự động xếp cặp có chênh lệch trình độ nhỏ nhất"
+                      className="vo-btn-subtle flex-1 min-w-[70px] h-8 px-2 rounded-xl text-[11.5px] font-semibold flex items-center justify-center gap-1"
+                    >
+                      <Scale className="w-3 h-3" style={{ color: 'var(--accent-lime)' }} />
+                      <span>Cân kèo</span>
+                    </button>
+                  </>
+                )}
+
+                {!isViewer && onSetCourtBet && (
                   <button
                     type="button"
-                    onClick={handleEndMatchClick}
-                    className="w-full py-3 px-3 sm:px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-950/50 active:scale-[0.98] transition flex items-center justify-center gap-1.5 sm:gap-2 select-none"
+                    onClick={openLiveBetEditor}
+                    title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
+                    className="vo-btn-subtle h-8 px-2.5 rounded-xl text-[11.5px] font-semibold flex items-center justify-center gap-1"
+                    style={
+                      court.currentMatch.bet
+                        ? {
+                            background: 'var(--amber-soft)',
+                            borderColor: 'var(--amber-border)',
+                            color: 'var(--amber)',
+                          }
+                        : undefined
+                    }
                   >
-                    <span>
-                      {isNextUpComplete(court.nextUp)
-                        ? 'KẾT THÚC & VÀO LƯỢT MỚI >'
-                        : 'KẾT THÚC TRẬN'}
-                    </span>
-                    <ChevronRight className="w-4 h-4 shrink-0" />
+                    <Flame className="w-3 h-3" style={{ color: 'var(--amber)' }} />
+                    <span>Độ</span>
                   </button>
-
-                  {isNextUpComplete(court.nextUp) && blockedPlayerPlayingElsewhere && (
-                    <div className="p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
-                      <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
-                      <span>Không thể vào lượt mới: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở {blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác</span>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="py-5 text-center">
-                <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center mx-auto mb-2 text-xl">
-                  🏸
-                </div>
-                <p className="font-bold text-sm text-slate-300">Sân đang trống</p>
-                <p className="text-xs text-slate-500 mt-0.5 mb-3">
-                  {isNextUpComplete(court.nextUp)
-                    ? 'Đội hình lượt sau đã sẵn sàng'
-                    : 'Điền đủ người ở lượt kế tiếp để bắt đầu trận'}
-                </p>
+                )}
 
                 <button
                   type="button"
-                  disabled={!isNextUpComplete(court.nextUp) || !!blockedPlayerPlayingElsewhere}
-                  onClick={handleStartNextUpClick}
-                  title={
-                    blockedPlayerPlayingElsewhere
-                      ? `Không thể bắt đầu: ${blockedPlayerPlayingElsewhere.playerName} đang đánh ở ${blockedPlayerPlayingElsewhere.courtName}`
-                      : !isNextUpComplete(court.nextUp)
-                      ? safeNextUp.type === 'SINGLES'
-                        ? 'Chưa đủ 2 người'
-                        : 'Chưa đủ 4 người'
-                      : 'Bắt đầu trận này'
-                  }
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
+                  onClick={() => {
+                    const now = Date.now();
+                    if (now - lastEndClickRef.current < 600) return;
+                    lastEndClickRef.current = now;
+                    vibrateSuccess();
+                    onEndMatch(court.id, court.currentMatch?.id);
+                    onTriggerUndoToast(
+                      `Đã kết thúc trận trên ${court.name} (sân trống để thong thả xếp tiếp)`
+                    );
+                  }}
+                  title="Kết thúc trận hiện tại để người chơi ra nghỉ, giữ sân trống và KHÔNG tự đẩy lượt mới vào"
+                  className="vo-btn-subtle flex-1 min-w-[96px] h-8 px-2.5 rounded-xl text-[11.5px] font-semibold flex items-center justify-center gap-1"
                 >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>BẮT ĐẦU TRẬN LƯỢT NÀY &gt;</span>
+                  <Square className="w-3 h-3" style={{ color: 'var(--amber)' }} />
+                  <span>Chỉ kết thúc</span>
                 </button>
-
-                {blockedPlayerPlayingElsewhere && (
-                  <div className="mt-2.5 p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
-                    <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
-                    <span>Không thể bắt đầu: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở {blockedPlayerPlayingElsewhere.courtName}. Hãy chờ trận xong hoặc đổi người khác</span>
-                  </div>
-                )}
               </div>
-            )}
-          </div>
+
+              {isNextUpComplete(court.nextUp) && blockedPlayerPlayingElsewhere && (
+                <div className="p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
+                  <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>
+                    Không thể vào lượt mới: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở{' '}
+                    {blockedPlayerPlayingElsewhere.courtName}.
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              <div className="vo-stage rounded-2xl py-4 px-3 text-center">
+                <p
+                  className="font-semibold text-[14px]"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {court.name} đang sẵn sàng
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {isNextUpComplete(court.nextUp)
+                    ? `Đã đủ ${maxNextCount}/${maxNextCount} người ở Sắp vào sân`
+                    : `Cần đủ ${maxNextCount} người ở Sắp vào sân để bắt đầu`}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={!isNextUpComplete(court.nextUp) || !!blockedPlayerPlayingElsewhere}
+                onClick={handleStartNextUpClick}
+                className="vo-cta-lime w-full min-h-[46px] py-2.5 px-4 rounded-full font-extrabold text-[13.5px] disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>Bắt đầu trận trên {court.name}</span>
+              </button>
+
+              {blockedPlayerPlayingElsewhere && (
+                <div className="p-2 rounded-xl bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 font-semibold flex items-center justify-center gap-1.5">
+                  <AlertOctagon className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>
+                    Không thể bắt đầu: {blockedPlayerPlayingElsewhere.playerName} đang đánh ở{' '}
+                    {blockedPlayerPlayingElsewhere.courtName}.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ==================================================== */}
-          {/* 3. LƯỢT KẾ TIẾP (NEXT UP) - LƯU TRỰC TIẾP TRONG STATE */}
+          {/* 3. LƯỢT KẾ TIẾP (NEXT UP — LƯỚI 2×2 GỌN, ĐỦ TÍNH NĂNG) */}
           {/* ==================================================== */}
-          <div className="rounded-2xl bg-slate-900/40 border border-slate-800/60 p-3">
-            <div className="flex items-center justify-between mb-2.5 flex-wrap gap-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <span>Lượt kế tiếp (Next Up)</span>
-                {/* Hạng mục 1.1: Chuyển badge Đôi/Đơn thành nút chuyển nhanh 2 ô <-> 4 ô */}
+          <div className="pt-3 border-t border-white/[0.07]">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="text-xs font-bold tracking-[-0.01em]"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Sắp vào sân
+                </span>
+                <span
+                  className="px-1.5 py-0.5 rounded-full text-[10.5px] font-bold font-mono-tabular"
+                  style={{
+                    background: 'var(--accent-lime-soft)',
+                    color: 'var(--accent-lime)',
+                  }}
+                >
+                  {filledNextCount}/{maxNextCount}
+                </span>
                 <button
                   type="button"
                   onClick={() =>
@@ -924,14 +1061,14 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                         })
                   }
                   title="Bấm để chuyển nhanh khung Next Up giữa Đôi (4 ô) và Đơn (2 ô)"
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-750 text-emerald-400 hover:text-emerald-300 border border-slate-700 transition flex items-center gap-1 shadow-sm active:scale-95"
+                  className="vo-btn-subtle px-2 py-0.5 rounded-full text-[10.5px] font-bold"
                 >
-                  <span>{safeNextUp.type === 'DOUBLES' ? 'Đôi (4 ô) ⇄' : 'Đơn (2 ô) ⇄'}</span>
+                  {safeNextUp.type === 'DOUBLES' ? 'Đôi ⇄' : 'Đơn ⇄'}
                 </button>
-              </span>
+              </div>
 
-              {/* Toolbar Next Up */}
-              <div className="flex items-center gap-1 flex-wrap">
+              {/* Compact Next Up Toolbar (Đủ Gợi ý, Đảo cặp, Cân kèo, Xóa trắng) */}
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -943,20 +1080,10 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     onSuggestNextUp(court.id);
                   }}
                   title="Gợi ý đội hình cho lượt kế tiếp"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition"
+                  className="vo-btn-subtle h-7 px-2 rounded-full text-[11px] font-semibold flex items-center gap-1"
                 >
-                  <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isNextUpEmpty(safeNextUp) ? 'Gợi ý kèo' : 'Gợi ý lại'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onClearNextUp(court.id)}
-                  disabled={isNextUpEmpty(safeNextUp)}
-                  title="Xóa trắng toàn bộ các ô lượt sau"
-                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-slate-300 border border-slate-700 transition"
-                >
-                  <span>🗑️ Xóa trắng</span>
+                  <RotateCw className="w-3 h-3" style={{ color: 'var(--accent-lime)' }} />
+                  <span>{isNextUpEmpty(safeNextUp) ? 'Gợi ý' : 'Gợi ý lại'}</span>
                 </button>
 
                 {safeNextUp.type === 'DOUBLES' && (
@@ -966,80 +1093,115 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                       onClick={() => onRearrangeNextUp(court.id, 'ROTATE')}
                       disabled={!isNextUpComplete(safeNextUp)}
                       title="Đảo cặp cho 4 người hiện có"
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-slate-300 border border-slate-700 transition flex items-center gap-1"
+                      aria-label="Đảo cặp lượt kế tiếp"
+                      className="vo-btn-subtle w-7 h-7 rounded-full disabled:opacity-35 disabled:pointer-events-none flex items-center justify-center"
                     >
-                      <Shuffle className="w-3 h-3 text-emerald-400" />
-                      <span>Đảo cặp</span>
+                      <Shuffle className="w-3 h-3" style={{ color: 'var(--accent-lime)' }} />
                     </button>
-
                     <button
                       type="button"
                       onClick={() => onRearrangeNextUp(court.id, 'BALANCE')}
                       disabled={!isNextUpComplete(safeNextUp)}
                       title="Cân kèo cho 4 người hiện có"
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-emerald-300 border border-slate-700 transition flex items-center gap-1"
+                      aria-label="Cân kèo lượt kế tiếp"
+                      className="vo-btn-subtle w-7 h-7 rounded-full disabled:opacity-35 disabled:pointer-events-none flex items-center justify-center"
                     >
-                      <Scale className="w-3 h-3 text-emerald-400" />
-                      <span>Cân kèo</span>
+                      <Scale className="w-3 h-3" style={{ color: 'var(--accent-lime)' }} />
                     </button>
                   </>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => onClearNextUp(court.id)}
+                  disabled={isNextUpEmpty(safeNextUp)}
+                  title="Xóa trắng toàn bộ các ô lượt sau"
+                  aria-label="Xóa trắng lượt kế tiếp"
+                  className="vo-btn-subtle w-7 h-7 rounded-full disabled:opacity-35 disabled:pointer-events-none flex items-center justify-center hover:text-rose-400"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
               </div>
             </div>
 
-            {/* Next Up Slots Grid */}
+            {/* Next Up 2×2 Symmetric Grid (Even on Mobile!) */}
             {safeNextUp.type === 'SINGLES' ? (
-              <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-2">
-                {/* Team 1 */}
-                <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 1</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] pl-0.5 block"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 1
+                  </span>
                   {renderNextUpSlot(safeNextUp.slots[0], 0)}
                 </div>
-
-                {/* Team 2 */}
-                <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 2</span>
+                <div className="space-y-1.5">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] pl-0.5 block"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 2
+                  </span>
                   {renderNextUpSlot(safeNextUp.slots[1], 1)}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-2">
+              <div className="grid grid-cols-2 gap-2">
                 {/* Team 1 (Slot 0, 1) */}
-                <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 1</span>
+                <div className="space-y-1.5">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] pl-0.5 block"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 1
+                  </span>
                   {renderNextUpSlot(safeNextUp.slots[0], 0)}
                   {renderNextUpSlot(safeNextUp.slots[1], 1)}
                 </div>
 
-                {/* VS Divider on Mobile */}
-                <div className="sm:hidden flex items-center justify-center my-0.5">
-                  <div className="h-px bg-slate-800 flex-1" />
-                  <span className="px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-black text-amber-400 tracking-wider">
-                    VS
-                  </span>
-                  <div className="h-px bg-slate-800 flex-1" />
-                </div>
-
                 {/* Team 2 (Slot 2, 3) */}
-                <div className="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] font-bold text-slate-500 block">ĐỘI 2</span>
+                <div className="space-y-1.5">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-[0.06em] pl-0.5 block"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Đội 2
+                  </span>
                   {renderNextUpSlot(safeNextUp.slots[2], 2)}
                   {renderNextUpSlot(safeNextUp.slots[3], 3)}
                 </div>
               </div>
             )}
 
-            {/* Evaluation line under Next Up (Chênh X điểm • 3 Nam – 1 Nữ) */}
+            {/* Evaluation line under Next Up */}
             {isNextUpComplete(safeNextUp) && nextUpEval && (
-              <div className="mt-2.5 px-3 py-1.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs font-medium text-slate-300">
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <div
+                className="mt-2.5 px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 text-[11px] font-medium flex-wrap"
+                style={{
+                  background: 'var(--bg-stage)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <div className="flex items-center gap-1.5 font-mono-tabular">
+                  <CheckCircle2
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: 'var(--accent-lime)' }}
+                  />
                   <span>Chênh {nextUpEval.skillDiff}đ</span>
-                  <span className="text-slate-500">•</span>
-                  <span className="text-slate-400">{nextUpEval.genderPattern}</span>
+                  <span className="opacity-40">•</span>
+                  <span>{nextUpEval.genderPattern}</span>
                 </div>
                 {nextUpEval.warnings.length > 0 && (
-                  <span className="text-[10px] text-amber-300 font-semibold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+                  <span
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                    style={{
+                      background: 'var(--amber-soft)',
+                      color: 'var(--amber)',
+                      border: '1px solid var(--amber-border)',
+                    }}
+                  >
                     {nextUpEval.warnings[0]}
                   </span>
                 )}
@@ -1048,10 +1210,18 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           </div>
         </div>
       ) : (
-        <div className="p-6 text-center text-xs text-slate-500">
-          <Power className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-          <p className="font-semibold text-slate-400">Sân đang tắt</p>
-          <p className="mt-0.5">Bật công tắc phía trên để đưa sân vào lượt xoay</p>
+        <div className="p-6 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
+          <Power className="w-7 h-7 mx-auto mb-2 opacity-40" />
+          <p className="font-semibold" style={{ color: 'var(--text-secondary)' }}>
+            Sân đang tắt
+          </p>
+          <button
+            type="button"
+            onClick={() => onUpdateCourt(court.id, { isActive: true })}
+            className="mt-3 vo-btn-subtle px-3.5 py-1.5 rounded-full text-xs font-semibold"
+          >
+            Bật lại sân này
+          </button>
         </div>
       )}
 
@@ -1084,10 +1254,10 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           onResumePlayer={onResumePlayer}
         />
       )}
-    </div>
+    </article>
   );
 
-  // Helper render 1 slot của Next Up
+  // Helper render 1 slot của Next Up (Ảnh 1 glass tile + 3px gender bar + nút ×)
   function renderNextUpSlot(pid: string | null, idx: number) {
     if (!pid) {
       return (
@@ -1099,9 +1269,14 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               slotIndex: idx,
             })
           }
-          className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-700 hover:border-emerald-500/60 bg-slate-950/40 hover:bg-emerald-950/20 text-slate-400 hover:text-emerald-300 transition text-xs font-semibold flex items-center justify-center gap-1.5"
+          className="w-full min-h-[52px] px-2.5 py-2 rounded-[14px] border border-dashed text-xs font-semibold flex items-center justify-center gap-1 transition active:scale-[0.97]"
+          style={{
+            borderColor: 'var(--border-card)',
+            color: 'var(--text-muted)',
+          }}
         >
-          <span>➕ Chọn người</span>
+          <Plus className="w-3.5 h-3.5" />
+          <span>Chọn người</span>
         </button>
       );
     }
@@ -1119,42 +1294,63 @@ export const CourtCard: React.FC<CourtCardProps> = ({
             slotIndex: idx,
           })
         }
-        className={`relative p-2 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 border ${
+        className={`vo-tile ${
+          player?.sex === 'F' ? 'vo-gender-bar-f' : 'vo-gender-bar-m'
+        } min-h-[52px] pl-3 pr-1.5 py-1.5 rounded-[14px] cursor-pointer flex items-center justify-between gap-1 active:scale-[0.98]`}
+        style={
           playingCourtName
-            ? 'border-rose-700/80 bg-rose-950/30 hover:border-rose-600'
-            : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
-        }`}
+            ? {
+                borderColor: 'rgba(251, 113, 133, 0.48)',
+                background: 'rgba(251, 113, 133, 0.08)',
+              }
+            : isManual
+            ? {
+                borderColor: 'var(--amber-border)',
+                background:
+                  'linear-gradient(135deg, rgba(251, 191, 36, 0.07) 0%, var(--bg-tile) 100%)',
+              }
+            : undefined
+        }
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
-          <span className="font-semibold text-xs text-slate-100 truncate">
+        <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+          <span
+            className="font-semibold text-[13.5px] leading-tight tracking-[-0.015em] truncate"
+            style={{ color: 'var(--text-primary)' }}
+          >
             {player?.name || pid}
           </span>
-          {player && (
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                player.sex === 'M' ? 'bg-sky-950 text-sky-300' : 'bg-pink-950 text-pink-300'
-              }`}
-            >
-              {player.sex === 'M' ? 'Nam' : 'Nữ'}
-            </span>
-          )}
-          {rankMeta && (
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-            >
-              {rankMeta.code}
-            </span>
-          )}
-          {isManual && (
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-0.5">
-              <Lock className="w-2.5 h-2.5" /> Tay
-            </span>
-          )}
-          {playingCourtName && (
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-700/80 flex items-center gap-1 shrink-0 animate-pulse">
-              Đang đánh ở {playingCourtName}
-            </span>
-          )}
+          <div className="flex items-center gap-1 flex-wrap">
+            {rankMeta && (
+              <span
+                className="text-[10px] font-bold font-mono-tabular px-1.5 py-0.2 rounded"
+                style={{
+                  background: 'var(--bg-pill-track)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {rankMeta.code}
+              </span>
+            )}
+            {isManual && (
+              <span
+                className="text-[9.5px] font-bold px-1.5 py-0.2 rounded flex items-center gap-0.5"
+                style={{
+                  background: 'var(--amber-soft)',
+                  color: 'var(--amber)',
+                  border: '1px solid var(--amber-border)',
+                }}
+              >
+                <Lock className="w-2.5 h-2.5" />
+                <span>Tay</span>
+              </span>
+            )}
+            {playingCourtName && (
+              <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-700/60 animate-pulse truncate">
+                Ở {playingCourtName}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Nút ✕ nhỏ góc phải: xóa đúng slot này */}
@@ -1166,9 +1362,10 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           }}
           aria-label={`Bỏ ${player?.name || 'người'} khỏi lượt kế tiếp`}
           title="Bỏ người khỏi lượt kế tiếp"
-          className="w-8 h-8 -mr-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition flex items-center justify-center shrink-0"
+          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-rose-500/15 hover:text-rose-400 active:scale-90"
+          style={{ color: 'var(--text-muted)' }}
         >
-          <X className="w-4 h-4" />
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
     );

@@ -24,6 +24,7 @@ import {
   FileSpreadsheet,
   ChevronDown,
   ChevronUp,
+  Sparkles,
 } from 'lucide-react';
 import type {
   BadmintonRank,
@@ -61,6 +62,7 @@ import {
 } from '../utils/statementCsv';
 import type { RoomRole } from '../hooks/useCloudRoom';
 import { EquityTable } from './EquityTable';
+import { RankAdvisorPanel } from './RankAdvisorPanel';
 import { PaymentQrModal } from './PaymentQrModal';
 import { VIETNAM_BANKS, resolveBankOption } from '../engine/vietqr';
 import { deleteRoomReceipts } from '../services/supabaseSync';
@@ -115,7 +117,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   onNewSessionKeepPlayers,
   onResetSession,
 }) => {
-  const [subTab, setSubTab] = useState<'CALC' | 'EQUITY'>('CALC');
+  const [subTab, setSubTab] = useState<'CALC' | 'EQUITY' | 'AI'>('CALC');
   const [hideZeroCostInZalo, setHideZeroCostInZalo] = useState(true);
 
   const { settings, payments } = settlementData;
@@ -467,43 +469,235 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto pb-24 p-3 md:p-4 space-y-4 text-slate-100">
-      {/* Top Navigation Switcher: [Tính tiền] [Thống kê & Ma trận] */}
-      <div className="grid grid-cols-2 gap-2 bg-slate-900 p-1 rounded-2xl border border-slate-800">
+    <div className="max-w-2xl mx-auto p-3.5 md:p-5 space-y-4">
+      {/* Top Navigation Switcher: [Tính tiền] [Thống kê] [AI Nhận xét (chỉ Host)] */}
+      <div
+        className={`vo-sliding-track grid gap-1 p-1 rounded-2xl ${
+          isViewer ? 'grid-cols-2' : 'grid-cols-3'
+        }`}
+      >
         <button
+          type="button"
           onClick={() => setSubTab('CALC')}
-          className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${subTab === 'CALC'
-              ? 'bg-slate-800 text-emerald-400 shadow'
-              : 'text-slate-400 hover:text-slate-200'
-            }`}
+          className="py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+          style={
+            subTab === 'CALC'
+              ? {
+                  background: 'var(--bg-pill-active)',
+                  border: '1px solid var(--accent-lime-border)',
+                  color: 'var(--accent-lime)',
+                }
+              : { color: 'var(--text-secondary)' }
+          }
         >
-          <Calculator className="w-4 h-4" />
-          <span>Tính tiền quyết toán</span>
+          <Calculator className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Tính tiền</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setSubTab('EQUITY')}
-          className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${subTab === 'EQUITY'
-              ? 'bg-slate-800 text-emerald-400 shadow'
-              : 'text-slate-400 hover:text-slate-200'
-            }`}
+          className="py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+          style={
+            subTab === 'EQUITY'
+              ? {
+                  background: 'var(--bg-pill-active)',
+                  border: '1px solid var(--accent-lime-border)',
+                  color: 'var(--accent-lime)',
+                }
+              : { color: 'var(--text-secondary)' }
+          }
         >
-          <BarChart3 className="w-4 h-4" />
-          <span>Thống kê & Ma trận</span>
+          <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Thống kê</span>
         </button>
+
+        {!isViewer && (
+          <button
+            type="button"
+            onClick={() => setSubTab('AI')}
+            className="py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+            style={
+              subTab === 'AI'
+                ? {
+                    background: 'var(--bg-pill-active)',
+                    border: '1px solid var(--accent-lime-border)',
+                    color: 'var(--accent-lime)',
+                  }
+                : { color: 'var(--text-secondary)' }
+            }
+          >
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">AI Nhận xét</span>
+          </button>
+        )}
       </div>
 
-      {subTab === 'EQUITY' ? (
+      {subTab === 'AI' && !isViewer ? (
+        onEditRank ? (
+          <RankAdvisorPanel
+            players={players}
+            history={history}
+            maleBonus={maleBonus}
+            onApplyRank={onEditRank}
+          />
+        ) : null
+      ) : subTab === 'EQUITY' ? (
         <EquityTable
           players={players}
           stats={stats}
           history={history}
           maleBonus={maleBonus}
           isViewer={isViewer}
+          hideRankAdvisor={!isViewer}
           onApplyRank={onEditRank}
         />
       ) : (
         <div className="space-y-4">
+          {/* MONEX-INSPIRED HERO SUMMARY CARD (Clean 1.5px lime top sheen — ZERO green bleed-through!) */}
+          {(() => {
+            const payablePlayers = settlementResult.players.filter((item) => {
+              const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+              return getEffectivePlayerPayable(item.roundedAmount, adj, mergeBets) > 0;
+            });
+            const paidItems = payablePlayers.filter(
+              (item) => payments[item.playerId]?.status === 'PAID'
+            );
+            const pendingItemsCount = payablePlayers.filter(
+              (item) => payments[item.playerId]?.status === 'PENDING_REVIEW'
+            ).length;
+            const collectedVnd = paidItems.reduce((sum, item) => {
+              const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+              return sum + Math.max(0, getEffectivePlayerPayable(item.roundedAmount, adj, mergeBets));
+            }, 0);
+            const targetVnd = payablePlayers.reduce((sum, item) => {
+              const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+              return sum + Math.max(0, getEffectivePlayerPayable(item.roundedAmount, adj, mergeBets));
+            }, 0);
+            const progressPct = targetVnd > 0 ? Math.min(100, Math.round((collectedVnd / targetVnd) * 100)) : 0;
+
+            return (
+              <div className="vo-glass-card vo-lime-sheen rounded-[24px] p-5 overflow-hidden space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div
+                      className="text-xs font-semibold"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Tổng quỹ buổi chơi
+                    </div>
+                    <div
+                      className="text-3xl font-bold font-mono-tabular tracking-[-0.03em] mt-1"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {formatVND(collectedVnd)}
+                    </div>
+                    <div
+                      className="flex items-center gap-2 mt-1 text-xs font-semibold font-mono-tabular flex-wrap"
+                      style={{ color: 'var(--accent-lime)' }}
+                    >
+                      <span>
+                        {paidItems.length}/{payablePlayers.length} người đã đóng
+                      </span>
+                      <span className="opacity-40">•</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Tổng chi: {formatVND(settlementResult.totalCost)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {pendingItemsCount > 0 && (
+                    <span
+                      className="px-2.5 py-1 rounded-full text-[11px] font-bold font-mono-tabular shrink-0"
+                      style={{
+                        background: 'var(--amber-soft)',
+                        border: '1px solid var(--amber-border)',
+                        color: 'var(--amber)',
+                      }}
+                    >
+                      {pendingItemsCount} chờ duyệt
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  className="h-1.5 rounded-full overflow-hidden"
+                  style={{ background: 'var(--bg-pill-track)' }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${progressPct}%`,
+                      background: 'var(--accent-cta)',
+                    }}
+                  />
+                </div>
+
+                {/* 3 Quick Monex Actions */}
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyZalo}
+                    className="vo-tile rounded-2xl py-2.5 px-2 flex flex-col items-center gap-1.5 text-[11.5px] font-semibold active:scale-95"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {copiedZalo ? (
+                      <Check className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                    ) : (
+                      <Copy className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                    )}
+                    <span>{copiedZalo ? 'Đã chép' : 'Gửi Zalo'}</span>
+                  </button>
+
+                  {!isViewer ? (
+                    <button
+                      type="button"
+                      onClick={handleExportCurrentSessionCsv}
+                      className="vo-tile rounded-2xl py-2.5 px-2 flex flex-col items-center gap-1.5 text-[11.5px] font-semibold active:scale-95"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <FileSpreadsheet className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                      <span>Xuất CSV</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleCopyBankAccount}
+                      disabled={!settings.bankAccount}
+                      className="vo-tile rounded-2xl py-2.5 px-2 flex flex-col items-center gap-1.5 text-[11.5px] font-semibold disabled:opacity-40 active:scale-95"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Copy className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                      <span>{copiedBankAccount ? 'Đã chép STK' : 'Chép STK'}</span>
+                    </button>
+                  )}
+
+                  {!isViewer ? (
+                    <button
+                      type="button"
+                      onClick={() => setSubTab('AI')}
+                      className="vo-tile rounded-2xl py-2.5 px-2 flex flex-col items-center gap-1.5 text-[11.5px] font-semibold active:scale-95"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Sparkles className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                      <span>AI Nhận xét</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setSubTab('EQUITY')}
+                      className="vo-tile rounded-2xl py-2.5 px-2 flex flex-col items-center gap-1.5 text-[11.5px] font-semibold active:scale-95"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <BarChart3 className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
+                      <span>Thống kê</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {isViewer && (
             <div className="bg-indigo-950/60 border border-indigo-700/60 text-indigo-200 rounded-2xl p-3 text-xs leading-relaxed">
               Chế độ Thành viên (Chỉ xem){roomCode ? ` — Phòng ${roomCode}` : ''} — Xem số tiền cần đóng, thông tin chuyển khoản và bấm &quot;Tôi đã chuyển&quot; cạnh tên mình để Chủ sân duyệt.
@@ -513,7 +707,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           {/* ========================================================= */}
           {/* 1. NHẬP CHI PHÍ BUỔI ĐÁNH */}
           {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+          <div className="vo-glass-card p-4 rounded-3xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                 <Coins className="w-4 h-4 text-emerald-400" />
@@ -753,7 +947,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           {/* ========================================================= */}
           {/* 2. CẤU HÌNH CHIA TIỀN & GIẢM GIÁ */}
           {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3.5 text-xs">
+          <div className="vo-glass-card p-4 rounded-3xl space-y-3.5 text-xs">
             <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
               <Percent className="w-4 h-4 text-emerald-400" />
               <span>2. Chế độ phân chia & Giảm giá</span>
@@ -993,7 +1187,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
             ).length;
 
             return (
-              <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
+              <div className="vo-glass-card p-4 rounded-3xl space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                     <Banknote className="w-4 h-4 text-emerald-400" />
@@ -1350,9 +1544,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
 
                   <button
                     onClick={handleCopyZalo}
-                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"
+                    className="vo-cta-lime w-full py-3 px-4 font-extrabold text-sm rounded-full flex items-center justify-center gap-2"
                   >
-                    {copiedZalo ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5" />}
+                    {copiedZalo ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                     <span>{copiedZalo ? 'ĐÃ SAO CHÉP VÀO CLIPBOARD!' : 'SAO CHÉP TIN NHẮN ZALO'}</span>
                   </button>
 
@@ -1604,7 +1798,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           {/* ========================================================= */}
           {/* 4. THÔNG TIN CHUYỂN KHOẢN (BANK INFO) */}
           {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+          <div className="vo-glass-card p-4 rounded-3xl space-y-3 text-xs">
             <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
               <Building className="w-4 h-4 text-emerald-400" />
               <span>4. Thông tin tài khoản nhận tiền</span>
@@ -1741,7 +1935,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               {/* ========================================================= */}
               {/* 5. QUẢN LÝ DỮ LIỆU & BUỔI MỚI */}
               {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+          <div className="vo-glass-card p-4 rounded-3xl space-y-3 text-xs">
             <h3 className="font-bold text-sm text-slate-200 flex items-center justify-between">
               <span>5. Quản lý dữ liệu &amp; Bắt đầu buổi mới</span>
               <span className="text-slate-400 font-mono">

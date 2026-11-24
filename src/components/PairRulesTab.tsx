@@ -41,18 +41,20 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   if (isViewer) {
     return (
       <div className="max-w-md mx-auto py-16 px-4 text-center space-y-3">
-        <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 text-amber-400 flex items-center justify-center mx-auto">
+        <div className="vo-glass-card w-12 h-12 rounded-2xl text-amber-400 flex items-center justify-center mx-auto">
           <Lock className="w-6 h-6" />
         </div>
-        <h3 className="font-bold text-base text-slate-100">Mục chỉ dành cho Ban điều hành</h3>
-        <p className="text-xs text-slate-400 leading-relaxed">
+        <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+          Mục chỉ dành cho Ban điều hành
+        </h3>
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
           Thiết lập luật cặp đôi được bảo mật và chỉ hiển thị khi đăng nhập quyền quản trị phòng.
         </p>
         {onRequestUpgrade && (
           <button
             type="button"
             onClick={onRequestUpgrade}
-            className="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition"
+            className="vo-cta-lime mt-2 px-5 py-2.5 rounded-full text-xs font-extrabold"
           >
             Nhập mã PIN quản trị
           </button>
@@ -109,23 +111,34 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto pb-24 p-3 md:p-4 space-y-4">
+    <div className="max-w-2xl mx-auto p-3.5 md:p-5 space-y-4">
       {/* Top Banner & Action */}
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            <Scale className="w-5 h-5 text-emerald-400" />
+          <h2
+            className="text-lg font-bold tracking-[-0.025em] flex items-center gap-2"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Scale className="w-5 h-5" style={{ color: 'var(--accent-lime)' }} />
             <span>Luật cặp đôi</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+            <span
+              className="text-xs px-2.5 py-0.5 rounded-full font-mono-tabular font-bold"
+              style={{
+                background: 'var(--accent-lime-soft)',
+                color: 'var(--accent-lime)',
+                border: '1px solid var(--accent-lime-border)',
+              }}
+            >
               {pairRules.length} luật
             </span>
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Cố định vợ chồng, tách đối thủ kỵ nhau hoặc giới hạn đối đầu
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            Cố định cặp đánh chung, tách người kỵ nhau hoặc giới hạn đối đầu
           </p>
         </div>
 
         <button
+          type="button"
           onClick={() => {
             if (players.length < 2) {
               alert('Cần ít nhất 2 người chơi để tạo luật');
@@ -133,7 +146,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
             }
             setShowAddModal(true);
           }}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow"
+          className="vo-cta-lime flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-extrabold shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Thêm luật</span>
@@ -142,7 +155,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
 
       {/* CẢNH BÁO MÂU THUẪN LUẬT (RULE CONFLICTS) */}
       {ruleConflicts.length > 0 && (
-        <div className="rounded-2xl bg-rose-950/40 border border-rose-800/80 p-3.5 space-y-2 text-rose-200 animate-in fade-in">
+        <div className="rounded-2xl bg-rose-950/40 border border-rose-800/80 p-3.5 space-y-2 text-rose-200">
           <div className="flex items-center gap-2 font-bold text-xs text-rose-300">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>Phát hiện {ruleConflicts.length} mâu thuẫn luật:</span>
@@ -158,12 +171,17 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
       )}
 
       {/* DANH SÁCH LUẬT HIỆN CÓ */}
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {pairRules.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-500">
-            <Scale className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            <p className="font-semibold text-slate-400 text-sm">Chưa có luật cặp nào</p>
-            <p className="text-xs mt-1 text-slate-500">
+          <div
+            className="vo-glass-card p-8 text-center rounded-[22px]"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <Scale className="w-10 h-10 mx-auto mb-2 opacity-40" />
+            <p className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Chưa có luật cặp nào
+            </p>
+            <p className="text-xs mt-1">
               Thuật toán sẽ ghép tự do cân bằng theo trình độ và hàng đợi.
             </p>
           </div>
@@ -177,41 +195,46 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
             return (
               <div
                 key={rule.id}
-                className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3 shadow-sm hover:border-slate-700 transition"
+                className="vo-glass-card p-3.5 rounded-[20px] flex items-center justify-between gap-3 transition"
               >
                 <div className="flex-1 min-w-0">
-                  {/* Badge rule type */}
-                  <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                     <span
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${meta.color}`}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${meta.color}`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                       <span>{meta.label}</span>
                     </span>
-                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                    <span className="text-[11px] hidden sm:inline" style={{ color: 'var(--text-muted)' }}>
                       • {meta.desc}
                     </span>
                   </div>
 
-                  {/* Players involved */}
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+                  <div
+                    className="flex items-center gap-2 text-xs font-semibold flex-wrap"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
                     <span className="truncate">{pA?.name || rule.playerAId}</span>
                     {pA && (
                       <span
-                        className={`text-[9px] px-1 rounded ${RANK_METADATA[pA.rank].badgeBg} ${
-                          RANK_METADATA[pA.rank].badgeText
-                        }`}
+                        className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded"
+                        style={{
+                          background: 'var(--bg-pill-track)',
+                          color: 'var(--text-secondary)',
+                        }}
                       >
                         {RANK_METADATA[pA.rank].code}
                       </span>
                     )}
-                    <span className="text-slate-500">và</span>
+                    <span style={{ color: 'var(--text-muted)' }}>và</span>
                     <span className="truncate">{pB?.name || rule.playerBId}</span>
                     {pB && (
                       <span
-                        className={`text-[9px] px-1 rounded ${RANK_METADATA[pB.rank].badgeBg} ${
-                          RANK_METADATA[pB.rank].badgeText
-                        }`}
+                        className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded"
+                        style={{
+                          background: 'var(--bg-pill-track)',
+                          color: 'var(--text-secondary)',
+                        }}
                       >
                         {RANK_METADATA[pB.rank].code}
                       </span>
@@ -220,10 +243,11 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => onRemoveRule(rule.id)}
                   title="Xóa luật này"
                   aria-label="Xóa luật này"
-                  className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                  className="vo-btn-subtle p-2 rounded-xl hover:text-rose-400"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -235,31 +259,42 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
 
       {/* MODAL THÊM LUẬT */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-5 text-slate-100 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-base flex items-center gap-2">
-                <Scale className="w-5 h-5 text-emerald-400" />
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="vo-glass-card rounded-3xl w-full max-w-md p-5 shadow-2xl"
+            style={{ background: 'var(--bg-card-solid)' }}
+          >
+            <div
+              className="flex items-center justify-between pb-3 border-b"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <h3 className="font-bold text-base flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <Scale className="w-5 h-5" style={{ color: 'var(--accent-lime)' }} />
                 <span>Thêm luật cặp</span>
               </h3>
               <button
+                type="button"
                 onClick={() => setShowAddModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-100 rounded-lg hover:bg-slate-800"
+                className="vo-btn-subtle p-1.5 rounded-lg"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleAddSubmit} className="space-y-4 py-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
                   Người chơi thứ nhất (A) *
                 </label>
                 <select
                   required
                   value={playerAId}
                   onChange={(e) => setPlayerAId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none"
                 >
                   <option value="">-- Chọn người chơi A --</option>
                   {players.map((p) => (
@@ -271,14 +306,14 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
                   Người chơi thứ hai (B) *
                 </label>
                 <select
                   required
                   value={playerBId}
                   onChange={(e) => setPlayerBId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none"
                 >
                   <option value="">-- Chọn người chơi B --</option>
                   {players
@@ -292,7 +327,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                   Loại luật áp dụng
                 </label>
                 <div className="space-y-2">
@@ -308,7 +343,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                       name="ruleType"
                       checked={ruleType === 'LOCK_PARTNER'}
                       onChange={() => setRuleType('LOCK_PARTNER')}
-                      className="mt-0.5 text-emerald-600"
+                      className="mt-0.5 accent-lime-400"
                     />
                     <div>
                       <span className="font-bold text-xs block">Cùng đội (LOCK_PARTNER)</span>
@@ -330,7 +365,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                       name="ruleType"
                       checked={ruleType === 'AVOID_PARTNER'}
                       onChange={() => setRuleType('AVOID_PARTNER')}
-                      className="mt-0.5 text-amber-600"
+                      className="mt-0.5 accent-amber-400"
                     />
                     <div>
                       <span className="font-bold text-xs block">Cấm cùng đội (AVOID_PARTNER)</span>
@@ -352,7 +387,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                       name="ruleType"
                       checked={ruleType === 'AVOID_MATCH'}
                       onChange={() => setRuleType('AVOID_MATCH')}
-                      className="mt-0.5 text-rose-600"
+                      className="mt-0.5 accent-rose-400"
                     />
                     <div>
                       <span className="font-bold text-xs block">Cấm đối đầu (AVOID_MATCH)</span>
@@ -368,13 +403,13 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 text-xs font-semibold"
+                  className="vo-btn-subtle px-4 py-2 rounded-xl text-xs font-semibold"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg transition"
+                  className="vo-cta-lime px-5 py-2 rounded-xl text-xs font-extrabold"
                 >
                   Lưu luật
                 </button>
@@ -386,4 +421,3 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
     </div>
   );
 };
-

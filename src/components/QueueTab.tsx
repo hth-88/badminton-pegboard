@@ -419,7 +419,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
           {/* Nút thêm khách */}
           <button
             onClick={() => handleOpenAddModal('SINGLE')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow"
+            className="vo-cta-lime flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-extrabold"
           >
             <UserPlus className="w-4 h-4" />
             <span>Thêm khách</span>
@@ -463,10 +463,10 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             return (
               <div
                 key={player.id}
-                className={`p-3 rounded-2xl border transition space-y-2 ${
-                  isPlaying
-                    ? 'bg-slate-900/40 border-slate-800/80'
-                    : 'bg-slate-900/90 hover:bg-slate-850 border-slate-800 shadow-sm'
+                className={`vo-glass-card ${
+                  player.sex === 'F' ? 'vo-gender-bar-f' : 'vo-gender-bar-m'
+                } pl-4 pr-3 py-3 rounded-[18px] transition space-y-2 ${
+                  isPlaying ? 'opacity-80' : ''
                 }`}
               >
                 {/* HÀNG 1: Tên người chơi & Thống kê số trận/nghỉ */}

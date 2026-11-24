@@ -2,15 +2,533 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  color-scheme: dark light;
+/* ============================================================
+   VOLT OBSIDIAN DESIGN SYSTEM (Dark Default + Light Outdoor)
+   ============================================================ */
+:root,
+.dark,
+[data-theme="dark"] {
+  --font-sans: 'Plus Jakarta Sans', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Plus Jakarta Sans', ui-monospace, monospace;
+
+  --ease-spring: cubic-bezier(0.32, 1.12, 0.56, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --bg-canvas: #080A0F;
+  --bg-card: linear-gradient(165deg, rgba(24, 30, 40, 0.84) 0%, rgba(13, 17, 24, 0.92) 100%);
+  --bg-card-solid: #12161F;
+  --bg-card-active: linear-gradient(165deg, rgba(25, 34, 34, 0.88) 0%, rgba(13, 17, 23, 0.95) 100%);
+  --bg-stage: rgba(7, 10, 15, 0.64);
+  --bg-tile: rgba(255, 255, 255, 0.036);
+  --bg-tile-hover: rgba(255, 255, 255, 0.07);
+  --bg-glass: rgba(13, 17, 25, 0.82);
+  --bg-pill-track: rgba(255, 255, 255, 0.045);
+  --bg-pill-active: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.055) 100%);
+  --bg-input: rgba(255, 255, 255, 0.05);
+
+  --border-subtle: rgba(255, 255, 255, 0.075);
+  --border-card: rgba(255, 255, 255, 0.095);
+  --border-active-court: rgba(196, 242, 89, 0.32);
+  --specular-top: rgba(255, 255, 255, 0.11);
+  --specular-lime: rgba(217, 249, 91, 0.30);
+
+  --text-primary: #F4F7FB;
+  --text-secondary: #9BA6B8;
+  --text-muted: #697589;
+  --text-on-accent: #0B1305;
+
+  --accent-lime: #C4F259;
+  --accent-lime-soft: rgba(196, 242, 89, 0.12);
+  --accent-lime-border: rgba(196, 242, 89, 0.34);
+  --accent-cta: linear-gradient(135deg, #D9FA66 0%, #A9DE32 100%);
+  --accent-cta-shadow: 0 12px 28px -10px rgba(183, 238, 66, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+
+  --male: #38BDF8;
+  --male-glow: rgba(56, 189, 248, 0.42);
+  --female: #FB7185;
+  --female-glow: rgba(251, 113, 133, 0.42);
+  --live: #FB7185;
+  --live-soft: rgba(251, 113, 133, 0.14);
+  --amber: #FBBF24;
+  --amber-soft: rgba(251, 191, 36, 0.13);
+  --amber-border: rgba(251, 191, 36, 0.32);
+
+  --shadow-card: 0 22px 48px -20px rgba(0, 0, 0, 0.78), 0 4px 14px -4px rgba(0, 0, 0, 0.45);
+  --shadow-dock: 0 18px 42px -12px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --net-line: rgba(196, 242, 89, 0.24);
+
+  --ambient-top: radial-gradient(ellipse 90% 34% at 50% -6%, rgba(163, 230, 53, 0.14) 0%, rgba(114, 156, 36, 0.05) 46%, transparent 76%);
+  --ambient-tech-1: radial-gradient(circle 280px at 90% 24%, rgba(56, 139, 253, 0.085) 0%, transparent 65%);
+  --ambient-tech-2: radial-gradient(circle 260px at 8% 72%, rgba(45, 212, 191, 0.05) 0%, transparent 65%);
+
+  font-family: var(--font-sans);
+  color-scheme: dark;
+}
+
+.light,
+[data-theme="light"] {
+  --bg-canvas: #F1F4EE;
+  --bg-card: linear-gradient(165deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 250, 246, 0.90) 100%);
+  --bg-card-solid: #FFFFFF;
+  --bg-card-active: linear-gradient(165deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 251, 238, 0.96) 100%);
+  --bg-stage: rgba(235, 240, 234, 0.75);
+  --bg-tile: rgba(255, 255, 255, 0.86);
+  --bg-tile-hover: #FFFFFF;
+  --bg-glass: rgba(255, 255, 255, 0.88);
+  --bg-pill-track: rgba(15, 23, 42, 0.06);
+  --bg-pill-active: linear-gradient(180deg, #FFFFFF 0%, #F7FAF3 100%);
+  --bg-input: rgba(15, 23, 42, 0.045);
+
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-card: rgba(15, 23, 42, 0.095);
+  --border-active-court: rgba(101, 163, 13, 0.44);
+  --specular-top: rgba(255, 255, 255, 0.96);
+  --specular-lime: rgba(132, 204, 22, 0.42);
+
+  --text-primary: #101722;
+  --text-secondary: #475569;
+  --text-muted: #6E7B8F;
+  --text-on-accent: #111D07;
+
+  --accent-lime: #4D7C0F;
+  --accent-lime-soft: rgba(132, 204, 22, 0.14);
+  --accent-lime-border: rgba(101, 163, 13, 0.36);
+  --accent-cta: linear-gradient(135deg, #CCF553 0%, #98D622 100%);
+  --accent-cta-shadow: 0 10px 24px -10px rgba(101, 163, 13, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.74);
+
+  --male: #0284C7;
+  --male-glow: rgba(2, 132, 199, 0.22);
+  --female: #E11D48;
+  --female-glow: rgba(225, 29, 72, 0.22);
+  --live: #E11D48;
+  --live-soft: rgba(225, 29, 72, 0.10);
+  --amber: #B45309;
+  --amber-soft: rgba(245, 158, 11, 0.14);
+  --amber-border: rgba(217, 119, 6, 0.32);
+
+  --shadow-card: 0 14px 34px -16px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.05);
+  --shadow-dock: 0 14px 36px -10px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.07);
+  --net-line: rgba(101, 163, 13, 0.32);
+
+  --ambient-top: radial-gradient(ellipse 90% 34% at 50% -6%, rgba(163, 230, 53, 0.22) 0%, rgba(163, 230, 53, 0.04) 48%, transparent 76%);
+  --ambient-tech-1: radial-gradient(circle 280px at 90% 24%, rgba(56, 189, 248, 0.08) 0%, transparent 65%);
+  --ambient-tech-2: radial-gradient(circle 260px at 8% 72%, rgba(163, 230, 53, 0.08) 0%, transparent 65%);
+
+  color-scheme: light;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #020617;
-  color: #f8fafc;
+  font-family: var(--font-sans);
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 240ms var(--ease-smooth), color 240ms var(--ease-smooth);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   APP SHELL & ATMOSPHERIC DEPTH
+   ============================================================ */
+.vo-app-shell {
+  position: relative;
+  min-height: 100vh;
+  background-color: var(--bg-canvas);
+  background-image: var(--ambient-top), var(--ambient-tech-1), var(--ambient-tech-2);
+  background-attachment: fixed;
+  color: var(--text-primary);
+}
+
+.vo-app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+.vo-header {
+  background: var(--bg-glass);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ============================================================
+   GLASS CARDS, TILES & SPECULAR DEPTH
+   ============================================================ */
+.vo-glass-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--shadow-card), inset 0 1px 0 var(--specular-top);
+  backdrop-filter: blur(22px) saturate(130%);
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+}
+
+.vo-glass-card-active {
+  position: relative;
+  background: var(--bg-card-active);
+  border: 1px solid var(--border-active-court);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 var(--specular-lime),
+    0 0 0 1px rgba(196, 242, 89, 0.05);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+/* Clean crisp 1.5px lime top sheen — ZERO bleed-through behind frosted glass! */
+.vo-glass-card-active::after,
+.vo-lime-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14%;
+  right: 14%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--accent-lime), transparent);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.vo-stage {
+  background: var(--bg-stage);
+  border: 1px solid var(--border-subtle);
+}
+
+.vo-tile {
+  position: relative;
+  background: var(--bg-tile);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 var(--specular-top);
+  transition: transform 160ms var(--ease-spring), background 180ms, border-color 180ms;
+}
+
+.vo-tile:hover {
+  background: var(--bg-tile-hover);
+  border-color: var(--border-card);
+}
+
+/* 3px Glowing Gender Left Bar (Ảnh 1 Signature) */
+.vo-gender-bar-m::before,
+.vo-gender-bar-f::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  pointer-events: none;
+}
+
+.vo-gender-bar-m::before {
+  background: var(--male);
+  box-shadow: 0 0 10px var(--male-glow);
+}
+
+.vo-gender-bar-f::before {
+  background: var(--female);
+  box-shadow: 0 0 10px var(--female-glow);
+}
+
+/* Subtle Badminton Net Center Line */
+.vo-court-net {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.vo-court-net::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--net-line) 0px,
+    var(--net-line) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+/* Primary One-Handed Glossy Volt Lime CTA (Ảnh 3) */
+.vo-cta-lime {
+  background: var(--accent-cta);
+  color: var(--text-on-accent);
+  box-shadow: var(--accent-cta-shadow);
+  transition: transform 150ms var(--ease-spring), filter 180ms, opacity 180ms;
+}
+
+.vo-cta-lime:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.vo-cta-lime:active:not(:disabled) {
+  transform: scale(0.975);
+}
+
+.vo-cta-lime:disabled {
+  background: var(--bg-pill-track);
+  color: var(--text-muted);
+  box-shadow: none;
+  border: 1px solid var(--border-subtle);
+}
+
+.vo-btn-subtle {
+  background: var(--bg-tile);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  box-shadow: inset 0 1px 0 var(--specular-top);
+  transition: transform 150ms var(--ease-spring), background 160ms, color 160ms, border-color 160ms;
+}
+
+.vo-btn-subtle:hover:not(:disabled) {
+  background: var(--bg-tile-hover);
+  border-color: var(--border-card);
+  color: var(--text-primary);
+}
+
+.vo-btn-subtle:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+/* ============================================================
+   LUCIAN SLIDING GLASS PILL (Court Switcher & Floating Dock)
+   ============================================================ */
+.vo-sliding-track {
+  position: relative;
+  background: var(--bg-pill-track);
+  border: 1px solid var(--border-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+.vo-sliding-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border-radius: 12px;
+  background: var(--bg-pill-active);
+  border: 1px solid var(--accent-lime-border);
+  box-shadow:
+    inset 0 1px 0 var(--specular-top),
+    0 6px 18px -8px rgba(196, 242, 89, 0.35);
+  transition: transform 320ms var(--ease-spring), width 320ms var(--ease-spring);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.vo-dock {
+  background: var(--bg-glass);
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--shadow-dock), inset 0 1px 0 var(--specular-top);
+}
+
+.vo-dock-pill {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-radius: 18px;
+  background: var(--bg-pill-active);
+  border: 1px solid var(--accent-lime-border);
+  box-shadow:
+    inset 0 1px 0 var(--specular-top),
+    0 8px 20px -10px rgba(196, 242, 89, 0.42);
+  transition: transform 340ms var(--ease-spring), width 340ms var(--ease-spring);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.vo-dock-pill::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 28%;
+  right: 28%;
+  height: 2.5px;
+  border-radius: 999px;
+  background: var(--accent-lime);
+  box-shadow: 0 0 10px var(--accent-lime);
+}
+
+/* Smooth Tab Content Entrance */
+@keyframes voTabEnter {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.994);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.vo-tab-enter {
+  animation: voTabEnter 220ms var(--ease-smooth) both;
+}
+
+/* Hide scrollbars cleanly */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.safe-area-bottom {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+/* ============================================================
+   LIGHT MODE ADAPTATION FOR LEGACY SLATE SURFACES (Modals/Forms/Tables)
+   Ensures Light Mode toggle looks clean on EVERY tab & modal
+   ============================================================ */
+.light .bg-slate-950,
+.light .bg-slate-950\/80,
+.light .bg-slate-950\/70,
+.light .bg-slate-950\/60,
+.light .bg-slate-950\/40 {
+  background-color: rgba(235, 240, 234, 0.85) !important;
+}
+
+.light .bg-slate-900,
+.light .bg-slate-900\/95,
+.light .bg-slate-900\/90,
+.light .bg-slate-900\/80,
+.light .bg-slate-900\/60,
+.light .bg-slate-900\/40 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.light .bg-slate-800,
+.light .bg-slate-800\/90,
+.light .bg-slate-800\/80,
+.light .bg-slate-800\/60 {
+  background-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+.light .border-slate-800,
+.light .border-slate-800\/80,
+.light .border-slate-800\/60,
+.light .border-slate-700,
+.light .border-slate-700\/80 {
+  border-color: rgba(15, 23, 42, 0.10) !important;
+}
+
+.light .text-slate-100,
+.light .text-slate-200,
+.light .text-white {
+  color: #101722 !important;
+}
+
+.light .text-slate-300 {
+  color: #334155 !important;
+}
+
+.light .text-slate-400 {
+  color: #526074 !important;
+}
+
+.light .text-slate-500 {
+  color: #6E7B8F !important;
+}
+
+.light .bg-emerald-600.text-white,
+.light .bg-indigo-600.text-white,
+.light .bg-amber-600.text-white,
+.light .bg-rose-600.text-white {
+  color: #FFFFFF !important;
+}
+
+.light .text-emerald-400,
+.light .text-emerald-300 {
+  color: #4D7C0F !important;
+}
+
+.light .bg-emerald-950,
+.light .bg-emerald-950\/80,
+.light .bg-emerald-950\/60,
+.light .bg-emerald-950\/40,
+.light .bg-emerald-950\/20 {
+  background-color: rgba(132, 204, 22, 0.14) !important;
+}
+
+.light .bg-indigo-950\/90,
+.light .bg-indigo-950\/80,
+.light .bg-indigo-950\/60 {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+
+.light .text-indigo-200,
+.light .text-indigo-300 {
+  color: #3730A3 !important;
+}
+
+.light .bg-amber-950\/80,
+.light .bg-amber-950\/70,
+.light .bg-amber-950\/50,
+.light .bg-amber-950\/40 {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+}
+
+.light .text-amber-200,
+.light .text-amber-300,
+.light .text-amber-400 {
+  color: #B45309 !important;
+}
+
+.light .bg-rose-950,
+.light .bg-rose-950\/80,
+.light .bg-rose-950\/40 {
+  background-color: rgba(225, 29, 72, 0.10) !important;
+}
+
+.light .text-rose-200,
+.light .text-rose-300 {
+  color: #BE123C !important;
+}
+
+.light .bg-sky-950,
+.light .bg-sky-950\/60 {
+  background-color: rgba(2, 132, 199, 0.10) !important;
+}
+
+.light .text-sky-300 {
+  color: #0369A1 !important;
+}
+
+.light .bg-pink-950 {
+  background-color: rgba(225, 29, 72, 0.10) !important;
+}
+
+.light .text-pink-300 {
+  color: #BE123C !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

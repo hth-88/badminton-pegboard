@@ -24,6 +24,7 @@ interface EquityTableProps {
   history?: MatchHistory[];
   maleBonus?: number;
   isViewer?: boolean;
+  hideRankAdvisor?: boolean;
   onApplyRank?: (playerId: string, rank: BadmintonRank) => void;
 }
 
@@ -33,6 +34,7 @@ export const EquityTable: React.FC<EquityTableProps> = ({
   history,
   maleBonus = 1.5,
   isViewer = false,
+  hideRankAdvisor = false,
   onApplyRank,
 }) => {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
@@ -369,7 +371,7 @@ export const EquityTable: React.FC<EquityTableProps> = ({
       </div>
 
       {/* 4. PHÂN TÍCH TRÌNH ĐỘ & AI GEMINI (CHỈ CHỦ SÂN, ẨN TUYỆT ĐỐI VỚI VIEWER) */}
-      {!isViewer && onApplyRank && history && (
+      {!hideRankAdvisor && !isViewer && onApplyRank && history && (
         <RankAdvisorPanel
           players={players}
           history={history}

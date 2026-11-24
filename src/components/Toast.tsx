@@ -27,14 +27,14 @@ export const InfoToast: React.FC<InfoToastProps> = ({
   }, [durationMs, onClose]);
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+    <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
       <div
-        className={`border rounded-2xl shadow-2xl p-3.5 flex items-center justify-between gap-3 text-slate-100 ${
+        className={`vo-glass-card rounded-2xl shadow-2xl p-3.5 flex items-center justify-between gap-3 ${
           type === 'warning'
-            ? 'bg-amber-950/95 border-amber-500/80 text-amber-100'
+            ? 'border-amber-500/70 text-amber-100'
             : type === 'error'
-              ? 'bg-rose-950/95 border-rose-500/80 text-rose-100'
-              : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              ? 'border-rose-500/70 text-rose-100'
+              : ''
         }`}
       >
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
@@ -77,11 +77,11 @@ export const UndoToast: React.FC<ToastProps> = ({
   }, [durationMs, onClose]);
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden p-3.5 flex items-center justify-between gap-3 text-slate-100">
+    <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+      <div className="vo-glass-card rounded-2xl shadow-2xl overflow-hidden p-3.5 flex items-center justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate text-slate-100">{message}</p>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{message}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
             Bấm Hoàn tác trong {Math.ceil((progress / 100) * (durationMs / 1000))}s
           </p>
         </div>
@@ -92,7 +92,7 @@ export const UndoToast: React.FC<ToastProps> = ({
               onUndo();
               onClose();
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition"
+            className="vo-cta-lime flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Hoàn tác</span>
@@ -100,17 +100,17 @@ export const UndoToast: React.FC<ToastProps> = ({
           <button
             onClick={onClose}
             aria-label="Đóng thông báo"
-            className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition"
+            className="vo-btn-subtle p-1.5 rounded-lg"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       </div>
       {/* Progress bar */}
-      <div className="h-1 bg-slate-800 rounded-b-2xl overflow-hidden -mt-1 mx-1">
+      <div className="h-1 bg-slate-800/80 rounded-b-2xl overflow-hidden -mt-1 mx-2">
         <div
-          className="h-full bg-emerald-500 transition-all duration-75"
-          style={{ width: `${progress}%` }}
+          className="h-full transition-all duration-75"
+          style={{ width: `${progress}%`, background: 'var(--accent-cta)' }}
         />
       </div>
     </div>

@@ -29,9 +29,16 @@ export function useTheme() {
       if (isDark) {
         root.classList.add('dark');
         root.classList.remove('light');
+        root.dataset.theme = 'dark';
       } else {
         root.classList.remove('dark');
         root.classList.add('light');
+        root.dataset.theme = 'light';
+      }
+
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) {
+        metaTheme.setAttribute('content', isDark ? '#080A0F' : '#F2F5F0');
       }
     };
 
@@ -46,4 +53,3 @@ export function useTheme() {
 
   return { theme, setTheme };
 }
-
