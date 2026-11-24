@@ -604,4 +604,47 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
     expect(s5.courts[0].nextUp.slots).toEqual(['p1', 'p3']);
     expect(s5.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
   });
+
+  it('12. Mục A6: REARRANGE_NEXT_UP (ROTATE & BALANCE) giữ đúng nhãn MANUAL/AUTO theo từng người chơi', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'P1', 'M', 'xs'),
+      makePlayer('p2', 'P2', 'M', 'tb'),
+      makePlayer('p3', 'P3', 'M', 'yeu'),
+      makePlayer('p4', 'P4', 'M', 'tb'),
+    ];
+    state.courts[0].nextUp = {
+      type: 'DOUBLES',
+      slots: ['p1', 'p2', 'p3', 'p4'],
+      slotSource: ['MANUAL', 'AUTO', 'AUTO', 'AUTO'],
+    };
+
+    // ROTATE -> thế 1: [p1, p3, p2, p4] -> p1 ở slot 0 vẫn MANUAL
+    state = badmintonReducer(state, {
+      type: 'REARRANGE_NEXT_UP',
+      payload: { courtId: 'court-1', mode: 'ROTATE' },
+    });
+    const idxP1AfterRotate1 = state.courts[0].nextUp.slots.indexOf('p1');
+    expect(state.courts[0].nextUp.slotSource[idxP1AfterRotate1]).toBe('MANUAL');
+    state.courts[0].nextUp.slots.forEach((pid, idx) => {
+      if (pid !== 'p1') expect(state.courts[0].nextUp.slotSource[idx]).toBe('AUTO');
+    });
+
+    // Đưa p2 thành MANUAL rồi ROTATE & BALANCE -> nhãn MANUAL đi theo cả p1 và p2
+    const idxP2 = state.courts[0].nextUp.slots.indexOf('p2');
+    state.courts[0].nextUp.slotSource[idxP2] = 'MANUAL';
+
+    state = badmintonReducer(state, {
+      type: 'REARRANGE_NEXT_UP',
+      payload: { courtId: 'court-1', mode: 'BALANCE' },
+    });
+    state.courts[0].nextUp.slots.forEach((pid, idx) => {
+      if (pid === 'p1' || pid === 'p2') {
+        expect(state.courts[0].nextUp.slotSource[idx]).toBe('MANUAL');
+      } else {
+        expect(state.courts[0].nextUp.slotSource[idx]).toBe('AUTO');
+      }
+    });
+  });
 });

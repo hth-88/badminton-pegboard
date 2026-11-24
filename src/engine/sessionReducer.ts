@@ -901,6 +901,16 @@ export function badmintonReducer(
         );
       }
 
+      const sourceByPlayer = new Map<string, 'AUTO' | 'MANUAL' | null>();
+      targetCourt.nextUp.slots.forEach((pid, idx) => {
+        if (pid) {
+          sourceByPlayer.set(pid, targetCourt.nextUp.slotSource?.[idx] ?? 'AUTO');
+        }
+      });
+      const newSlotSource = newSlots.map((pid) =>
+        pid ? (sourceByPlayer.get(pid) ?? 'AUTO') : null
+      );
+
       const updatedCourts = baseNextState.courts.map((c) => {
         if (c.id !== courtId) return c;
         return {
@@ -908,6 +918,7 @@ export function badmintonReducer(
           nextUp: {
             ...c.nextUp,
             slots: newSlots,
+            slotSource: newSlotSource,
           },
         };
       });
