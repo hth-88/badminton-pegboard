@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { suggestNextUpForCourt } from '../matchmaker';
-import { createEmptyNextUp } from '../nextUp';
+import { createEmptyNextUp, isNextUpComplete, isNextUpEmpty } from '../nextUp';
 import { describeLineup } from '../validateLineup';
 import { stepRankUp, stepRankDown, ORDERED_RANKS } from '../skillConfig';
 import type {
@@ -10,6 +10,8 @@ import type {
   Lineup,
 } from '../../types/badminton';
 import {
+  badmintonReducer,
+  createDefaultCourts,
   createInitialSessionState,
   DEFAULT_SETTINGS,
 } from '../sessionReducer';
@@ -151,5 +153,213 @@ describe('Tính năng Dự kiến Next Up (Mục 1) & Tác dụng tức thì Mal
       r = stepRankUp(r);
       expect(r).toBe(ORDERED_RANKS[i + 1]);
     }
+  });
+
+  it('Mục B1: 8 người / 2 sân SHARED_POOL (0 người chờ) -> START_MATCH sân 2 không tự điền lại 4 người cũ, cả 2 sân đều có nextUp trống', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(2);
+    state.settings.courtMode = 'SHARED_POOL';
+    state.players = Array.from({ length: 8 }, (_, i) =>
+      createMockPlayer(`p${i + 1}`, `Player ${i + 1}`)
+    );
+
+    // Sân 1 bắt đầu trận với p1..p4 -> ngoài sân còn p5..p8 nên tự gợi ý p5..p8 cho Sân 1
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-1',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'MANUAL', p2: 'MANUAL', p3: 'MANUAL', p4: 'MANUAL' },
+        },
+        now: 1000,
+      },
+    });
+    expect(isNextUpComplete(state.courts[0].nextUp)).toBe(true);
+
+    // Sân 2 bắt đầu trận với p5..p8 -> lúc này 0 người chờ, 2 sân đang đánh -> Sân 2 phải để trống nextUp (không tự nhốt 4 người cũ), đồng thời Sân 1 bị dọn người đã vào Sân 2
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-2',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p5', 'p6'],
+          team2: ['p7', 'p8'],
+          slotSource: { p5: 'MANUAL', p6: 'MANUAL', p7: 'MANUAL', p8: 'MANUAL' },
+        },
+        now: 2000,
+      },
+    });
+
+    expect(isNextUpEmpty(state.courts[0].nextUp)).toBe(true);
+    expect(isNextUpEmpty(state.courts[1].nextUp)).toBe(true);
+  });
+
+  it('Mục B1: sau khi cả 2 sân END_MATCH (8 người rảnh) -> SUGGEST_NEXT_UP vẫn gợi ý bình thường và có thể trộn người giữa 2 sân', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(2);
+    state.settings.courtMode = 'SHARED_POOL';
+    state.players = Array.from({ length: 8 }, (_, i) =>
+      createMockPlayer(`p${i + 1}`, `Player ${i + 1}`)
+    );
+
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-1',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'MANUAL', p2: 'MANUAL', p3: 'MANUAL', p4: 'MANUAL' },
+        },
+        now: 1000,
+      },
+    });
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-2',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p5', 'p6'],
+          team2: ['p7', 'p8'],
+          slotSource: { p5: 'MANUAL', p6: 'MANUAL', p7: 'MANUAL', p8: 'MANUAL' },
+        },
+        now: 2000,
+      },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'END_MATCH',
+      payload: { courtId: 'court-1', now: 10000 },
+    });
+    state = badmintonReducer(state, {
+      type: 'END_MATCH',
+      payload: { courtId: 'court-2', now: 11000 },
+    });
+
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 12000 },
+    });
+
+    expect(isNextUpComplete(state.courts[0].nextUp)).toBe(true);
+  });
+
+  it('Mục B1 ngoại lệ: 4 người / 1 sân đang chạy (kể cả khi sân 2 active nhưng trống) HOẶC chế độ SPLIT_COURT 8 người / 2 sân -> START_MATCH vẫn tự điền nextUp dự kiến như cũ', () => {
+    // Ngoại lệ 1: 4 người trên Sân 1, Sân 2 active nhưng trống
+    let stateSinglePlaying = createInitialSessionState();
+    stateSinglePlaying.courts = createDefaultCourts(2);
+    stateSinglePlaying.settings.courtMode = 'SHARED_POOL';
+    stateSinglePlaying.players = Array.from({ length: 4 }, (_, i) =>
+      createMockPlayer(`p${i + 1}`, `Player ${i + 1}`)
+    );
+
+    stateSinglePlaying = badmintonReducer(stateSinglePlaying, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-1',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'MANUAL', p2: 'MANUAL', p3: 'MANUAL', p4: 'MANUAL' },
+        },
+        now: 1000,
+      },
+    });
+    expect(isNextUpComplete(stateSinglePlaying.courts[0].nextUp)).toBe(true);
+
+    // Ngoại lệ 2: SPLIT_COURT 8 người / 2 sân
+    let stateSplit = createInitialSessionState();
+    stateSplit.courts = createDefaultCourts(2);
+    stateSplit.settings.courtMode = 'SPLIT_COURT';
+    stateSplit.players = Array.from({ length: 8 }, (_, i) => ({
+      ...createMockPlayer(`p${i + 1}`, `Player ${i + 1}`),
+      assignedPool: i < 4 ? 'court-1' : 'court-2',
+    }));
+
+    stateSplit = badmintonReducer(stateSplit, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-1',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'MANUAL', p2: 'MANUAL', p3: 'MANUAL', p4: 'MANUAL' },
+        },
+        now: 1000,
+      },
+    });
+    stateSplit = badmintonReducer(stateSplit, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-2',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p5', 'p6'],
+          team2: ['p7', 'p8'],
+          slotSource: { p5: 'MANUAL', p6: 'MANUAL', p7: 'MANUAL', p8: 'MANUAL' },
+        },
+        now: 2000,
+      },
+    });
+
+    expect(isNextUpComplete(stateSplit.courts[0].nextUp)).toBe(true);
+    expect(isNextUpComplete(stateSplit.courts[1].nextUp)).toBe(true);
+  });
+
+  it('Mục B1 thao tác tay: khi cả 2 sân SHARED_POOL đang đánh (0 người chờ), Host bấm tay SUGGEST_NEXT_UP trên sân 1 vẫn gợi ý đảo cặp 4 người sân 1 được', () => {
+    let state = createInitialSessionState();
+    state.courts = createDefaultCourts(2);
+    state.settings.courtMode = 'SHARED_POOL';
+    state.players = Array.from({ length: 8 }, (_, i) =>
+      createMockPlayer(`p${i + 1}`, `Player ${i + 1}`)
+    );
+
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-1',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p1', 'p2'],
+          team2: ['p3', 'p4'],
+          slotSource: { p1: 'MANUAL', p2: 'MANUAL', p3: 'MANUAL', p4: 'MANUAL' },
+        },
+        now: 1000,
+      },
+    });
+    state = badmintonReducer(state, {
+      type: 'START_MATCH',
+      payload: {
+        courtId: 'court-2',
+        lineup: {
+          type: 'DOUBLES',
+          team1: ['p5', 'p6'],
+          team2: ['p7', 'p8'],
+          slotSource: { p5: 'MANUAL', p6: 'MANUAL', p7: 'MANUAL', p8: 'MANUAL' },
+        },
+        now: 2000,
+      },
+    });
+
+    expect(isNextUpEmpty(state.courts[0].nextUp)).toBe(true);
+
+    // Host bấm tay "Gợi ý kèo" trên Sân 1
+    state = badmintonReducer(state, {
+      type: 'SUGGEST_NEXT_UP',
+      payload: { courtId: 'court-1', now: 3000 },
+    });
+
+    expect(isNextUpComplete(state.courts[0].nextUp)).toBe(true);
+    expect(new Set(state.courts[0].nextUp.slots)).toEqual(new Set(['p1', 'p2', 'p3', 'p4']));
+    // Sân 2 vẫn giữ nguyên trống (tuân thủ Rule 2)
+    expect(isNextUpEmpty(state.courts[1].nextUp)).toBe(true);
   });
 });

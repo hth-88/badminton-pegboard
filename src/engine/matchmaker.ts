@@ -736,6 +736,10 @@ function buildProjectedEnvironment(
   };
 }
 
+export interface SuggestNextUpOptions {
+  isAutoSuggest?: boolean;
+}
+
 /**
  * Gợi ý Next Up cho duy nhất 1 sân cụ thể (P3).
  * Chỉ tính cho ĐÚNG sân X, không ảnh hưởng hay ghi đè sân khác.
@@ -743,7 +747,8 @@ function buildProjectedEnvironment(
 export function suggestNextUpForCourt(
   state: BadmintonSessionState,
   courtId: string,
-  now: number
+  now: number,
+  options?: SuggestNextUpOptions
 ): NextUpDraft | null {
   const court = state.courts.find((c) => c.id === courtId);
   if (!court || !court.isActive) return null;
@@ -790,6 +795,18 @@ export function suggestNextUpForCourt(
 
   const sortedSecondary = sortPlayersByWaitPriority(secondaryAvailable);
   const totalFreeCount = primaryAvailable.length + sortedSecondary.length;
+  const playingCourtsCount = state.courts.filter(
+    (c) => c.isActive && c.currentMatch !== null
+  ).length;
+  if (
+    options?.isAutoSuggest &&
+    state.settings.courtMode === 'SHARED_POOL' &&
+    playingCourtsCount > 1 &&
+    totalFreeCount === 0
+  ) {
+    return null;
+  }
+
   let matchType: MatchType = resolveTargetMatchType(court, state, totalFreeCount, now);
 
   const buildProposalsForType = (targetType: MatchType): MatchProposal[] => {

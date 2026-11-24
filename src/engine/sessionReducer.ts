@@ -358,7 +358,7 @@ export function applyStartMatch(
   };
 
   // Tự động gợi ý đúng 1 lần cho sân đó (dùng trạng thái mới vừa chuyển). Cấm đụng sân khác.
-  const autoNextUp = suggestNextUpForCourt(nextState, courtId, now);
+  const autoNextUp = suggestNextUpForCourt(nextState, courtId, now, { isAutoSuggest: true });
   if (autoNextUp) {
     nextState = {
       ...nextState,
@@ -1549,7 +1549,9 @@ export function badmintonReducer(
       };
 
       if (isActivating) {
-        const draft = suggestNextUpForCourt(nextState, courtId, action.payload.now);
+        const draft = suggestNextUpForCourt(nextState, courtId, action.payload.now, {
+          isAutoSuggest: true,
+        });
         if (draft) {
           nextState = {
             ...nextState,
