@@ -1680,19 +1680,30 @@ export function badmintonReducer(
       const match = baseNextState.history[matchIndex];
       const matchPlayerIds = new Set([...match.team1, ...match.team2]);
 
+      const remainingHistory = baseNextState.history.filter((h) => h.id !== matchId);
+      const updatedStats = buildStatsFromHistory(remainingHistory);
+
+      const maxEndedAtByPlayer = new Map<string, number>();
+      for (const h of remainingHistory) {
+        for (const pid of [...h.team1, ...h.team2]) {
+          const prev = maxEndedAtByPlayer.get(pid) ?? 0;
+          if (h.endedAt > prev) {
+            maxEndedAtByPlayer.set(pid, h.endedAt);
+          }
+        }
+      }
+
       const updatedPlayers = baseNextState.players.map((p) => {
         if (matchPlayerIds.has(p.id)) {
           return {
             ...p,
             gamesPlayed: Math.max(0, p.gamesPlayed - 1),
             singlesCount: match.type === 'SINGLES' ? Math.max(0, p.singlesCount - 1) : p.singlesCount,
+            lastPlayedAt: maxEndedAtByPlayer.get(p.id) ?? 0,
           };
         }
         return p;
       });
-
-      const remainingHistory = baseNextState.history.filter((h) => h.id !== matchId);
-      const updatedStats = buildStatsFromHistory(remainingHistory);
 
       return {
         ...baseNextState,

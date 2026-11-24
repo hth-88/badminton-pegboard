@@ -555,4 +555,49 @@ describe('Bước 1D – VÁ Reducer + Selector Hoàn Chỉnh', () => {
     ];
     expect(canSuggestNextUp(singlesState, 'court-1')).toBe(false);
   });
+
+  it('m) Mục B4: DELETE_HISTORY_MATCH tính lại lastPlayedAt từ lịch sử còn lại (hoặc 0 nếu hết trận)', () => {
+    const state = createInitialSessionState();
+    state.players = [
+      createMockPlayer('p1', 'P1', 'M', 'tb', { gamesPlayed: 2, singlesCount: 1, lastPlayedAt: 4000 }),
+      createMockPlayer('p2', 'P2', 'M', 'tb', { gamesPlayed: 2, singlesCount: 1, lastPlayedAt: 4000 }),
+      createMockPlayer('p3', 'P3', 'M', 'tb', { gamesPlayed: 1, lastPlayedAt: 4000 }),
+      createMockPlayer('p4', 'P4', 'M', 'tb', { gamesPlayed: 1, lastPlayedAt: 4000 }),
+    ];
+    state.history = [
+      {
+        id: 'm1',
+        courtId: 'court-1',
+        type: 'SINGLES',
+        team1: ['p1'],
+        team2: ['p2'],
+        slotSource: { p1: 'AUTO', p2: 'AUTO' },
+        startedAt: 1000,
+        endedAt: 2000,
+        durationMinutes: 15,
+      },
+      {
+        id: 'm2',
+        courtId: 'court-1',
+        type: 'DOUBLES',
+        team1: ['p1', 'p3'],
+        team2: ['p2', 'p4'],
+        slotSource: { p1: 'AUTO', p3: 'AUTO', p2: 'AUTO', p4: 'AUTO' },
+        startedAt: 3000,
+        endedAt: 4000,
+        durationMinutes: 15,
+      },
+    ];
+    state.stats = buildStatsFromHistory(state.history);
+
+    const res = badmintonReducer(state, {
+      type: 'DELETE_HISTORY_MATCH',
+      payload: { matchId: 'm2' },
+    });
+
+    expect(res.players.find((p) => p.id === 'p1')?.lastPlayedAt).toBe(2000);
+    expect(res.players.find((p) => p.id === 'p2')?.lastPlayedAt).toBe(2000);
+    expect(res.players.find((p) => p.id === 'p3')?.lastPlayedAt).toBe(0);
+    expect(res.players.find((p) => p.id === 'p4')?.lastPlayedAt).toBe(0);
+  });
 });
