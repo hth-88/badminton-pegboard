@@ -514,4 +514,51 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     expect(res.totalCollected).toBe(202000);
     expect(res.surplus).toBe(2000);
   });
+
+  it('17. Mục A3: ceilToNearest1000 không bị đội thêm 1.000đ do sai số IEEE-754 và không trả về -0', () => {
+    expect(ceilToNearest1000(60000.00000000001)).toBe(60000);
+    expect(ceilToNearest1000(50000.01)).toBe(51000);
+    const zeroRes = ceilToNearest1000(1e-9);
+    expect(zeroRes).toBe(0);
+    expect(Object.is(zeroRes, 0)).toBe(true);
+  });
+
+  it('18. Mục A3: GENDER_RATIO 60/40 với 3 Nam + 4 Nữ, tổng 340.000đ chia tròn 60.000đ / 40.000đ (không dư ảo 3.000đ)', () => {
+    const players = [
+      makePlayer('m1', 'Nam 1', 'M', 4),
+      makePlayer('m2', 'Nam 2', 'M', 4),
+      makePlayer('m3', 'Nam 3', 'M', 4),
+      makePlayer('f1', 'Nữ 1', 'F', 4),
+      makePlayer('f2', 'Nữ 2', 'F', 4),
+      makePlayer('f3', 'Nữ 3', 'F', 4),
+      makePlayer('f4', 'Nữ 4', 'F', 4),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'HOURLY',
+      courtHourlyRate: 160000,
+      courtHours: 1,
+      shuttleCostMode: 'BY_SHUTTLE',
+      shuttleCount: 6,
+      shuttlePrice: 30000,
+      extraCost: 0,
+      splitMode: 'GENDER_RATIO',
+      genderRatioMalePercent: 60,
+      genderRatioFemalePercent: 40,
+      discountUnderPlayed: false,
+    };
+
+    const res = calculateSettlement(players, settings);
+    expect(res.totalCost).toBe(340000);
+    for (const p of res.players) {
+      if (p.sex === 'M') {
+        expect(p.roundedAmount).toBe(60000);
+      } else {
+        expect(p.roundedAmount).toBe(40000);
+      }
+    }
+    expect(res.totalCollected).toBe(340000);
+    expect(res.surplus).toBe(0);
+  });
 });

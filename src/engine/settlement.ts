@@ -109,8 +109,8 @@ export interface SettlementCalculationResult {
  * Làm tròn lên đến 1.000đ gần nhất (Ceiling to nearest 1,000 VNĐ)
  */
 export function ceilToNearest1000(amount: number): number {
-  if (amount <= 0) return 0;
-  return Math.ceil(amount / 1000) * 1000;
+  if (amount <= 1e-6) return 0;
+  return Math.ceil((amount - 1e-6) / 1000) * 1000;
 }
 
 /**
@@ -293,7 +293,7 @@ export function calculateSettlement(
   } else {
     const sumWeights = Object.values(baseWeights).reduce((a, b) => a + b, 0);
     for (const p of payingPlayers) {
-      initialShares[p.id] = (baseWeights[p.id] / (sumWeights || 1)) * totalCost;
+      initialShares[p.id] = (baseWeights[p.id] * totalCost) / (sumWeights || 1);
     }
   }
 
