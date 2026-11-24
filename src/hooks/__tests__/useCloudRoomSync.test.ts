@@ -699,4 +699,154 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(appliedSnapshots[0].mixDebt.doubles).toBe(9);
   });
 
+  it('10. Mục A4: areSessionSnapshotsEqual phát hiện thay đổi sex, virtualGamesOffset, court.name, settings.weights và phần tử trong pairRules/history/readyQueue', () => {
+    const base = createInitialSessionState();
+    base.players = [
+      {
+        id: 'p1',
+        name: 'Nam 1',
+        sex: 'M',
+        rank: 'tb',
+        status: 'ACTIVE',
+        assignedPool: 'ALL',
+        gamesPlayed: 0,
+        virtualGamesOffset: 0,
+        waitStreak: 0,
+        lastPlayedAt: 0,
+        singlesCount: 0,
+        noSingles: false,
+        joinedAt: 0,
+      },
+      {
+        id: 'p2',
+        name: 'Nữ 1',
+        sex: 'F',
+        rank: 'tb',
+        status: 'ACTIVE',
+        assignedPool: 'ALL',
+        gamesPlayed: 0,
+        virtualGamesOffset: 0,
+        waitStreak: 0,
+        lastPlayedAt: 0,
+        singlesCount: 0,
+        noSingles: false,
+        joinedAt: 0,
+      },
+    ];
+    base.pairRules = [
+      { id: 'r1', playerAId: 'p1', playerBId: 'p2', type: 'LOCK_PARTNER' },
+    ];
+    base.history = [
+      {
+        id: 'h1',
+        courtId: 'court-1',
+        type: 'SINGLES',
+        team1: ['p1'],
+        team2: ['p2'],
+        slotSource: { p1: 'AUTO', p2: 'AUTO' },
+        startedAt: 1000,
+        endedAt: 2000,
+        durationMinutes: 10,
+      },
+    ];
+    base.readyQueue = [
+      {
+        id: 'q1',
+        courtId: 'court-1',
+        isLockedByHost: false,
+        createdAt: 1000,
+        lineup: {
+          type: 'SINGLES',
+          team1: ['p1'],
+          team2: ['p2'],
+          slotSource: { p1: 'AUTO', p2: 'AUTO' },
+        },
+      },
+    ];
+
+    expect(areSessionSnapshotsEqual(base, structuredClone(base))).toBe(true);
+
+    const v1 = structuredClone(base);
+    v1.players[0].sex = 'F';
+    expect(areSessionSnapshotsEqual(base, v1)).toBe(false);
+
+    const v2 = structuredClone(base);
+    v2.players[0].virtualGamesOffset = 2;
+    expect(areSessionSnapshotsEqual(base, v2)).toBe(false);
+
+    const v3 = structuredClone(base);
+    v3.courts[0].name = 'Sân VIP';
+    expect(areSessionSnapshotsEqual(base, v3)).toBe(false);
+
+    const v4 = structuredClone(base);
+    v4.settings.weights.skillBalanceMultiplier = 99;
+    expect(areSessionSnapshotsEqual(base, v4)).toBe(false);
+
+    const v5 = structuredClone(base);
+    v5.pairRules[0] = { id: 'r2', playerAId: 'p1', playerBId: 'p2', type: 'AVOID_PARTNER' };
+    expect(areSessionSnapshotsEqual(base, v5)).toBe(false);
+
+    const v6 = structuredClone(base);
+    v6.history[0].id = 'h2';
+    expect(areSessionSnapshotsEqual(base, v6)).toBe(false);
+
+    const v7 = structuredClone(base);
+    v7.readyQueue[0].courtId = 'court-2';
+    expect(areSessionSnapshotsEqual(base, v7)).toBe(false);
+  });
+
+  it('11. Mục A4: Co-Host đổi giới tính Nam/Nữ (player.sex) được phát hiện và đẩy lên Cloud qua upsertRoom', async () => {
+    const baseState = createInitialSessionState();
+    baseState.players = [
+      {
+        id: 'p1',
+        name: 'An',
+        sex: 'M',
+        rank: 'tb',
+        status: 'ACTIVE',
+        assignedPool: 'ALL',
+        gamesPlayed: 0,
+        virtualGamesOffset: 0,
+        waitStreak: 0,
+        lastPlayedAt: 0,
+        singlesCount: 0,
+        noSingles: false,
+        joinedAt: 0,
+      },
+    ];
+
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState });
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    mockUpsertRoom.mockClear();
+
+    const updatedState = structuredClone(baseState);
+    updatedState.players[0].sex = 'F';
+    harness.rerender({ state: updatedState });
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(mockUpsertRoom).toHaveBeenCalledTimes(1);
+    expect(mockUpsertRoom.mock.calls[0][0].session_data.players[0].sex).toBe('F');
+  });
 });

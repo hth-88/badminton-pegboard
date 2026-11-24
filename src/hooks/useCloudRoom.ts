@@ -47,7 +47,14 @@ export function areSessionSnapshotsEqual(
   for (let i = 0; i < a.courts.length; i++) {
     const cA = a.courts[i];
     const cB = b.courts[i];
-    if (cA.id !== cB.id || cA.isActive !== cB.isActive || cA.policy !== cB.policy) return false;
+    if (
+      cA.id !== cB.id ||
+      cA.name !== cB.name ||
+      cA.isActive !== cB.isActive ||
+      cA.policy !== cB.policy
+    ) {
+      return false;
+    }
     if (cA.forcedType !== cB.forcedType) return false;
     if (cA.suggestCursor !== cB.suggestCursor) return false;
 
@@ -81,9 +88,11 @@ export function areSessionSnapshotsEqual(
     if (
       pA.id !== pB.id ||
       pA.name !== pB.name ||
+      pA.sex !== pB.sex ||
       pA.status !== pB.status ||
       pA.rank !== pB.rank ||
       pA.gamesPlayed !== pB.gamesPlayed ||
+      pA.virtualGamesOffset !== pB.virtualGamesOffset ||
       pA.waitStreak !== pB.waitStreak ||
       pA.assignedPool !== pB.assignedPool ||
       pA.noSingles !== pB.noSingles
@@ -103,6 +112,70 @@ export function areSessionSnapshotsEqual(
     a.settings?.matchMix?.singles !== b.settings?.matchMix?.singles
   ) {
     return false;
+  }
+
+  // So sánh settings.weights
+  const wA = a.settings?.weights;
+  const wB = b.settings?.weights;
+  if (wA !== wB) {
+    if (!wA || !wB) return false;
+    const keysA = Object.keys(wA) as Array<keyof typeof wA>;
+    const keysB = Object.keys(wB) as Array<keyof typeof wB>;
+    if (keysA.length !== keysB.length) return false;
+    for (const k of keysA) {
+      if (wA[k] !== wB[k]) return false;
+    }
+  }
+
+  // So sánh nội dung pairRules
+  const rulesA = a.pairRules || [];
+  const rulesB = b.pairRules || [];
+  for (let i = 0; i < rulesA.length; i++) {
+    const rA = rulesA[i];
+    const rB = rulesB[i];
+    if (
+      rA.id !== rB.id ||
+      rA.playerAId !== rB.playerAId ||
+      rA.playerBId !== rB.playerBId ||
+      rA.type !== rB.type
+    ) {
+      return false;
+    }
+  }
+
+  // So sánh nội dung history
+  const histA = a.history || [];
+  const histB = b.history || [];
+  for (let i = 0; i < histA.length; i++) {
+    const hA = histA[i];
+    const hB = histB[i];
+    if (
+      hA.id !== hB.id ||
+      hA.courtId !== hB.courtId ||
+      hA.endedAt !== hB.endedAt ||
+      hA.team1?.join(',') !== hB.team1?.join(',') ||
+      hA.team2?.join(',') !== hB.team2?.join(',')
+    ) {
+      return false;
+    }
+  }
+
+  // So sánh nội dung readyQueue
+  const queueA = a.readyQueue || [];
+  const queueB = b.readyQueue || [];
+  for (let i = 0; i < queueA.length; i++) {
+    const qA = queueA[i];
+    const qB = queueB[i];
+    if (
+      qA.id !== qB.id ||
+      qA.courtId !== qB.courtId ||
+      qA.isLockedByHost !== qB.isLockedByHost ||
+      qA.lineup?.type !== qB.lineup?.type ||
+      qA.lineup?.team1?.join(',') !== qB.lineup?.team1?.join(',') ||
+      qA.lineup?.team2?.join(',') !== qB.lineup?.team2?.join(',')
+    ) {
+      return false;
+    }
   }
 
   return true;
