@@ -4,6 +4,7 @@ import type { BadmintonSessionState } from '../types/badminton';
 
 export const STORAGE_KEY_SUPABASE_CONFIG = 'badminton_supabase_config';
 export const STORAGE_KEY_CLOUD_ROOM = 'badminton_cloud_room';
+export const RECEIPT_STORAGE_BUCKET = 'payment-receipts';
 
 export interface SupabaseConfig {
   url: string;
@@ -298,5 +299,147 @@ export function subscribeToRoom(
       // Bỏ qua lỗi dọn dẹp
     }
   };
+}
+
+function sanitizeStorageSegment(raw: string, upper = false): string {
+  const base = upper ? raw.toUpperCase().trim() : raw.trim();
+  return base.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+/**
+ * Tải ảnh biên lai đã nén lên Supabase Storage (Nhóm 3)
+ */
+export async function uploadPaymentReceipt(
+  roomCode: string,
+  playerId: string,
+  imageBlob: Blob,
+  now: number = Date.now()
+): Promise<{ url: string | null; path: string | null; error: string | null }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { url: null, path: null, error: 'Chưa cấu hình Supabase URL & Anon Key' };
+  }
+
+  const cleanRoom = sanitizeStorageSegment(roomCode, true);
+  const cleanPlayer = sanitizeStorageSegment(playerId, false);
+  if (!cleanRoom || !cleanPlayer) {
+    return { url: null, path: null, error: 'Mã phòng hoặc mã người chơi không hợp lệ' };
+  }
+
+  const path = `${cleanRoom}/${cleanPlayer}_${now}.jpg`;
+  try {
+    const { error } = await supabase.storage
+      .from(RECEIPT_STORAGE_BUCKET)
+      .upload(path, imageBlob, {
+        contentType: 'image/jpeg',
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+    if (error) {
+      return { url: null, path: null, error: error.message };
+    }
+
+    const { data } = supabase.storage
+      .from(RECEIPT_STORAGE_BUCKET)
+      .getPublicUrl(path);
+
+    if (!data?.publicUrl) {
+      return { url: null, path: null, error: 'Không lấy được đường dẫn ảnh công khai' };
+    }
+
+    return { url: data.publicUrl, path, error: null };
+  } catch (err: any) {
+    return {
+      url: null,
+      path: null,
+      error: err?.message || 'Lỗi khi tải ảnh biên lai lên Supabase Storage',
+    };
+  }
+}
+
+/**
+ * Xóa các file ảnh biên lai cụ thể trên Supabase Storage
+ */
+export async function deleteReceiptFiles(
+  paths: string[]
+): Promise<{ error: string | null }> {
+  const validPaths = (paths || []).map((p) => p?.trim()).filter(Boolean) as string[];
+  if (validPaths.length === 0) {
+    return { error: null };
+  }
+
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { error: null };
+  }
+
+  try {
+    const { error } = await supabase.storage
+      .from(RECEIPT_STORAGE_BUCKET)
+      .remove(validPaths);
+
+    if (error) {
+      return { error: error.message };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: err?.message || 'Lỗi khi xóa ảnh biên lai trên Supabase Storage' };
+  }
+}
+
+/**
+ * Dọn sạch toàn bộ ảnh biên lai của một phòng trên Supabase Storage
+ */
+export async function deleteRoomReceipts(
+  roomCode: string
+): Promise<{ deletedCount: number; error: string | null }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { deletedCount: 0, error: null };
+  }
+
+  const cleanRoom = sanitizeStorageSegment(roomCode, true);
+  if (!cleanRoom) {
+    return { deletedCount: 0, error: null };
+  }
+
+  try {
+    const { data: files, error: listError } = await supabase.storage
+      .from(RECEIPT_STORAGE_BUCKET)
+      .list(cleanRoom, { limit: 200 });
+
+    if (listError) {
+      return { deletedCount: 0, error: listError.message };
+    }
+
+    if (!files || files.length === 0) {
+      return { deletedCount: 0, error: null };
+    }
+
+    const paths = files
+      .map((f) => f?.name)
+      .filter(Boolean)
+      .map((name) => `${cleanRoom}/${name}`);
+
+    if (paths.length === 0) {
+      return { deletedCount: 0, error: null };
+    }
+
+    const { error: removeError } = await supabase.storage
+      .from(RECEIPT_STORAGE_BUCKET)
+      .remove(paths);
+
+    if (removeError) {
+      return { deletedCount: 0, error: removeError.message };
+    }
+
+    return { deletedCount: paths.length, error: null };
+  } catch (err: any) {
+    return {
+      deletedCount: 0,
+      error: err?.message || 'Lỗi khi dọn ảnh biên lai của phòng',
+    };
+  }
 }
 

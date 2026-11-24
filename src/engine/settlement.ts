@@ -8,12 +8,16 @@ export type ZeroGamesPolicy = 'FREE' | 'FULL';
 
 export const MAX_DEFICIT_SURCHARGE_RATE = 0.3;
 
-export type PaymentStatus = 'UNPAID' | 'PENDING_REVIEW' | 'PAID';
+export type PaymentStatus = 'UNPAID' | 'PENDING_REVIEW' | 'PAID' | 'REJECTED';
 
 export interface PlayerPaymentRecord {
   status: PaymentStatus;
   reportedAt?: number;
   approvedAt?: number;
+  rejectedAt?: number;
+  rejectionReason?: string;
+  receiptUrl?: string;
+  receiptPath?: string;
 }
 
 export interface CloudSettlementData {
@@ -51,7 +55,13 @@ export function normalizeCloudSettlementData(raw: unknown): CloudSettlementData 
     for (const [playerId, val] of Object.entries(obj.payments as Record<string, unknown>)) {
       if (!playerId || !val || typeof val !== 'object' || Array.isArray(val)) continue;
       const rec = val as Record<string, unknown>;
-      if (rec.status !== 'PENDING_REVIEW' && rec.status !== 'PAID') continue;
+      if (
+        rec.status !== 'PENDING_REVIEW' &&
+        rec.status !== 'PAID' &&
+        rec.status !== 'REJECTED'
+      ) {
+        continue;
+      }
 
       const normalizedRec: PlayerPaymentRecord = { status: rec.status };
       if (typeof rec.reportedAt === 'number' && Number.isFinite(rec.reportedAt)) {
@@ -59,6 +69,24 @@ export function normalizeCloudSettlementData(raw: unknown): CloudSettlementData 
       }
       if (typeof rec.approvedAt === 'number' && Number.isFinite(rec.approvedAt)) {
         normalizedRec.approvedAt = rec.approvedAt;
+      }
+      if (typeof rec.rejectedAt === 'number' && Number.isFinite(rec.rejectedAt)) {
+        normalizedRec.rejectedAt = rec.rejectedAt;
+      }
+      if (typeof rec.rejectionReason === 'string') {
+        const cleanReason = rec.rejectionReason.trim().slice(0, 160);
+        if (cleanReason) {
+          normalizedRec.rejectionReason = cleanReason;
+        }
+      }
+      if (
+        typeof rec.receiptUrl === 'string' &&
+        /^https?:\/\//i.test(rec.receiptUrl.trim())
+      ) {
+        normalizedRec.receiptUrl = rec.receiptUrl.trim();
+      }
+      if (typeof rec.receiptPath === 'string' && rec.receiptPath.trim()) {
+        normalizedRec.receiptPath = rec.receiptPath.trim();
       }
       payments[playerId] = normalizedRec;
     }
@@ -92,7 +120,12 @@ export function areSettlementDataEqual(
     const res: Record<string, PlayerPaymentRecord> = {};
     if (!payments) return res;
     for (const [pid, rec] of Object.entries(payments)) {
-      if (rec && (rec.status === 'PENDING_REVIEW' || rec.status === 'PAID')) {
+      if (
+        rec &&
+        (rec.status === 'PENDING_REVIEW' ||
+          rec.status === 'PAID' ||
+          rec.status === 'REJECTED')
+      ) {
         res[pid] = rec;
       }
     }
@@ -106,7 +139,18 @@ export function areSettlementDataEqual(
   if (keysA.length !== keysB.length) return false;
 
   for (const k of keysA) {
-    if (!pB[k] || pA[k].status !== pB[k].status) {
+    const recA = pA[k];
+    const recB = pB[k];
+    if (!recB || recA.status !== recB.status) {
+      return false;
+    }
+    if ((recA.receiptUrl || '') !== (recB.receiptUrl || '')) {
+      return false;
+    }
+    if ((recA.rejectionReason || '') !== (recB.rejectionReason || '')) {
+      return false;
+    }
+    if ((recA.rejectedAt || 0) !== (recB.rejectedAt || 0)) {
       return false;
     }
   }

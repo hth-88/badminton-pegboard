@@ -5,7 +5,11 @@ import {
   getSupabaseConfig,
   saveSupabaseConfig,
   clearSupabaseConfig,
+  getSupabaseClient,
   updateRoomSettlementOnly,
+  uploadPaymentReceipt,
+  deleteRoomReceipts,
+  RECEIPT_STORAGE_BUCKET,
   STORAGE_KEY_SUPABASE_CONFIG,
   type BadmintonRoomRecord,
 } from '../supabaseSync';
@@ -313,6 +317,90 @@ describe('Supabase Realtime Cloud Sync Service', () => {
 
       const res = await updateRoomSettlementOnly('SAN-88', settlement, 1234, 'CLIENT_1');
       expect(res.error).toBe('Chưa cấu hình Supabase URL & Anon Key');
+    });
+  });
+
+  describe('Supabase Storage Receipt Helpers (Nhóm 3)', () => {
+    it('uploadPaymentReceipt tải ảnh thành công và trả về đúng URL + path', async () => {
+      saveSupabaseConfig({
+        url: 'https://mock-receipts.supabase.co',
+        anonKey: 'mock-anon-key-123',
+      });
+      const client = getSupabaseClient() as any;
+
+      const uploadMock = vi.fn().mockResolvedValue({ error: null });
+      const getPublicUrlMock = vi.fn().mockReturnValue({
+        data: { publicUrl: 'https://mock-receipts.supabase.co/storage/v1/object/public/payment-receipts/SAN-68/p1_5000.jpg' },
+      });
+      const fromMock = vi.fn().mockReturnValue({
+        upload: uploadMock,
+        getPublicUrl: getPublicUrlMock,
+      });
+      client.storage = { from: fromMock };
+
+      const fakeBlob = new Blob(['img'], { type: 'image/jpeg' });
+      const res = await uploadPaymentReceipt('san-68', 'p1', fakeBlob, 5000);
+
+      expect(fromMock).toHaveBeenCalledWith(RECEIPT_STORAGE_BUCKET);
+      expect(uploadMock).toHaveBeenCalledWith(
+        'SAN-68/p1_5000.jpg',
+        fakeBlob,
+        expect.objectContaining({ contentType: 'image/jpeg', upsert: true })
+      );
+      expect(res.error).toBeNull();
+      expect(res.path).toBe('SAN-68/p1_5000.jpg');
+      expect(res.url).toContain('payment-receipts/SAN-68/p1_5000.jpg');
+
+      clearSupabaseConfig();
+    });
+
+    it('uploadPaymentReceipt trả lỗi sạch khi bucket chưa tồn tại / Storage lỗi', async () => {
+      saveSupabaseConfig({
+        url: 'https://mock-receipts-err.supabase.co',
+        anonKey: 'mock-anon-key-123',
+      });
+      const client = getSupabaseClient() as any;
+      client.storage = {
+        from: vi.fn().mockReturnValue({
+          upload: vi.fn().mockResolvedValue({ error: { message: 'Bucket not found' } }),
+        }),
+      };
+
+      const fakeBlob = new Blob(['img'], { type: 'image/jpeg' });
+      const res = await uploadPaymentReceipt('SAN68', 'p1', fakeBlob, 6000);
+
+      expect(res.url).toBeNull();
+      expect(res.path).toBeNull();
+      expect(res.error).toBe('Bucket not found');
+
+      clearSupabaseConfig();
+    });
+
+    it('deleteRoomReceipts gọi list và remove đúng danh sách ảnh trong thư mục phòng', async () => {
+      saveSupabaseConfig({
+        url: 'https://mock-receipts-del.supabase.co',
+        anonKey: 'mock-anon-key-123',
+      });
+      const client = getSupabaseClient() as any;
+
+      const listMock = vi.fn().mockResolvedValue({
+        data: [{ name: 'p1_100.jpg' }, { name: 'p2_200.jpg' }],
+        error: null,
+      });
+      const removeMock = vi.fn().mockResolvedValue({ error: null });
+      client.storage = {
+        from: vi.fn().mockReturnValue({
+          list: listMock,
+          remove: removeMock,
+        }),
+      };
+
+      const res = await deleteRoomReceipts('san-88');
+      expect(listMock).toHaveBeenCalledWith('SAN-88', { limit: 200 });
+      expect(removeMock).toHaveBeenCalledWith(['SAN-88/p1_100.jpg', 'SAN-88/p2_200.jpg']);
+      expect(res).toEqual({ deletedCount: 2, error: null });
+
+      clearSupabaseConfig();
     });
   });
 });

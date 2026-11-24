@@ -894,4 +894,85 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
       });
     }
   });
+
+  it('27. Nhóm 3: normalizeCloudSettlementData bảo toàn REJECTED, rejectionReason, receiptUrl hợp lệ và lọc URL lạ', () => {
+    const normalized = normalizeCloudSettlementData({
+      payments: {
+        p1: {
+          status: 'PENDING_REVIEW',
+          reportedAt: 1000,
+          receiptUrl: 'https://cdn.example.com/receipt1.jpg',
+          receiptPath: 'SAN68/p1_1000.jpg',
+        },
+        p2: {
+          status: 'REJECTED',
+          rejectedAt: 2000,
+          rejectionReason: '   Ảnh mờ   ',
+          receiptUrl: 'javascript:alert(1)',
+        },
+      },
+      updatedAt: 2500,
+    });
+
+    expect(normalized).not.toBeNull();
+    expect(normalized!.payments.p1).toEqual({
+      status: 'PENDING_REVIEW',
+      reportedAt: 1000,
+      receiptUrl: 'https://cdn.example.com/receipt1.jpg',
+      receiptPath: 'SAN68/p1_1000.jpg',
+    });
+    expect(normalized!.payments.p2).toEqual({
+      status: 'REJECTED',
+      rejectedAt: 2000,
+      rejectionReason: 'Ảnh mờ',
+    });
+  });
+
+  it('28. Nhóm 3: areSettlementDataEqual phát hiện thay đổi receiptUrl hoặc rejectionReason dù cùng status', () => {
+    const base = {
+      ...createDefaultCloudSettlementData(1000),
+      payments: {
+        p1: {
+          status: 'PENDING_REVIEW' as const,
+          receiptUrl: 'https://cdn.example.com/a.jpg',
+        },
+        p2: {
+          status: 'REJECTED' as const,
+          rejectedAt: 2000,
+          rejectionReason: 'Ảnh mờ',
+        },
+      },
+    };
+
+    const same = {
+      ...base,
+      updatedAt: 9999,
+    };
+    expect(areSettlementDataEqual(base, same)).toBe(true);
+
+    const diffReceipt = {
+      ...base,
+      payments: {
+        ...base.payments,
+        p1: {
+          status: 'PENDING_REVIEW' as const,
+          receiptUrl: 'https://cdn.example.com/b.jpg',
+        },
+      },
+    };
+    expect(areSettlementDataEqual(base, diffReceipt)).toBe(false);
+
+    const diffReason = {
+      ...base,
+      payments: {
+        ...base.payments,
+        p2: {
+          status: 'REJECTED' as const,
+          rejectedAt: 2000,
+          rejectionReason: 'Thiếu tiền',
+        },
+      },
+    };
+    expect(areSettlementDataEqual(base, diffReason)).toBe(false);
+  });
 });

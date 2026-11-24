@@ -302,13 +302,31 @@ export function getPaymentRecords(): Record<string, PlayerPaymentRecord> {
         for (const [pid, val] of Object.entries(parsed as Record<string, unknown>)) {
           if (!pid || !val || typeof val !== 'object' || Array.isArray(val)) continue;
           const rec = val as Record<string, unknown>;
-          if (rec.status !== 'PENDING_REVIEW' && rec.status !== 'PAID') continue;
+          if (
+            rec.status !== 'PENDING_REVIEW' &&
+            rec.status !== 'PAID' &&
+            rec.status !== 'REJECTED'
+          ) {
+            continue;
+          }
           const cleanRec: PlayerPaymentRecord = { status: rec.status };
           if (typeof rec.reportedAt === 'number' && Number.isFinite(rec.reportedAt)) {
             cleanRec.reportedAt = rec.reportedAt;
           }
           if (typeof rec.approvedAt === 'number' && Number.isFinite(rec.approvedAt)) {
             cleanRec.approvedAt = rec.approvedAt;
+          }
+          if (typeof rec.rejectedAt === 'number' && Number.isFinite(rec.rejectedAt)) {
+            cleanRec.rejectedAt = rec.rejectedAt;
+          }
+          if (typeof rec.rejectionReason === 'string' && rec.rejectionReason.trim()) {
+            cleanRec.rejectionReason = rec.rejectionReason.trim().slice(0, 160);
+          }
+          if (typeof rec.receiptUrl === 'string' && rec.receiptUrl.trim()) {
+            cleanRec.receiptUrl = rec.receiptUrl.trim();
+          }
+          if (typeof rec.receiptPath === 'string' && rec.receiptPath.trim()) {
+            cleanRec.receiptPath = rec.receiptPath.trim();
           }
           result[pid] = cleanRec;
         }
@@ -337,7 +355,11 @@ export function savePaymentRecords(records: Record<string, PlayerPaymentRecord>)
     const paidIds: string[] = [];
     for (const [pid, rec] of Object.entries(records || {})) {
       if (!pid || !rec) continue;
-      if (rec.status === 'PENDING_REVIEW' || rec.status === 'PAID') {
+      if (
+        rec.status === 'PENDING_REVIEW' ||
+        rec.status === 'PAID' ||
+        rec.status === 'REJECTED'
+      ) {
         filtered[pid] = rec;
         if (rec.status === 'PAID') {
           paidIds.push(pid);
