@@ -811,6 +811,7 @@ export function useCloudRoom({
           ...latest.payments,
           [playerId]: nextRec,
         },
+        betPayments: latest.betPayments || {},
         updatedAt: now,
       };
 

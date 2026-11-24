@@ -12,10 +12,39 @@ import {
   saveSettlementSettings,
 } from '../engine/storage';
 
+const STORAGE_KEY_BET_PAYMENTS = 'badminton_bet_payments';
+
+function loadLocalBetPayments(): Record<string, boolean> {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(STORAGE_KEY_BET_PAYMENTS);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const res: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (k && v === true) res[k] = true;
+    }
+    return res;
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalBetPayments(betPayments: Record<string, boolean>): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY_BET_PAYMENTS, JSON.stringify(betPayments));
+  } catch {
+    // Bỏ qua
+  }
+}
+
 export function useSettlementState() {
   const [settlementData, setSettlementData] = useState<CloudSettlementData>(() => ({
     settings: getSettlementSettings(),
     payments: getPaymentRecords(),
+    betPayments: loadLocalBetPayments(),
     updatedAt: 0,
   }));
 
@@ -87,11 +116,36 @@ export function useSettlementState() {
     });
   }, []);
 
+  const toggleBetPaid = useCallback((obligationId: string) => {
+    setSettlementData((prev) => {
+      const nextBetPayments: Record<string, boolean> = { ...(prev.betPayments || {}) };
+      if (nextBetPayments[obligationId]) {
+        delete nextBetPayments[obligationId];
+      } else {
+        nextBetPayments[obligationId] = true;
+      }
+      saveLocalBetPayments(nextBetPayments);
+      return {
+        ...prev,
+        betPayments: nextBetPayments,
+        updatedAt: Date.now(),
+      };
+    });
+  }, []);
+
   const resetPaymentsForNewSession = useCallback(() => {
     clearPaymentRecords();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY_BET_PAYMENTS);
+      }
+    } catch {
+      // Bỏ qua
+    }
     setSettlementData((prev) => ({
       ...prev,
       payments: {},
+      betPayments: {},
       updatedAt: Date.now(),
     }));
   }, []);
@@ -101,8 +155,12 @@ export function useSettlementState() {
       if (persistToLocal) {
         saveSettlementSettings(remote.settings);
         savePaymentRecords(remote.payments);
+        saveLocalBetPayments(remote.betPayments || {});
       }
-      setSettlementData(remote);
+      setSettlementData({
+        ...remote,
+        betPayments: remote.betPayments || {},
+      });
     },
     []
   );
@@ -111,6 +169,7 @@ export function useSettlementState() {
     setSettlementData({
       settings: getSettlementSettings(),
       payments: getPaymentRecords(),
+      betPayments: loadLocalBetPayments(),
       updatedAt: 0,
     });
   }, []);
@@ -120,6 +179,7 @@ export function useSettlementState() {
     updateSettlementSettings,
     toggleApprovePayment,
     rejectPendingPayment,
+    toggleBetPaid,
     resetPaymentsForNewSession,
     applyCloudSettlement,
     reloadLocalSettlement,

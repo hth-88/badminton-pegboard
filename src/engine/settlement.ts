@@ -23,6 +23,7 @@ export interface PlayerPaymentRecord {
 export interface CloudSettlementData {
   settings: SettlementSettings;
   payments: Record<string, PlayerPaymentRecord>;
+  betPayments?: Record<string, boolean>;
   updatedAt: number;
 }
 
@@ -30,6 +31,7 @@ export function createDefaultCloudSettlementData(updatedAt: number = 0): CloudSe
   return {
     settings: { ...DEFAULT_SETTLEMENT_SETTINGS },
     payments: {},
+    betPayments: {},
     updatedAt,
   };
 }
@@ -92,12 +94,22 @@ export function normalizeCloudSettlementData(raw: unknown): CloudSettlementData 
     }
   }
 
+  const betPayments: Record<string, boolean> = {};
+  if (obj.betPayments && typeof obj.betPayments === 'object' && !Array.isArray(obj.betPayments)) {
+    for (const [obligationId, val] of Object.entries(obj.betPayments as Record<string, unknown>)) {
+      if (obligationId && val === true) {
+        betPayments[obligationId] = true;
+      }
+    }
+  }
+
   const rawUpdatedAt = Number(obj.updatedAt);
   const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt >= 0 ? rawUpdatedAt : 0;
 
   return {
     settings,
     payments,
+    betPayments,
     updatedAt,
   };
 }
@@ -155,6 +167,23 @@ export function areSettlementDataEqual(
     }
   }
 
+  const getTrueBetPayments = (bp: Record<string, boolean> | undefined) => {
+    const keys: string[] = [];
+    if (!bp) return keys;
+    for (const [id, v] of Object.entries(bp)) {
+      if (id && v === true) keys.push(id);
+    }
+    return keys;
+  };
+
+  const bpA = getTrueBetPayments(a.betPayments);
+  const bpB = getTrueBetPayments(b.betPayments);
+  if (bpA.length !== bpB.length) return false;
+  const bpBSet = new Set(bpB);
+  for (const id of bpA) {
+    if (!bpBSet.has(id)) return false;
+  }
+
   return true;
 }
 
@@ -191,6 +220,9 @@ export interface SettlementSettings {
   // Chính sách người 0 trận / PAUSED suốt buổi
   zeroGamesPolicy: ZeroGamesPolicy;
 
+  // Tùy chọn gộp tiền độ vào tổng chuyển khoản
+  mergeBetsIntoSettlement: boolean;
+
   // Thông tin chuyển khoản
   bankCode: string;
   bankName: string;
@@ -225,6 +257,8 @@ export const DEFAULT_SETTLEMENT_SETTINGS: SettlementSettings = {
   underPlayedDiscountType: 'PROPORTIONAL',
 
   zeroGamesPolicy: 'FREE',
+
+  mergeBetsIntoSettlement: false,
 
   bankCode: '',
   bankName: '',
