@@ -40,6 +40,7 @@ interface CloudRoomModalProps {
   ) => Promise<{ ok: boolean; role: RoomRole; error?: string }>;
   onLeaveRoom: () => void;
   onUpgradeToCoHost: (pin: string) => Promise<{ ok: boolean; error?: string }>;
+  onUpdateRoomPin?: (newPin: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
@@ -55,6 +56,7 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   onJoinRoom,
   onLeaveRoom,
   onUpgradeToCoHost,
+  onUpdateRoomPin,
 }) => {
   const [activeTab, setActiveTab] = useState<'MANAGE' | 'JOIN' | 'CONFIG'>('MANAGE');
 
@@ -82,6 +84,12 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   // Upgrade PIN prompt
   const [upgradePinInput, setUpgradePinInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Đổi PIN phòng (CO_HOST)
+  const [showChangePinForm, setShowChangePinForm] = useState(false);
+  const [changePinInput, setChangePinInput] = useState('');
+  const [changePinError, setChangePinError] = useState<string | null>(null);
+  const [isSavingPin, setIsSavingPin] = useState(false);
 
   // Load config hiện tại khi mở modal
   useEffect(() => {
@@ -354,15 +362,70 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
                   <div className="space-y-2">
                     {/* Link Co-Host */}
                     <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/80 space-y-1.5">
-                      <div className="flex items-center justify-between text-slate-300 font-semibold">
+                      <div className="flex items-center justify-between text-slate-300 font-semibold gap-2">
                         <span className="flex items-center gap-1.5 text-emerald-400">
                           <KeyRound className="w-4 h-4" />
                           <span>Link cho Người Host Hộ (Co-Host)</span>
                         </span>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          PIN: {pinCode || '1234'}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11px] font-mono text-slate-400">
+                            PIN: {pinCode || '1234'}
+                          </span>
+                          {role === 'CO_HOST' && onUpdateRoomPin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setChangePinInput(pinCode || '');
+                                setChangePinError(null);
+                                setShowChangePinForm((prev) => !prev);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-amber-300 text-[10px] font-bold transition"
+                            >
+                              {showChangePinForm ? 'Đóng' : 'Đổi PIN'}
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {role === 'CO_HOST' && onUpdateRoomPin && showChangePinForm && (
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              maxLength={6}
+                              value={changePinInput}
+                              onChange={(e) => {
+                                setChangePinInput(e.target.value);
+                                setChangePinError(null);
+                              }}
+                              placeholder="PIN mới (4-6 ký tự)..."
+                              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono font-bold text-xs text-white"
+                            />
+                            <button
+                              type="button"
+                              disabled={isSavingPin}
+                              onClick={async () => {
+                                setChangePinError(null);
+                                setIsSavingPin(true);
+                                const res = await onUpdateRoomPin(changePinInput);
+                                setIsSavingPin(false);
+                                if (res.ok) {
+                                  vibrateSuccess();
+                                  setShowChangePinForm(false);
+                                } else {
+                                  vibrateWarning();
+                                  setChangePinError(res.error || 'Không thể đổi PIN');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition"
+                            >
+                              {isSavingPin ? 'Đang lưu...' : 'Lưu PIN'}
+                            </button>
+                          </div>
+                          {changePinError && (
+                            <p className="text-[11px] text-rose-400 font-medium">{changePinError}</p>
+                          )}
+                        </div>
+                      )}
                       <p className="text-[11px] text-slate-400">
                         Người mở link này có toàn quyền bấm Kết thúc trận, Xếp người thay bạn.
                       </p>

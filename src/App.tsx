@@ -131,6 +131,7 @@ export function App() {
     leaveRoom,
     guardAction,
     reportPlayerPayment,
+    updateRoomPin,
   } = useCloudRoom({
     currentState: state,
     onApplyCloudState: loadCloudState,
@@ -632,6 +633,7 @@ export function App() {
           }
         }}
         onUpgradeToCoHost={upgradeToCoHost}
+        onUpdateRoomPin={updateRoomPin}
       />
 
       {/* 6. POST-MATCH QUICK REVIEW & BET MODAL */}

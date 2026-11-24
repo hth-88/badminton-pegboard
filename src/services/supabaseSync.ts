@@ -262,6 +262,40 @@ export async function updateRoomSettlementOnly(
 }
 
 /**
+ * Chỉ cập nhật mã PIN phòng (pin_code) bởi CO_HOST
+ */
+export async function updateRoomPinOnly(
+  roomCode: string,
+  newPin: string,
+  updatedAt: number,
+  updatedBy: string
+): Promise<{ error: string | null }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { error: 'Chưa cấu hình Supabase URL & Anon Key' };
+  }
+
+  try {
+    const cleanCode = roomCode.toUpperCase().trim();
+    const { error } = await supabase
+      .from('badminton_rooms')
+      .update({
+        pin_code: newPin.trim(),
+        updated_at: updatedAt,
+        updated_by: updatedBy,
+      })
+      .eq('room_code', cleanCode);
+
+    if (error) {
+      return { error: error.message };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: err?.message || 'Lỗi khi đổi mã PIN phòng trên Supabase' };
+  }
+}
+
+/**
  * Lắng nghe thay đổi Realtime của phòng từ Supabase
  */
 export function subscribeToRoom(

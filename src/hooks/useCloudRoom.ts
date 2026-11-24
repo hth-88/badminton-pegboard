@@ -13,6 +13,7 @@ import {
   STORAGE_KEY_CLOUD_ROOM,
   type StoredCloudRoom,
   subscribeToRoom,
+  updateRoomPinOnly,
   updateRoomSettlementOnly,
   upsertRoom,
 } from '../services/supabaseSync';
@@ -243,6 +244,9 @@ export function useCloudRoom({
   const roleRef = useRef(role);
   roleRef.current = role;
 
+  const pinCodeRef = useRef(pinCode);
+  pinCodeRef.current = pinCode;
+
   const pendingStorageKey = `${STORAGE_KEY_CLOUD_ROOM}_pending_ts`;
 
   // A2: Cờ guard kết nối khởi động đúng 1 lần
@@ -467,6 +471,28 @@ export function useCloudRoom({
             lastAppliedRemoteSettlementRef.current = normalized;
             onApplySettlementRef.current(normalized, roleRef.current);
           }
+        }
+      }
+
+      // Nhánh 3: Đồng bộ mã PIN mới cho Co-Host khác tránh ghi đè PIN cũ khi upsertRoom
+      if (
+        roleRef.current === 'CO_HOST' &&
+        typeof record.pin_code === 'string' &&
+        record.pin_code.trim() &&
+        record.pin_code.trim() !== pinCodeRef.current
+      ) {
+        const syncedPin = record.pin_code.trim();
+        pinCodeRef.current = syncedPin;
+        setPinCode(syncedPin);
+        try {
+          const stored: StoredCloudRoom = {
+            roomCode,
+            pinCode: syncedPin,
+            role: 'CO_HOST',
+          };
+          localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
+        } catch {
+          // Bỏ qua
         }
       }
     });
@@ -834,6 +860,45 @@ export function useCloudRoom({
     [roomCode, clientId]
   );
 
+  // 10. Đổi mã PIN phòng sau khi đã tạo (chỉ dành cho CO_HOST)
+  const updateRoomPin = useCallback(
+    async (newPin: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!roomCode || role !== 'CO_HOST') {
+        return { ok: false, error: 'Chỉ Chủ sân hoặc Co-Host mới có quyền đổi mã PIN.' };
+      }
+
+      const cleanPin = newPin.trim();
+      if (cleanPin.length < 4 || cleanPin.length > 6) {
+        return { ok: false, error: 'Mã PIN phải từ 4 đến 6 ký tự.' };
+      }
+
+      const now = Date.now();
+      const res = await updateRoomPinOnly(roomCode, cleanPin, now, clientId);
+      if (res?.error) {
+        return { ok: false, error: res.error };
+      }
+
+      lastAppliedTimestampRef.current = now;
+      pinCodeRef.current = cleanPin;
+      setPinCode(cleanPin);
+
+      try {
+        const stored: StoredCloudRoom = {
+          roomCode,
+          pinCode: cleanPin,
+          role: 'CO_HOST',
+        };
+        localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
+      } catch {
+        // Bỏ qua
+      }
+
+      onToastRef.current?.(`Đã đổi mã PIN phòng "${roomCode}" thành công!`);
+      return { ok: true };
+    },
+    [roomCode, role, clientId]
+  );
+
   return {
     roomCode,
     pinCode,
@@ -848,5 +913,6 @@ export function useCloudRoom({
     leaveRoom,
     guardAction,
     reportPlayerPayment,
+    updateRoomPin,
   };
 }

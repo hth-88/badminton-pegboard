@@ -11,6 +11,7 @@ import type { BadmintonSessionState } from '../../types/badminton';
 const mockFetchRoom = vi.fn();
 const mockUpsertRoom = vi.fn();
 const mockUpdateRoomSettlementOnly = vi.fn();
+const mockUpdateRoomPinOnly = vi.fn();
 let realtimeSubscriber: ((record: BadmintonRoomRecord) => void) | null = null;
 const mockSubscribeToRoom = vi.fn((_roomCode: string, callback: (record: BadmintonRoomRecord) => void) => {
   realtimeSubscriber = callback;
@@ -24,6 +25,8 @@ vi.mock('../../services/supabaseSync', () => ({
   upsertRoom: (record: any) => mockUpsertRoom(record),
   updateRoomSettlementOnly: (code: string, data: any, ts: number, by: string) =>
     mockUpdateRoomSettlementOnly(code, data, ts, by),
+  updateRoomPinOnly: (code: string, newPin: string, ts: number, by: string) =>
+    mockUpdateRoomPinOnly(code, newPin, ts, by),
   subscribeToRoom: (roomCode: string, cb: any) => mockSubscribeToRoom(roomCode, cb),
   getClientId: () => 'CLIENT_TEST_123',
   STORAGE_KEY_CLOUD_ROOM: 'badminton_cloud_room_state_v1',
@@ -1311,5 +1314,127 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
       rejectedAt: 5000,
       rejectionReason: 'Ảnh mờ',
     });
+  });
+
+  it('21. Stage 12: CO_HOST đổi PIN hợp lệ gọi updateRoomPinOnly, cập nhật state pinCode + localStorage; từ chối PIN sai độ dài & VIEWER', async () => {
+    const baseState = createInitialSessionState();
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+    mockUpdateRoomPinOnly.mockResolvedValue({ error: null });
+
+    const toastSpy = vi.fn();
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: toastSpy,
+      })
+    );
+
+    harness.render({ state: baseState });
+    await harness.getResult().joinRoom('SAN-49'); // VIEWER
+    await vi.runAllTimersAsync();
+
+    // VIEWER không được đổi PIN
+    const viewerRes = await harness.getResult().updateRoomPin('5678');
+    expect(viewerRes.ok).toBe(false);
+    expect(mockUpdateRoomPinOnly).not.toHaveBeenCalled();
+
+    // Nâng cấp CO_HOST
+    await harness.getResult().upgradeToCoHost('1234');
+    expect(harness.getResult().role).toBe('CO_HOST');
+
+    // PIN quá ngắn hoặc quá dài -> từ chối
+    const shortRes = await harness.getResult().updateRoomPin('123');
+    expect(shortRes.ok).toBe(false);
+    const longRes = await harness.getResult().updateRoomPin('1234567');
+    expect(longRes.ok).toBe(false);
+    expect(mockUpdateRoomPinOnly).not.toHaveBeenCalled();
+
+    // PIN hợp lệ -> lưu thành công
+    const okRes = await harness.getResult().updateRoomPin(' 5678 ');
+    expect(okRes.ok).toBe(true);
+    expect(mockUpdateRoomPinOnly).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRoomPinOnly.mock.calls[0][0]).toBe('SAN-49');
+    expect(mockUpdateRoomPinOnly.mock.calls[0][1]).toBe('5678');
+    expect(harness.getResult().pinCode).toBe('5678');
+
+    const stored = JSON.parse(localStorage.getItem('badminton_cloud_room_state_v1') || '{}');
+    expect(stored.pinCode).toBe('5678');
+    expect(toastSpy).toHaveBeenCalledWith('Đã đổi mã PIN phòng "SAN-49" thành công!');
+  });
+
+  it('22. Stage 12: Realtime nhận record.pin_code mới cập nhật đồng bộ sang máy CO_HOST khác (và giữ nguyên pinCode = null với VIEWER)', async () => {
+    const baseState = createInitialSessionState();
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+
+    const harnessCoHost = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+    harnessCoHost.render({ state: baseState });
+    await harnessCoHost.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+    mockUpsertRoom.mockClear();
+
+    expect(harnessCoHost.getResult().pinCode).toBe('1234');
+
+    // Chủ sân khác đổi PIN thành 8899
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '8899',
+      session_data: baseState,
+      updated_at: 3000,
+      updated_by: 'OTHER_CO_HOST',
+    });
+
+    expect(harnessCoHost.getResult().pinCode).toBe('8899');
+    const stored = JSON.parse(localStorage.getItem('badminton_cloud_room_state_v1') || '{}');
+    expect(stored.pinCode).toBe('8899');
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(mockUpsertRoom).not.toHaveBeenCalled();
+
+    // VIEWER không được lộ pinCode từ Realtime
+    const harnessViewer = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+    harnessViewer.render({ state: baseState });
+    await harnessViewer.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '7777',
+      session_data: baseState,
+      updated_at: 4000,
+      updated_by: 'OTHER_CO_HOST',
+    });
+    expect(harnessViewer.getResult().pinCode).toBeNull();
   });
 });
