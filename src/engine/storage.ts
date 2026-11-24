@@ -383,6 +383,31 @@ export function clearPaymentRecords(): void {
   }
 }
 
+export interface ArchivedPlayerPaymentSnapshot {
+  playerId: string;
+  name: string;
+  sex: 'M' | 'F';
+  gamesPlayed: number;
+  courtAmount: number;
+  betAdjustmentVnd?: number;
+  finalAmount: number;
+  paid: boolean;
+  paidAt?: number;
+}
+
+export interface ArchivedSettlementSnapshot {
+  courtCost: number;
+  shuttleCost: number;
+  extraCost: number;
+  extraCostNote?: string;
+  totalCost: number;
+  totalCollected: number;
+  surplus: number;
+  betFundTotal?: number;
+  mergeBetsIntoSettlement?: boolean;
+  players: ArchivedPlayerPaymentSnapshot[];
+}
+
 export interface ArchivedSessionSummary {
   id: string;
   date: string;
@@ -391,6 +416,25 @@ export interface ArchivedSessionSummary {
   totalCost: number;
   totalPlayers: number;
   sessionData: BadmintonSessionState;
+  settlementSnapshot?: ArchivedSettlementSnapshot;
+}
+
+export interface UnpaidArchiveDebt {
+  archiveId: string;
+  date: string;
+  createdAt: number;
+  playerId: string;
+  playerName: string;
+  amount: number;
+}
+
+export interface MultiSessionFinanceSummary {
+  sessionsWithFinance: number;
+  totalCostAll: number;
+  totalCollectedAll: number;
+  cumulativeSurplus: number;
+  totalUnpaidAmount: number;
+  unpaidDebts: UnpaidArchiveDebt[];
 }
 
 export function getPaidPlayerIds(): string[] {
@@ -438,7 +482,8 @@ export function saveArchivedSessions(sessions: ArchivedSessionSummary[]): void {
 
 export function archiveCurrentSession(
   state: BadmintonSessionState,
-  totalCost: number = 0
+  totalCost: number = 0,
+  settlementSnapshot?: ArchivedSettlementSnapshot
 ): ArchivedSessionSummary {
   const existing = getArchivedSessions();
   const summary: ArchivedSessionSummary = {
@@ -449,11 +494,89 @@ export function archiveCurrentSession(
     totalCost,
     totalPlayers: state.players.length,
     sessionData: JSON.parse(JSON.stringify(state)),
+    ...(settlementSnapshot
+      ? { settlementSnapshot: JSON.parse(JSON.stringify(settlementSnapshot)) }
+      : {}),
   };
 
   const updated = [summary, ...existing].slice(0, 20);
   saveArchivedSessions(updated);
   return summary;
+}
+
+export function toggleArchivedPlayerPaid(
+  archiveId: string,
+  playerId: string,
+  now: number = Date.now()
+): ArchivedSessionSummary[] {
+  const existing = getArchivedSessions();
+  const updated = existing.map((session) => {
+    if (session.id !== archiveId || !session.settlementSnapshot) {
+      return session;
+    }
+    const nextPlayers = session.settlementSnapshot.players.map((p) => {
+      if (p.playerId !== playerId) return p;
+      const nextPaid = !p.paid;
+      return {
+        ...p,
+        paid: nextPaid,
+        paidAt: nextPaid ? now : undefined,
+      };
+    });
+    return {
+      ...session,
+      settlementSnapshot: {
+        ...session.settlementSnapshot,
+        players: nextPlayers,
+      },
+    };
+  });
+  saveArchivedSessions(updated);
+  return updated;
+}
+
+export function computeMultiSessionFinanceSummary(
+  archives: ArchivedSessionSummary[]
+): MultiSessionFinanceSummary {
+  let sessionsWithFinance = 0;
+  let totalCostAll = 0;
+  let totalCollectedAll = 0;
+  let cumulativeSurplus = 0;
+  let totalUnpaidAmount = 0;
+  const unpaidDebts: UnpaidArchiveDebt[] = [];
+
+  for (const session of archives) {
+    const snap = session.settlementSnapshot;
+    if (!snap) continue;
+
+    sessionsWithFinance++;
+    totalCostAll += snap.totalCost || 0;
+    totalCollectedAll += snap.totalCollected || 0;
+    cumulativeSurplus += (snap.surplus || 0) + (snap.betFundTotal || 0);
+
+    for (const p of snap.players || []) {
+      if (p.finalAmount > 0 && !p.paid) {
+        totalUnpaidAmount += p.finalAmount;
+        unpaidDebts.push({
+          archiveId: session.id,
+          date: session.date,
+          createdAt: session.createdAt,
+          playerId: p.playerId,
+          playerName: p.name,
+          amount: p.finalAmount,
+        });
+      }
+    }
+  }
+
+  return {
+    sessionsWithFinance,
+    totalCostAll,
+    totalCollectedAll,
+    cumulativeSurplus,
+    totalUnpaidAmount,
+    unpaidDebts,
+  };
 }
 
 export function deleteArchivedSession(id: string): void {

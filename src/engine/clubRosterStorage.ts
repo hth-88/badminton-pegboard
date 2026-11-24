@@ -1,5 +1,13 @@
 import type { BadmintonRank, Sex } from '../types/badminton';
 
+export const CLUB_MEMBER_PRESET_TAGS = [
+  'Trình cứng',
+  'Vãng lai',
+  'Đau gối / nhẹ tay',
+  'Đánh nhiệt',
+  'Hay hủy sát giờ',
+] as const;
+
 export interface ClubMember {
   id: string;
   name: string;
@@ -7,6 +15,7 @@ export interface ClubMember {
   rank: BadmintonRank;
   noSingles?: boolean;
   notes?: string;
+  tags?: string[];
   joinedAt?: number;
 }
 
@@ -70,15 +79,17 @@ export function upsertClubMember(member: Omit<ClubMember, 'id'> & { id?: string 
   const current = getClubRoster();
   const id = member.id || `roster_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const existingIdx = current.findIndex((m) => m.id === id || m.name.trim().toLowerCase() === member.name.trim().toLowerCase());
+  const existing = existingIdx !== -1 ? current[existingIdx] : undefined;
 
   const newEntry: ClubMember = {
-    id: existingIdx !== -1 ? current[existingIdx].id : id,
+    id: existing ? existing.id : id,
     name: member.name.trim(),
     sex: member.sex,
     rank: member.rank,
     noSingles: Boolean(member.noSingles),
-    notes: member.notes,
-    joinedAt: member.joinedAt || Date.now(),
+    notes: member.notes !== undefined ? member.notes : existing?.notes,
+    tags: member.tags !== undefined ? member.tags : existing?.tags,
+    joinedAt: member.joinedAt || existing?.joinedAt || Date.now(),
   };
 
   if (existingIdx !== -1) {
@@ -89,6 +100,39 @@ export function upsertClubMember(member: Omit<ClubMember, 'id'> & { id?: string 
 
   saveClubRoster(current);
   return newEntry;
+}
+
+/**
+ * Cập nhật ghi chú & thẻ kín (và trình độ nếu có) của thành viên trong Sổ CLB
+ */
+export function updateClubMemberProfile(
+  nameOrId: string,
+  updates: { notes?: string; tags?: string[]; rank?: BadmintonRank }
+): ClubMember | null {
+  const current = getClubRoster();
+  const norm = nameOrId.trim().toLowerCase();
+  const idx = current.findIndex(
+    (m) => m.id === nameOrId || m.name.trim().toLowerCase() === norm
+  );
+  if (idx === -1) return null;
+
+  const prev = current[idx];
+  const nextNotes =
+    updates.notes !== undefined ? updates.notes.trim() : prev.notes;
+  const nextTags =
+    updates.tags !== undefined
+      ? Array.from(new Set(updates.tags.map((t) => t.trim()).filter(Boolean)))
+      : prev.tags;
+
+  const updated: ClubMember = {
+    ...prev,
+    rank: updates.rank ?? prev.rank,
+    notes: nextNotes || undefined,
+    tags: nextTags && nextTags.length > 0 ? nextTags : undefined,
+  };
+  current[idx] = updated;
+  saveClubRoster(current);
+  return updated;
 }
 
 /**
