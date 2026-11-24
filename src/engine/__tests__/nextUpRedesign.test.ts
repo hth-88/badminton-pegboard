@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
 } from '../sessionReducer';
 import {
+  evaluateNextUp,
   getSlotCandidateStatus,
   isNextUpComplete,
   isNextUpEmpty,
@@ -646,5 +647,57 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
         expect(state.courts[0].nextUp.slotSource[idx]).toBe('AUTO');
       }
     });
+  });
+
+  it('13. Mục B6: cảnh báo luật cặp (AVOID_PARTNER/AVOID_MATCH), noSingles và chênh trình SINGLES trong getSlotCandidateStatus & evaluateNextUp', () => {
+    const state = createInitialSessionState();
+    state.courts = createDefaultCourts(1);
+    state.players = [
+      makePlayer('p1', 'Pro', 'M', 'tbk'),
+      makePlayer('p2', 'Newbie', 'F', 'newbie', { noSingles: true }),
+      makePlayer('p3', 'Mid', 'M', 'tb'),
+      makePlayer('p4', 'Mid2', 'F', 'tb'),
+    ];
+    state.pairRules = [
+      { id: 'r-avoid-partner', playerAId: 'p1', playerBId: 'p3', type: 'AVOID_PARTNER' },
+      { id: 'r-avoid-match', playerAId: 'p1', playerBId: 'p4', type: 'AVOID_MATCH' },
+    ];
+
+    // DOUBLES: đặt p1 vào slot 0 -> xét p3 vào slot 1 (cùng team -> AVOID_PARTNER), xét p4 vào slot 2 (chung sân -> AVOID_MATCH)
+    state.courts[0].nextUp = {
+      type: 'DOUBLES',
+      slots: ['p1', null, null, null],
+      slotSource: ['MANUAL', null, null, null],
+    };
+    const candAvoidPartner = getSlotCandidateStatus(state, 'court-1', 1, 'p3');
+    expect(candAvoidPartner.selectable).toBe(true);
+    expect(candAvoidPartner.warnings.some((w) => w.includes('Cấm cùng đội'))).toBe(true);
+
+    const candAvoidMatch = getSlotCandidateStatus(state, 'court-1', 2, 'p4');
+    expect(candAvoidMatch.selectable).toBe(true);
+    expect(candAvoidMatch.warnings.some((w) => w.includes('Hạn chế chung sân'))).toBe(true);
+
+    // SINGLES: đặt p1 vào slot 0 -> xét p2 (noSingles + chênh trình > 1.5đ) vào slot 1
+    state.courts[0].nextUp = {
+      type: 'SINGLES',
+      slots: ['p1', null],
+      slotSource: ['MANUAL', null],
+    };
+    const candSingles = getSlotCandidateStatus(state, 'court-1', 1, 'p2');
+    expect(candSingles.selectable).toBe(true);
+    expect(candSingles.warnings.some((w) => w.includes('từ chối đánh đơn'))).toBe(true);
+    expect(candSingles.warnings.some((w) => w.includes('Chênh trình'))).toBe(true);
+
+    // evaluateNextUp cho SINGLES hoàn chỉnh
+    const evalSingles = evaluateNextUp(
+      { type: 'SINGLES', slots: ['p1', 'p2'], slotSource: ['MANUAL', 'MANUAL'] },
+      state.players,
+      state.settings.maleBonus
+    );
+    expect(evalSingles).not.toBeNull();
+    expect(evalSingles?.genderPattern).toBe('1 Nam – 1 Nữ');
+    expect(evalSingles?.skillDiff).toBeGreaterThan(1.5);
+    expect(evalSingles?.warnings.some((w) => w.includes('Chênh lệch trình độ'))).toBe(true);
+    expect(evalSingles?.warnings.some((w) => w.includes('từ chối đánh đơn'))).toBe(true);
   });
 });

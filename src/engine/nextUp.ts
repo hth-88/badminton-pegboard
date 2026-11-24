@@ -268,6 +268,56 @@ export function getSlotCandidateStatus(
     const maleBonus = state.settings?.maleBonus ?? 1.5;
     const filledCount = simSlots.filter(Boolean).length;
 
+    // Kiểm tra luật cặp (AVOID_MATCH trên toàn sân, AVOID_PARTNER cùng đội khi đánh Đôi)
+    const pairRules = state.pairRules || [];
+    const otherInMatch = simSlots.filter((id, idx) => Boolean(id) && idx !== slotIndex) as string[];
+    const hasAvoidMatch = pairRules.some(
+      (r) =>
+        r.type === 'AVOID_MATCH' &&
+        otherInMatch.some(
+          (otherId) =>
+            (r.playerAId === playerId && r.playerBId === otherId) ||
+            (r.playerAId === otherId && r.playerBId === playerId)
+        )
+    );
+    if (hasAvoidMatch) {
+      warnings.push('Hạn chế chung sân (luật cặp)');
+    }
+
+    if (thisCourt.nextUp.type === 'DOUBLES') {
+      const partnerIdx =
+        slotIndex === 0 ? 1 : slotIndex === 1 ? 0 : slotIndex === 2 ? 3 : 2;
+      const partnerId = simSlots[partnerIdx];
+      if (partnerId) {
+        const hasAvoidPartner = pairRules.some(
+          (r) =>
+            r.type === 'AVOID_PARTNER' &&
+            ((r.playerAId === playerId && r.playerBId === partnerId) ||
+              (r.playerAId === partnerId && r.playerBId === playerId))
+        );
+        if (hasAvoidPartner) {
+          warnings.push('Cấm cùng đội (luật cặp)');
+        }
+      }
+    } else if (thisCourt.nextUp.type === 'SINGLES') {
+      if (player.noSingles) {
+        warnings.push('Người chơi từ chối đánh đơn');
+      }
+      if (filledCount === 2) {
+        const pMap = new Map(state.players.map((p) => [p.id, p]));
+        const opp0 = pMap.get(simSlots[0]!);
+        const opp1 = pMap.get(simSlots[1]!);
+        if (opp0 && opp1) {
+          const s0 = getEffectiveSkill(opp0.rank, opp0.sex, maleBonus);
+          const s1 = getEffectiveSkill(opp1.rank, opp1.sex, maleBonus);
+          const diff = Math.abs(s0 - s1);
+          if (diff > 1.5) {
+            warnings.push(`Chênh trình: lệch ${diff.toFixed(1)}đ`);
+          }
+        }
+      }
+    }
+
     // Cảnh báo giới tính nếu đã điền đủ 4 người
     if (filledCount === 4 && thisCourt.nextUp.type === 'DOUBLES') {
       const pMap = new Map(state.players.map((p) => [p.id, p]));
@@ -326,9 +376,41 @@ export function evaluateNextUp(
   players: Player[],
   maleBonus: number = 1.5
 ): NextUpEvaluation | null {
-  if (!nextUp || !isNextUpComplete(nextUp) || nextUp.type !== 'DOUBLES') return null;
+  if (!nextUp || !isNextUpComplete(nextUp)) return null;
 
   const playerMap = new Map((players || []).map((p) => [p.id, p]));
+
+  if (nextUp.type === 'SINGLES') {
+    const p0 = playerMap.get(nextUp.slots?.[0]);
+    const p1 = playerMap.get(nextUp.slots?.[1]);
+    if (!p0 || !p1) return null;
+
+    const s0 = getEffectiveSkill(p0.rank, p0.sex, maleBonus);
+    const s1 = getEffectiveSkill(p1.rank, p1.sex, maleBonus);
+    const skillDiff = Number(Math.abs(s0 - s1).toFixed(1));
+
+    const males = [p0, p1].filter((p) => p.sex === 'M').length;
+    const females = 2 - males;
+    let genderPattern = '1 Nam – 1 Nữ';
+    if (males === 2) genderPattern = '2 Nam';
+    if (females === 2) genderPattern = '2 Nữ';
+
+    const warnings: string[] = [];
+    if (skillDiff > 1.5) {
+      warnings.push(`Chênh lệch trình độ khá lớn (${skillDiff}đ)`);
+    }
+    if (p0.noSingles || p1.noSingles) {
+      warnings.push('Có người chơi từ chối đánh đơn');
+    }
+
+    return {
+      skillDiff,
+      genderPattern,
+      warnings,
+    };
+  }
+
+  if (nextUp.type !== 'DOUBLES') return null;
   const p0 = playerMap.get(nextUp.slots?.[0]);
   const p1 = playerMap.get(nextUp.slots?.[1]);
   const p2 = playerMap.get(nextUp.slots?.[2]);
