@@ -314,7 +314,8 @@ export function calculateSettlement(
 
   for (const p of payingPlayers) {
     const share = initialShares[p.id];
-    const isUnderPlayed = settings.discountUnderPlayed && p.gamesPlayed <= threshold;
+    const isUnderPlayed =
+      settings.discountUnderPlayed && p.gamesPlayed > 0 && p.gamesPlayed <= threshold;
 
     if (isUnderPlayed) {
       let finalDiscounted = share;

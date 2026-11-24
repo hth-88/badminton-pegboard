@@ -435,4 +435,83 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     expect(DEFAULT_SETTLEMENT_SETTINGS.shuttlePrice).toBe(30000);
     expect(DEFAULT_SETTLEMENT_SETTINGS.extraCost).toBe(0);
   });
+
+  it('15. Mục A2: zeroGamesPolicy = FULL không bị giảm giá bởi discountUnderPlayed (PROPORTIONAL, PERCENT_50, FREE)', () => {
+    const players = [
+      makePlayer('p1', 'An', 'M', 4),
+      makePlayer('p2', 'Bình', 'M', 4),
+      makePlayer('p3', 'Cường', 'M', 4),
+      makePlayer('pZero', 'Dũng', 'M', 0),
+    ];
+
+    const discountTypes: SettlementSettings['underPlayedDiscountType'][] = [
+      'PROPORTIONAL',
+      'PERCENT_50',
+      'FREE',
+    ];
+
+    for (const underPlayedDiscountType of discountTypes) {
+      const settings: SettlementSettings = {
+        ...DEFAULT_SETTLEMENT_SETTINGS,
+        courtCostMode: 'DIRECT',
+        courtCostDirect: 200000,
+        shuttleCostMode: 'DIRECT',
+        shuttleCostDirect: 0,
+        extraCost: 0,
+        splitMode: 'EQUAL',
+        discountUnderPlayed: true,
+        underPlayedThreshold: 2,
+        underPlayedDiscountType,
+        zeroGamesPolicy: 'FULL',
+      };
+
+      const res = calculateSettlement(players, settings);
+      const pZero = res.players.find((p) => p.playerId === 'pZero')!;
+      const others = res.players.filter((p) => p.playerId !== 'pZero');
+
+      expect(pZero.isDiscounted).toBe(false);
+      expect(pZero.roundedAmount).toBe(50000);
+      expect(others.every((p) => p.roundedAmount === 50000)).toBe(true);
+      expect(res.totalCollected).toBe(200000);
+      expect(res.surplus).toBe(0);
+    }
+  });
+
+  it('16. Mục A2: zeroGamesPolicy = FULL vẫn giảm giá bình thường cho người đánh 1..threshold trận và chia bù cho cả người 0 trận', () => {
+    const players = [
+      makePlayer('p1', 'An', 'M', 4),
+      makePlayer('p2', 'Bình', 'M', 4),
+      makePlayer('pOne', 'Hùng', 'M', 1),
+      makePlayer('pZero', 'Dũng', 'M', 0),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 200000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'EQUAL',
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'PERCENT_50',
+      zeroGamesPolicy: 'FULL',
+    };
+
+    const res = calculateSettlement(players, settings);
+    const pOne = res.players.find((p) => p.playerId === 'pOne')!;
+    const pZero = res.players.find((p) => p.playerId === 'pZero')!;
+    const p1 = res.players.find((p) => p.playerId === 'p1')!;
+    const p2 = res.players.find((p) => p.playerId === 'p2')!;
+
+    expect(pOne.isDiscounted).toBe(true);
+    expect(pOne.roundedAmount).toBe(25000);
+    expect(pZero.isDiscounted).toBe(false);
+    expect(pZero.roundedAmount).toBe(59000);
+    expect(p1.roundedAmount).toBe(59000);
+    expect(p2.roundedAmount).toBe(59000);
+    expect(res.totalCollected).toBe(202000);
+    expect(res.surplus).toBe(2000);
+  });
 });
