@@ -13,6 +13,7 @@ import { PairRulesTab } from './components/PairRulesTab';
 import { HistoryTab } from './components/HistoryTab';
 import { SettlementTab } from './components/SettlementTab';
 import { CloudRoomModal } from './components/CloudRoomModal';
+import { PostMatchModal } from './components/PostMatchModal';
 import { InfoToast, UndoToast } from './components/Toast';
 import { Eye, KeyRound, Lock } from 'lucide-react';
 import {
@@ -64,6 +65,8 @@ export function App() {
     updateSettings,
     snoozeAutoSingles,
     deleteHistoryMatch,
+    setCourtBet,
+    updateMatchResult,
     newSessionKeepPlayers,
     undo,
     redo,
@@ -91,12 +94,17 @@ export function App() {
   const [showCloudModal, setShowCloudModal] = useState(false);
   const [upgradePinInput, setUpgradePinInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
+  const [postMatchModalState, setPostMatchModalState] = useState<{
+    matchId: string;
+    mode: 'POST_MATCH' | 'EDIT_HISTORY';
+  } | null>(null);
 
   const {
     settlementData,
     updateSettlementSettings,
     toggleApprovePayment,
     rejectPendingPayment,
+    toggleBetPaid,
     resetPaymentsForNewSession,
     applyCloudSettlement,
     reloadLocalSettlement,
@@ -236,6 +244,10 @@ export function App() {
           alert('Đã sao chép toàn bộ dữ liệu JSON vào Clipboard!');
         }}
         updateSettings={(s) => guardAction(() => updateSettings(s))}
+        promptPostMatchReview={settings.promptPostMatchReview !== false}
+        onTogglePromptPostMatchReview={(enabled) =>
+          guardAction(() => updateSettings({ promptPostMatchReview: enabled }))
+        }
         roomCode={roomCode}
         pinCode={pinCode}
         role={role}
@@ -389,10 +401,30 @@ export function App() {
                     guardAction(() => startMatch(courtId, lineup))
                   }
                   onEndMatch={(courtId, expectedMatchId) =>
-                    guardAction(() => endMatch(courtId, expectedMatchId))
+                    guardAction(() => {
+                      const target = courts.find((c) => c.id === courtId);
+                      const hadLiveBet = Boolean(target?.currentMatch?.bet);
+                      const endedId = endMatch(courtId, expectedMatchId);
+                      if (
+                        endedId &&
+                        (settings.promptPostMatchReview !== false || hadLiveBet)
+                      ) {
+                        setPostMatchModalState({ matchId: endedId, mode: 'POST_MATCH' });
+                      }
+                    })
                   }
                   onEndAndStartMatch={(courtId, nextLineup, expectedMatchId) =>
-                    guardAction(() => endAndStartMatch(courtId, nextLineup, expectedMatchId))
+                    guardAction(() => {
+                      const target = courts.find((c) => c.id === courtId);
+                      const hadLiveBet = Boolean(target?.currentMatch?.bet);
+                      const endedId = endAndStartMatch(courtId, nextLineup, expectedMatchId);
+                      if (
+                        endedId &&
+                        (settings.promptPostMatchReview !== false || hadLiveBet)
+                      ) {
+                        setPostMatchModalState({ matchId: endedId, mode: 'POST_MATCH' });
+                      }
+                    })
                   }
                   onSuggestNextUp={(courtId) =>
                     guardAction(() => suggestNextUp(courtId))
@@ -423,6 +455,10 @@ export function App() {
                   }
                   onEditRank={(id, rank) =>
                     guardAction(() => editRank(id, rank))
+                  }
+                  isViewer={role === 'VIEWER'}
+                  onSetCourtBet={(courtId, bet) =>
+                    guardAction(() => setCourtBet(courtId, bet))
                   }
                   onTriggerUndoToast={(msg) => setUndoToastMessage(msg)}
                   onShowWarningToast={(msg) => setWarningToastMessage(msg)}
@@ -466,6 +502,12 @@ export function App() {
           <HistoryTab
             history={history}
             players={players}
+            isViewer={role === 'VIEWER'}
+            onEditMatchResult={(m) =>
+              guardAction(() =>
+                setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
+              )
+            }
             onDeleteMatch={(id) => guardAction(() => deleteHistoryMatch(id))}
           />
         )}
@@ -496,6 +538,14 @@ export function App() {
               })
             }
             onReportPlayerPayment={reportPlayerPayment}
+            onToggleBetPaid={(obligationId) =>
+              guardAction(() => toggleBetPaid(obligationId))
+            }
+            onQuickEditMatchResult={(m) =>
+              guardAction(() =>
+                setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
+              )
+            }
             onExportJson={exportSession}
             onImportJson={(json) => {
               if (role === 'VIEWER') {
@@ -579,6 +629,24 @@ export function App() {
           }
         }}
         onUpgradeToCoHost={upgradeToCoHost}
+      />
+
+      {/* 6. POST-MATCH QUICK REVIEW & BET MODAL */}
+      <PostMatchModal
+        isOpen={Boolean(postMatchModalState)}
+        match={
+          postMatchModalState
+            ? history.find((h) => h.id === postMatchModalState.matchId) ?? null
+            : null
+        }
+        players={players}
+        mode={postMatchModalState?.mode || 'POST_MATCH'}
+        isViewer={role === 'VIEWER'}
+        onSave={(result) => {
+          updateMatchResult(result);
+          setPostMatchModalState(null);
+        }}
+        onSkipOrClose={() => setPostMatchModalState(null)}
       />
     </div>
   );

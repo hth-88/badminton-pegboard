@@ -42,6 +42,8 @@ interface HeaderProps {
   storageError: boolean;
   onExportJson: () => void;
   updateSettings: (settings: Partial<SessionSettings>) => void;
+  promptPostMatchReview?: boolean;
+  onTogglePromptPostMatchReview?: (enabled: boolean) => void;
   // Cloud Room props
   roomCode?: string | null;
   pinCode?: string | null;
@@ -72,6 +74,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRedo,
   storageError,
   onExportJson,
+  promptPostMatchReview = true,
+  onTogglePromptPostMatchReview,
   roomCode = null,
   role = 'OFFLINE',
   syncStatus = 'OFFLINE',
@@ -415,6 +419,26 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Hỏi nhanh tỉ số & nhận xét sau trận */}
+              {onTogglePromptPostMatchReview && (
+                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-200 text-xs">
+                      Hỏi nhanh tỉ số &amp; nhận xét sau khi kết thúc trận
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Tắt tạm khi sân quá đông; trận có gắn kèo độ vẫn hiện nhắc chốt đội thắng.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={promptPostMatchReview}
+                    onChange={(e) => onTogglePromptPostMatchReview(e.target.checked)}
+                    className="w-4 h-4 rounded bg-slate-800 accent-emerald-500 cursor-pointer shrink-0"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mt-6 flex justify-end gap-2">

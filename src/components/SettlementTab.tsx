@@ -20,6 +20,7 @@ import {
   Image as ImageIcon,
   X,
   AlertCircle,
+  Flame,
 } from 'lucide-react';
 import type {
   BadmintonSessionState,
@@ -30,10 +31,16 @@ import type {
 import {
   calculateSettlement,
   formatVND,
+  generateZaloSettlementMessage,
   type CloudSettlementData,
   type SettlementSettings,
   type UnderPlayedDiscountType,
 } from '../engine/settlement';
+import {
+  buildBetLedgerZaloSection,
+  calculateBetLedger,
+  getEffectivePlayerPayable,
+} from '../engine/betLedger';
 import {
   type ArchivedSessionSummary,
   archiveCurrentSession,
@@ -63,6 +70,8 @@ interface SettlementTabProps {
     playerId: string,
     options?: { receiptUrl?: string; receiptPath?: string }
   ) => Promise<{ ok: boolean; error?: string }>;
+  onToggleBetPaid?: (obligationId: string) => void;
+  onQuickEditMatchResult?: (match: MatchHistory) => void;
   onExportJson: () => string;
   onImportJson: (json: string) => { ok: true } | { ok: false; error: string };
   onNewSessionKeepPlayers: () => void;
@@ -81,6 +90,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   onToggleApprovePayment,
   onRejectPendingPayment,
   onReportPlayerPayment,
+  onToggleBetPaid,
+  onQuickEditMatchResult,
   onExportJson,
   onImportJson,
   onNewSessionKeepPlayers,
@@ -253,16 +264,58 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     });
   }, [players, settings, history, hideZeroCostInZalo]);
 
-  // Sao chép tin nhắn Zalo
+  const betLedger = useMemo(
+    () => calculateBetLedger(players, history),
+    [players, history]
+  );
+  const mergeBets = Boolean(settings.mergeBetsIntoSettlement && betLedger.hasBets);
+  const betPayments = settlementData.betPayments || {};
+
+  // Sao chép tin nhắn Zalo (kèm Sổ Nợ Độ nếu có)
+  const fullZaloMessage = useMemo(() => {
+    let baseMessage = settlementResult.zaloMessage;
+    if (mergeBets) {
+      const mergedPlayers = settlementResult.players.map((item) => {
+        const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+        const eff = getEffectivePlayerPayable(item.roundedAmount, adj, true);
+        if (adj === 0) return item;
+        const betPartNote =
+          eff < 0
+            ? `Được nhận lại ${formatVND(Math.abs(eff))}`
+            : `Sân ${formatVND(item.roundedAmount)} ${adj > 0 ? '+' : '-'} Độ ${formatVND(Math.abs(adj))}`;
+        const combinedNote = [item.discountNote, betPartNote].filter(Boolean).join('; ');
+        return {
+          ...item,
+          discountNote: combinedNote,
+          roundedAmount: Math.max(0, eff),
+        };
+      });
+      baseMessage = generateZaloSettlementMessage({
+        totalCost: settlementResult.totalCost,
+        courtCost: settlementResult.courtCost,
+        shuttleCost: settlementResult.shuttleCost,
+        extraCost: settlementResult.extraCost,
+        totalCollected: settlementResult.totalCollected,
+        surplus: settlementResult.surplus,
+        shortfall: settlementResult.shortfall,
+        players: mergedPlayers,
+        settings,
+        hideZeroCostPlayers: hideZeroCostInZalo,
+      });
+    }
+    const betSection = buildBetLedgerZaloSection(betLedger, mergeBets);
+    return betSection ? `${baseMessage}\n${betSection}` : baseMessage;
+  }, [settlementResult, betLedger, mergeBets, settings, hideZeroCostInZalo]);
+
   const handleCopyZalo = async () => {
     vibrateSuccess();
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(settlementResult.zaloMessage);
+        await navigator.clipboard.writeText(fullZaloMessage);
       } else {
         // Fallback cho trình duyệt cũ
         const textarea = document.createElement('textarea');
-        textarea.value = settlementResult.zaloMessage;
+        textarea.value = fullZaloMessage;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
@@ -869,6 +922,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         const isPaid = status === 'PAID';
                         const isPending = status === 'PENDING_REVIEW';
                         const isRejected = status === 'REJECTED';
+                        const betAdj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+                        const effectiveAmount = getEffectivePlayerPayable(
+                          item.roundedAmount,
+                          betAdj,
+                          mergeBets
+                        );
 
                         return (
                           <tr
@@ -896,7 +955,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                           setReviewReceiptTarget({
                                             playerId: item.playerId,
                                             playerName: item.name,
-                                            amount: item.roundedAmount,
+                                            amount: Math.max(0, effectiveAmount),
                                             receiptUrl: rec.receiptUrl,
                                             isPending: true,
                                           });
@@ -926,7 +985,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                         setReviewReceiptTarget({
                                           playerId: item.playerId,
                                           playerName: item.name,
-                                          amount: item.roundedAmount,
+                                          amount: Math.max(0, effectiveAmount),
                                           receiptUrl: rec?.receiptUrl,
                                           isPending: true,
                                         });
@@ -957,7 +1016,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                           setReviewReceiptTarget({
                                             playerId: item.playerId,
                                             playerName: item.name,
-                                            amount: item.roundedAmount,
+                                            amount: Math.max(0, effectiveAmount),
                                             receiptUrl: rec.receiptUrl,
                                             isPending: false,
                                           });
@@ -977,8 +1036,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                     )}
                                   </div>
                                 )
-                              ) : item.roundedAmount === 0 ? (
-                                <span className="text-[11px] text-slate-500">Miễn phí</span>
+                              ) : effectiveAmount < 0 ? (
+                                <span className="text-[11px] font-bold text-teal-300">
+                                  Nhận lại tiền
+                                </span>
+                              ) : effectiveAmount === 0 ? (
+                                <span className="text-[11px] text-slate-500">
+                                  {mergeBets && betAdj < 0 ? 'Trừ thắng độ' : 'Miễn phí'}
+                                </span>
                               ) : isPaid ? (
                                 <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 text-[11px] font-bold">
                                   ✅ Đã đóng
@@ -995,7 +1060,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                         setReviewReceiptTarget({
                                           playerId: item.playerId,
                                           playerName: item.name,
-                                          amount: item.roundedAmount,
+                                          amount: effectiveAmount,
                                           receiptUrl: rec.receiptUrl,
                                           isPending: false,
                                         })
@@ -1014,7 +1079,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                       setQrModalTarget({
                                         playerId: item.playerId,
                                         playerName: item.name,
-                                        amount: item.roundedAmount,
+                                        amount: effectiveAmount,
                                       })
                                     }
                                     className="px-2 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-600/60 text-[11px] font-bold transition"
@@ -1053,7 +1118,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                     setQrModalTarget({
                                       playerId: item.playerId,
                                       playerName: item.name,
-                                      amount: item.roundedAmount,
+                                      amount: effectiveAmount,
                                     })
                                   }
                                   className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-700/50 text-[11px] font-semibold transition"
@@ -1088,35 +1153,49 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               {item.gamesPlayed}
                             </td>
                             <td className="py-2.5 px-2 text-right font-black text-sm">
-                              {item.roundedAmount === 0 ? (
-                                <span className="text-slate-500 font-normal">Miễn phí</span>
+                              {effectiveAmount < 0 ? (
+                                <span className="inline-block px-2 py-0.5 rounded-lg bg-teal-950 text-teal-300 border border-teal-700/60 text-xs font-extrabold">
+                                  Được nhận lại {formatVND(Math.abs(effectiveAmount))}
+                                </span>
+                              ) : effectiveAmount === 0 ? (
+                                <span className="text-slate-500 font-normal">
+                                  {mergeBets && betAdj < 0 ? '0đ (Trừ thắng độ)' : 'Miễn phí'}
+                                </span>
                               ) : (
-                                <div className="inline-flex items-center justify-end gap-1.5">
-                                  <span
-                                    className={
-                                      isPaid
-                                        ? 'text-emerald-300'
-                                        : isPending
-                                        ? 'text-amber-300'
-                                        : 'text-emerald-400'
-                                    }
-                                  >
-                                    {formatVND(item.roundedAmount)}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    title={`Mở mã VietQR cho ${item.name}`}
-                                    onClick={() =>
-                                      setQrModalTarget({
-                                        playerId: item.playerId,
-                                        playerName: item.name,
-                                        amount: item.roundedAmount,
-                                      })
-                                    }
-                                    className="p-1 rounded-lg bg-slate-800 hover:bg-emerald-950 text-emerald-400 border border-slate-700 hover:border-emerald-600/60 transition"
-                                  >
-                                    <QrCode className="w-3.5 h-3.5" />
-                                  </button>
+                                <div className="inline-flex flex-col items-end gap-0.5">
+                                  <div className="inline-flex items-center justify-end gap-1.5">
+                                    <span
+                                      className={
+                                        isPaid
+                                          ? 'text-emerald-300'
+                                          : isPending
+                                          ? 'text-amber-300'
+                                          : 'text-emerald-400'
+                                      }
+                                    >
+                                      {formatVND(effectiveAmount)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      title={`Mở mã VietQR cho ${item.name}`}
+                                      onClick={() =>
+                                        setQrModalTarget({
+                                          playerId: item.playerId,
+                                          playerName: item.name,
+                                          amount: effectiveAmount,
+                                        })
+                                      }
+                                      className="p-1 rounded-lg bg-slate-800 hover:bg-emerald-950 text-emerald-400 border border-slate-700 hover:border-emerald-600/60 transition"
+                                    >
+                                      <QrCode className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  {mergeBets && betAdj !== 0 && (
+                                    <span className="text-[10px] font-normal text-amber-300/90">
+                                      (Sân {formatVND(item.roundedAmount)}{' '}
+                                      {betAdj > 0 ? `+ Độ ${formatVND(betAdj)}` : `- Thắng ${formatVND(Math.abs(betAdj))}`})
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -1159,6 +1238,236 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </div>
             );
           })()}
+
+          {/* ========================================================= */}
+          {/* 3B. SỔ NỢ ĐỘ BUỔI NÀY (CÔNG KHAI CHO CẢ SÂN XEM) */}
+          {/* ========================================================= */}
+          {betLedger.hasBets && (
+            <div className="p-4 rounded-3xl bg-slate-900 border border-amber-800/50 space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-bold text-sm text-amber-300 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-amber-400" />
+                  <span>3B. Sổ Nợ Độ Buổi Này</span>
+                </h3>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-700/50">
+                  {betLedger.matches.length} trận có độ
+                </span>
+              </div>
+
+              {betLedger.unresolvedMatches.length > 0 && (
+                <div className="p-2.5 rounded-2xl bg-amber-950/50 border border-amber-600/50 text-amber-200 space-y-1.5">
+                  <div className="font-bold">
+                    ⚠️ Có {betLedger.unresolvedMatches.length} trận đánh độ chưa chốt đội thắng:
+                  </div>
+                  <div className="space-y-1">
+                    {betLedger.unresolvedMatches.map((um) => {
+                      const matchedHist = history.find((h) => h.id === um.matchId);
+                      return (
+                        <div
+                          key={um.matchId}
+                          className="flex items-center justify-between gap-2 text-[11px] bg-slate-950/60 px-2.5 py-1.5 rounded-xl"
+                        >
+                          <span className="truncate">
+                            Trận #{um.matchIndex}: {um.team1Names.join(' & ')} vs {um.team2Names.join(' & ')} ({um.bet.label})
+                          </span>
+                          {!isViewer && matchedHist && onQuickEditMatchResult && (
+                            <button
+                              type="button"
+                              onClick={() => onQuickEditMatchResult(matchedHist)}
+                              className="px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0"
+                            >
+                              Chốt ngay
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Công tắc Gộp tiền độ vào tổng chuyển khoản (mặc định TẮT) */}
+              {betLedger.matches.some((m) => m.bet.amountVnd > 0) && (
+                <label className="flex items-center justify-between gap-3 p-2.5 rounded-2xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                  <div>
+                    <span className="font-bold text-slate-200 block">
+                      Gộp tiền độ vào tổng chuyển khoản ở bảng trên
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      (Mặc định TẮT để tiền sân &amp; tiền độ tách riêng; bật lên nếu Chủ sân thu gom 1 lần qua VietQR)
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={isViewer}
+                    checked={Boolean(settings.mergeBetsIntoSettlement)}
+                    onChange={(e) =>
+                      updateSettings({ mergeBetsIntoSettlement: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded bg-slate-800 accent-amber-500 shrink-0 disabled:opacity-60"
+                  />
+                </label>
+              )}
+
+              {/* 1. Chuyển khoản độ (Đã cấn trừ chéo) */}
+              {betLedger.transfers.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="font-bold text-slate-300 flex items-center justify-between">
+                    <span>💸 Chuyển khoản độ (Đã cấn trừ chéo):</span>
+                    {mergeBets && (
+                      <span className="text-[10px] text-emerald-400 font-semibold">
+                        Đã gộp vào tiền sân cho Chủ sân
+                      </span>
+                    )}
+                  </div>
+                  {betLedger.transfers.map((t) => {
+                    const paid = Boolean(betPayments[t.id]);
+                    return (
+                      <div
+                        key={t.id}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                          paid
+                            ? 'bg-emerald-950/20 border-emerald-800/50 text-emerald-200'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className="font-bold">{t.fromName}</span>
+                          <span className="text-slate-400 mx-1.5">→</span>
+                          <span className="font-bold text-emerald-300">{t.toName}</span>
+                          <span className="ml-2 font-black text-amber-300">
+                            {formatVND(t.amount)}
+                          </span>
+                        </div>
+                        {!isViewer && onToggleBetPaid ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              vibrateSuccess();
+                              onToggleBetPaid(t.id);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold border shrink-0 transition ${
+                              paid
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            }`}
+                          >
+                            {paid ? '✅ Đã trả' : 'Đánh dấu trả'}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] font-bold shrink-0">
+                            {paid ? '✅ Đã trả' : 'Chưa trả'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 2. Đóng góp Quỹ chung */}
+              {betLedger.fundContributions.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="font-bold text-slate-300 flex items-center justify-between">
+                    <span>🏦 Tiền độ góp Quỹ chung:</span>
+                    <span className="text-emerald-400 font-black">
+                      Tổng quỹ: {formatVND(betLedger.totalFundVnd)}
+                    </span>
+                  </div>
+                  {betLedger.fundContributions.map((f) => {
+                    const paid = Boolean(betPayments[f.id]);
+                    return (
+                      <div
+                        key={f.id}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                          paid
+                            ? 'bg-emerald-950/20 border-emerald-800/50 text-emerald-200'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-200'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-bold">{f.playerName}</span>
+                          <span className="text-slate-400 mx-1.5">góp quỹ</span>
+                          <span className="font-black text-amber-300">
+                            +{formatVND(f.amount)}
+                          </span>
+                        </div>
+                        {!isViewer && onToggleBetPaid ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              vibrateSuccess();
+                              onToggleBetPaid(f.id);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold border shrink-0 transition ${
+                              paid
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            }`}
+                          >
+                            {paid ? '✅ Đã góp' : 'Đánh dấu góp'}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] font-bold shrink-0">
+                            {paid ? '✅ Đã góp' : 'Chưa góp'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 3. Kèo nước / cầu / hiện vật */}
+              {betLedger.itemObligations.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="font-bold text-slate-300">
+                    🥤 Kèo nước / cầu / hiện vật:
+                  </div>
+                  {betLedger.itemObligations.map((item) => {
+                    const paid = Boolean(betPayments[item.id]);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                          paid
+                            ? 'bg-emerald-950/20 border-emerald-800/50 text-emerald-200'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 mr-1.5">
+                            Trận #{item.matchIndex}
+                          </span>
+                          <span>{item.description}</span>
+                        </div>
+                        {!isViewer && onToggleBetPaid ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              vibrateSuccess();
+                              onToggleBetPaid(item.id);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold border shrink-0 transition ${
+                              paid
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            }`}
+                          >
+                            {paid ? '✅ Đã trả' : 'Đánh dấu trả'}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] font-bold shrink-0">
+                            {paid ? '✅ Đã trả' : 'Chưa trả'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ========================================================= */}
           {/* 4. THÔNG TIN CHUYỂN KHOẢN (BANK INFO) */}
