@@ -849,4 +849,49 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(mockUpsertRoom).toHaveBeenCalledTimes(1);
     expect(mockUpsertRoom.mock.calls[0][0].session_data.players[0].sex).toBe('F');
   });
+
+  it('12. Mục B2: VIEWER không lưu pin_code vào state và đóng modal PIN sẽ xóa pendingActionRef', async () => {
+    const baseState = createInitialSessionState();
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState });
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+
+    expect(harness.getResult().role).toBe('VIEWER');
+    expect(harness.getResult().pinCode).toBeNull();
+
+    // VIEWER bấm thao tác bị chặn -> mở modal PIN, sau đó hủy
+    const blockedActionSpy = vi.fn();
+    harness.getResult().guardAction(blockedActionSpy);
+    expect(harness.getResult().showPinPrompt).toBe(true);
+    expect(blockedActionSpy).not.toHaveBeenCalled();
+
+    harness.getResult().setShowPinPrompt(false);
+    expect(harness.getResult().showPinPrompt).toBe(false);
+
+    // Sau đó mở khóa Co-Host -> không tự chạy lại action đã hủy
+    const upgradeRes = await harness.getResult().upgradeToCoHost('1234');
+    expect(upgradeRes.ok).toBe(true);
+    expect(harness.getResult().role).toBe('CO_HOST');
+    expect(harness.getResult().pinCode).toBe('1234');
+    expect(blockedActionSpy).not.toHaveBeenCalled();
+  });
 });

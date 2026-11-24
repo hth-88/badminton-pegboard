@@ -191,7 +191,13 @@ export function useCloudRoom({
   const [role, setRole] = useState<RoomRole>('OFFLINE');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('OFFLINE');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showPinPrompt, setShowPinPrompt] = useState<boolean>(false);
+  const [showPinPrompt, setShowPinPromptState] = useState<boolean>(false);
+  const setShowPinPrompt = useCallback((open: boolean) => {
+    if (!open) {
+      pendingActionRef.current = null;
+    }
+    setShowPinPromptState(open);
+  }, []);
 
   const [clientId] = useState<string>(() => getClientId());
 
@@ -245,7 +251,7 @@ export function useCloudRoom({
       onApplyRef.current(roomData.session_data);
 
       setRoomCode(cleanCode);
-      setPinCode(roomData.pin_code);
+      setPinCode(isCoHost ? roomData.pin_code : null);
       setRole(assignedRole);
       setSyncStatus('SYNCED');
       setErrorMessage(null);
