@@ -532,4 +532,76 @@ describe('Tái thiết kế court.nextUp - 10 Test Bắt Buộc (Mục 10)', () 
     expect(court1.nextUp.slotSource).toEqual(['AUTO', 'AUTO', 'AUTO', 'AUTO']);
     expect(court1.suggestCursor).toBe(0);
   });
+
+  it('11. Mục A7: Chuyển Next Up từ Đôi [p1, p2, null, null] sang Đơn giữ nguyên p2 và nhãn MANUAL ở cả 4 luồng (TOGGLE, UPDATE_COURT forcedType/null, UPDATE_SETTINGS)', () => {
+    const createBaseState = () => {
+      const state = createInitialSessionState();
+      state.courts = createDefaultCourts(1);
+      state.players = [
+        makePlayer('p1', 'P1'),
+        makePlayer('p2', 'P2'),
+        makePlayer('p3', 'P3'),
+        makePlayer('p4', 'P4'),
+      ];
+      state.courts[0].nextUp = {
+        type: 'DOUBLES',
+        slots: ['p1', 'p2', null, null],
+        slotSource: ['MANUAL', 'MANUAL', null, null],
+      };
+      return state;
+    };
+
+    // Luồng 1: TOGGLE_NEXT_UP_TYPE
+    const s1 = badmintonReducer(createBaseState(), {
+      type: 'TOGGLE_NEXT_UP_TYPE',
+      payload: { courtId: 'court-1', nextType: 'SINGLES' },
+    });
+    expect(s1.courts[0].nextUp.type).toBe('SINGLES');
+    expect(s1.courts[0].nextUp.slots).toEqual(['p1', 'p2']);
+    expect(s1.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
+
+    // Luồng 2: UPDATE_COURT forcedType: 'SINGLES'
+    const s2 = badmintonReducer(createBaseState(), {
+      type: 'UPDATE_COURT',
+      payload: { courtId: 'court-1', updates: { forcedType: 'SINGLES' }, now: 1000 },
+    });
+    expect(s2.courts[0].nextUp.type).toBe('SINGLES');
+    expect(s2.courts[0].nextUp.slots).toEqual(['p1', 'p2']);
+    expect(s2.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
+
+    // Luồng 3: UPDATE_COURT forcedType: null khi matchMix.singles === 1
+    const base3 = createBaseState();
+    base3.settings.matchMix = { doubles: 0, singles: 1 };
+    base3.courts[0].forcedType = 'DOUBLES';
+    const s3 = badmintonReducer(base3, {
+      type: 'UPDATE_COURT',
+      payload: { courtId: 'court-1', updates: { forcedType: null }, now: 1000 },
+    });
+    expect(s3.courts[0].nextUp.type).toBe('SINGLES');
+    expect(s3.courts[0].nextUp.slots).toEqual(['p1', 'p2']);
+    expect(s3.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
+
+    // Luồng 4: UPDATE_SETTINGS matchMix: { doubles: 0, singles: 1 }
+    const s4 = badmintonReducer(createBaseState(), {
+      type: 'UPDATE_SETTINGS',
+      payload: { settings: { matchMix: { doubles: 0, singles: 1 } } },
+    });
+    expect(s4.courts[0].nextUp.type).toBe('SINGLES');
+    expect(s4.courts[0].nextUp.slots).toEqual(['p1', 'p2']);
+    expect(s4.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
+
+    // Luồng 5: khi ô số 2 CÓ người -> ưu tiên ô 2
+    const base5 = createBaseState();
+    base5.courts[0].nextUp = {
+      type: 'DOUBLES',
+      slots: ['p1', 'p2', 'p3', 'p4'],
+      slotSource: ['MANUAL', 'AUTO', 'MANUAL', 'AUTO'],
+    };
+    const s5 = badmintonReducer(base5, {
+      type: 'TOGGLE_NEXT_UP_TYPE',
+      payload: { courtId: 'court-1', nextType: 'SINGLES' },
+    });
+    expect(s5.courts[0].nextUp.slots).toEqual(['p1', 'p3']);
+    expect(s5.courts[0].nextUp.slotSource).toEqual(['MANUAL', 'MANUAL']);
+  });
 });

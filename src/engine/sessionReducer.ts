@@ -920,9 +920,10 @@ export function badmintonReducer(
           const oldSlots = c.nextUp?.slots || [null, null, null, null];
           const oldSource = c.nextUp?.slotSource || [null, null, null, null];
           const s0 = oldSlots[0];
-          const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+          const s1Index = oldSlots[2] != null ? 2 : 1;
+          const s1 = oldSlots[s1Index];
           const src0 = oldSource[0];
-          const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+          const src1 = oldSource[s1Index];
           return {
             ...c,
             nextUp: {
@@ -1408,9 +1409,10 @@ export function badmintonReducer(
             const oldSlots = c.nextUp?.slots || [null, null, null, null];
             const oldSource = c.nextUp?.slotSource || [null, null, null, null];
             const s0 = oldSlots[0];
-            const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+            const s1Index = oldSlots[2] != null ? 2 : 1;
+            const s1 = oldSlots[s1Index];
             const src0 = oldSource[0];
-            const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+            const src1 = oldSource[s1Index];
             newNextUp = {
               type: 'SINGLES' as MatchType,
               slots: [s0 ?? null, s1 ?? null],
@@ -1429,9 +1431,10 @@ export function badmintonReducer(
               const oldSlots = c.nextUp?.slots || [null, null, null, null];
               const oldSource = c.nextUp?.slotSource || [null, null, null, null];
               const s0 = oldSlots[0];
-              const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+              const s1Index = oldSlots[2] != null ? 2 : 1;
+              const s1 = oldSlots[s1Index];
               const src0 = oldSource[0];
-              const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+              const src1 = oldSource[s1Index];
               newNextUp = {
                 type: 'SINGLES' as MatchType,
                 slots: [s0 ?? null, s1 ?? null],
@@ -1579,9 +1582,10 @@ export function badmintonReducer(
             const oldSlots = c.nextUp?.slots || [null, null, null, null];
             const oldSource = c.nextUp?.slotSource || [null, null, null, null];
             const s0 = oldSlots[0];
-            const s1 = oldSlots[2] !== undefined ? oldSlots[2] : oldSlots[1];
+            const s1Index = oldSlots[2] != null ? 2 : 1;
+            const s1 = oldSlots[s1Index];
             const src0 = oldSource[0];
-            const src1 = oldSource[2] !== undefined ? oldSource[2] : oldSource[1];
+            const src1 = oldSource[s1Index];
             return {
               ...c,
               nextUp: {
