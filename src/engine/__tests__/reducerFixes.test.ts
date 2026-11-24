@@ -599,4 +599,134 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
       expect(itemAfter.lineup).toEqual(queueItem.lineup);
     });
   });
+
+  // =========================================================================
+  // 5) Mục A5: SWAP_PLAYERS reset waitStreak & dọn nextUp/readyQueue
+  // =========================================================================
+  describe('5) Mục A5: SWAP_PLAYERS reset waitStreak & dọn nextUp/readyQueue', () => {
+    it('SWAP_PLAYERS đưa người từ ngoài vào currentMatch -> reset waitStreak = 0, xóa khỏi nextUp sân khác và readyQueue', () => {
+      const state = createInitialSessionState();
+      state.players = [
+        createMockPlayer('p1', 'P1'),
+        createMockPlayer('p2', 'P2'),
+        createMockPlayer('p3', 'P3'),
+        createMockPlayer('p4', 'P4'),
+        createMockPlayer('p5', 'P5', 'M', 'tb', { waitStreak: 4 }),
+        createMockPlayer('p6', 'P6'),
+        createMockPlayer('p7', 'P7'),
+        createMockPlayer('p8', 'P8'),
+      ];
+      state.courts[0].isActive = true;
+      state.courts[0].currentMatch = {
+        id: 'm1',
+        type: 'DOUBLES',
+        team1: ['p1', 'p2'],
+        team2: ['p3', 'p4'],
+        slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
+        startedAt: 1000,
+      };
+      state.courts[1].isActive = true;
+      state.courts[1].nextUp = {
+        type: 'DOUBLES',
+        slots: ['p5', 'p6', 'p7', 'p8'],
+        slotSource: ['MANUAL', 'AUTO', 'AUTO', 'AUTO'],
+      };
+      state.readyQueue = [
+        {
+          id: 'rq-1',
+          courtId: 'court-2',
+          isLockedByHost: false,
+          createdAt: 1000,
+          lineup: {
+            type: 'SINGLES',
+            team1: ['p5'],
+            team2: ['p6'],
+            slotSource: { p5: 'AUTO', p6: 'AUTO' },
+          },
+        },
+        {
+          id: 'rq-2',
+          courtId: 'court-2',
+          isLockedByHost: false,
+          createdAt: 1000,
+          lineup: {
+            type: 'SINGLES',
+            team1: ['p7'],
+            team2: ['p8'],
+            slotSource: { p7: 'AUTO', p8: 'AUTO' },
+          },
+        },
+      ];
+
+      const res = badmintonReducer(state, {
+        type: 'SWAP_PLAYERS',
+        payload: {
+          courtId: 'court-1',
+          target: 'CURRENT',
+          slot1: { team: 1, index: 0 },
+          slot2: { playerId: 'p5' },
+        },
+      });
+
+      expect(res.courts[0].currentMatch?.team1).toEqual(['p5', 'p2']);
+      expect(res.players.find((p) => p.id === 'p5')?.waitStreak).toBe(0);
+      expect(res.courts[1].nextUp.slots).toEqual([null, 'p6', 'p7', 'p8']);
+      expect(res.courts[1].nextUp.slotSource).toEqual([null, 'AUTO', 'AUTO', 'AUTO']);
+      expect(res.readyQueue.map((q) => q.id)).toEqual(['rq-2']);
+    });
+
+    it('SWAP_PLAYERS hoán đổi 2 người nội bộ trên cùng sân -> không chạm nextUp sân khác và readyQueue', () => {
+      const state = createInitialSessionState();
+      state.players = [
+        createMockPlayer('p1', 'P1'),
+        createMockPlayer('p2', 'P2'),
+        createMockPlayer('p3', 'P3'),
+        createMockPlayer('p4', 'P4'),
+        createMockPlayer('p5', 'P5'),
+        createMockPlayer('p6', 'P6'),
+      ];
+      state.courts[0].isActive = true;
+      state.courts[0].currentMatch = {
+        id: 'm1',
+        type: 'DOUBLES',
+        team1: ['p1', 'p2'],
+        team2: ['p3', 'p4'],
+        slotSource: { p1: 'AUTO', p2: 'AUTO', p3: 'AUTO', p4: 'AUTO' },
+        startedAt: 1000,
+      };
+      state.courts[1].nextUp = {
+        type: 'SINGLES',
+        slots: ['p5', 'p6'],
+        slotSource: ['AUTO', 'AUTO'],
+      };
+      state.readyQueue = [
+        {
+          id: 'rq-1',
+          isLockedByHost: false,
+          createdAt: 1000,
+          lineup: {
+            type: 'SINGLES',
+            team1: ['p5'],
+            team2: ['p6'],
+            slotSource: { p5: 'AUTO', p6: 'AUTO' },
+          },
+        },
+      ];
+
+      const res = badmintonReducer(state, {
+        type: 'SWAP_PLAYERS',
+        payload: {
+          courtId: 'court-1',
+          target: 'CURRENT',
+          slot1: { team: 1, index: 1 },
+          slot2: { team: 2, index: 0 },
+        },
+      });
+
+      expect(res.courts[0].currentMatch?.team1).toEqual(['p1', 'p3']);
+      expect(res.courts[0].currentMatch?.team2).toEqual(['p2', 'p4']);
+      expect(res.courts[1].nextUp.slots).toEqual(['p5', 'p6']);
+      expect(res.readyQueue.length).toBe(1);
+    });
+  });
 });

@@ -752,17 +752,51 @@ export function badmintonReducer(
         return state;
       }
 
+      const swappedInPlayerId = 'playerId' in slot2 ? slot2.playerId : null;
+
+      const updatedPlayers = swappedInPlayerId
+        ? baseNextState.players.map((p) =>
+            p.id === swappedInPlayerId ? { ...p, waitStreak: 0 } : p
+          )
+        : baseNextState.players;
+
       const updatedCourts = baseNextState.courts.map((c) => {
-        if (c.id !== courtId) return c;
-        return {
-          ...c,
-          currentMatch: c.currentMatch ? { ...c.currentMatch, ...newLineup } : null,
-        };
+        if (c.id === courtId) {
+          return {
+            ...c,
+            currentMatch: c.currentMatch ? { ...c.currentMatch, ...newLineup } : null,
+          };
+        }
+        if (swappedInPlayerId && c.nextUp && Array.isArray(c.nextUp.slots) && c.nextUp.slots.includes(swappedInPlayerId)) {
+          const newSlots = c.nextUp.slots.map((id) => (id === swappedInPlayerId ? null : id));
+          const newSource = (c.nextUp.slotSource || []).map((src, idx) =>
+            c.nextUp.slots[idx] === swappedInPlayerId ? null : src
+          );
+          return {
+            ...c,
+            nextUp: {
+              ...c.nextUp,
+              slots: newSlots,
+              slotSource: newSource,
+            },
+          };
+        }
+        return c;
       });
+
+      const updatedReadyQueue = swappedInPlayerId
+        ? baseNextState.readyQueue.filter(
+            (item) =>
+              !item.lineup.team1.includes(swappedInPlayerId) &&
+              !item.lineup.team2.includes(swappedInPlayerId)
+          )
+        : baseNextState.readyQueue;
 
       return {
         ...baseNextState,
+        players: updatedPlayers,
         courts: updatedCourts,
+        readyQueue: updatedReadyQueue,
       };
     }
 
