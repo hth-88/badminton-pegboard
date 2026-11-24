@@ -1370,7 +1370,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   <span>Ghi chú kín thành viên CLB — {profileModalMember.name}</span>
                 </h4>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  🔒 Chỉ lưu trên máy bạn, thành viên không thấy &amp; dùng làm ngữ cảnh cho AI phân tích trình độ.
+                  Chỉ lưu trên thiết bị này, thành viên khác không thể xem.
                 </p>
               </div>
               <button

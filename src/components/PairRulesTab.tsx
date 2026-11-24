@@ -18,6 +18,8 @@ interface PairRulesTabProps {
   pairRules: PairRule[];
   players: Player[];
   ruleConflicts: RuleConflictInfo[];
+  isViewer?: boolean;
+  onRequestUpgrade?: () => void;
   onAddRule: (rule: Omit<PairRule, 'id'>) => void;
   onRemoveRule: (ruleId: string) => void;
 }
@@ -26,6 +28,8 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   pairRules,
   players,
   ruleConflicts,
+  isViewer = false,
+  onRequestUpgrade,
   onAddRule,
   onRemoveRule,
 }) => {
@@ -33,6 +37,29 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   const [playerAId, setPlayerAId] = useState('');
   const [playerBId, setPlayerBId] = useState('');
   const [ruleType, setRuleType] = useState<PairRuleType>('LOCK_PARTNER');
+
+  if (isViewer) {
+    return (
+      <div className="max-w-md mx-auto py-16 px-4 text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 text-amber-400 flex items-center justify-center mx-auto">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h3 className="font-bold text-base text-slate-100">Mục chỉ dành cho Ban điều hành</h3>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Thiết lập luật cặp đôi được bảo mật và chỉ hiển thị khi đăng nhập quyền quản trị phòng.
+        </p>
+        {onRequestUpgrade && (
+          <button
+            type="button"
+            onClick={onRequestUpgrade}
+            className="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition"
+          >
+            Nhập mã PIN quản trị
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const playerMap = new Map(players.map((p) => [p.id, p]));
 

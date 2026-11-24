@@ -159,7 +159,7 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
 
         <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-950/70 text-amber-300 border border-amber-700/60 flex items-center gap-1">
           <Lock className="w-3 h-3" />
-          <span>Góc riêng Chủ sân (Ẩn với người xem)</span>
+          <span>Chỉ hiển thị với quản trị</span>
         </span>
       </div>
 

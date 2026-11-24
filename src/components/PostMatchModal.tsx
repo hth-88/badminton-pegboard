@@ -319,7 +319,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
           <div className="space-y-1.5">
             <div className="font-bold text-slate-300 flex items-center gap-1.5">
               <Scale className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Độ cân kèo trận này (giúp máy học cho các trận sau)</span>
+              <span>Đánh giá độ cân kèo</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -507,7 +507,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
                   <span>Nhận xét riêng từng người (Tùy chọn)</span>
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-700/50">
-                  🔒 Chỉ lưu kín trên máy bạn
+                  Riêng tư (chỉ bạn thấy)
                 </span>
               </div>
 

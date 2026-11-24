@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -139,6 +139,13 @@ export function App() {
     currentSettlement: settlementData,
     onApplyCloudSettlement: handleApplyCloudSettlement,
   });
+
+  // Tự động rời khỏi tab Luật cặp nếu đang ở chế độ Chỉ xem (VIEWER)
+  useEffect(() => {
+    if (role === 'VIEWER' && activeTab === 'rules') {
+      setActiveTab('courts');
+    }
+  }, [role, activeTab]);
 
   // Tính số sân đang bật
   const activeCourtsCount = useMemo(() => {
@@ -488,12 +495,14 @@ export function App() {
           />
         )}
 
-        {/* TAB 3: LUẬT CẶP */}
+        {/* TAB 3: LUẬT CẶP (Ẩn với VIEWER) */}
         {activeTab === 'rules' && (
           <PairRulesTab
             pairRules={pairRules}
             players={players}
             ruleConflicts={ruleConflicts}
+            isViewer={role === 'VIEWER'}
+            onRequestUpgrade={() => setShowPinPrompt(true)}
             onAddRule={(r) => guardAction(() => addPairRule(r))}
             onRemoveRule={(id) => guardAction(() => removePairRule(id))}
           />
@@ -609,6 +618,7 @@ export function App() {
         onSelectTab={setActiveTab}
         waitingCount={waitingCount}
         conflictCount={ruleConflicts.length}
+        isViewer={role === 'VIEWER'}
       />
 
       {/* 5. CLOUD ROOM REALTIME MODAL */}

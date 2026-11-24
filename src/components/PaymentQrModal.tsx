@@ -181,7 +181,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
         if (upRes.error || !upRes.url) {
           vibrateWarning();
           setUploadError(
-            `Không tải được ảnh lên Storage (${upRes.error || 'Chưa cấu hình bucket'}). Bạn có thể bấm "Gửi báo không kèm ảnh" bên dưới.`
+            'Không thể tải ảnh biên lai lúc này. Bạn có thể bấm "Xác nhận không kèm ảnh" bên dưới.'
           );
           setSubmitting(false);
           return;
@@ -346,13 +346,13 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
             </div>
           )}
 
-          {/* Nộp ảnh biên lai kiểu Alobo khi Online */}
+          {/* Xác nhận chuyển khoản & đính kèm biên lai */}
           {canUploadReceipt && (
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-sky-800/50 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-sky-300 flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4" />
-                  <span>Gửi xác nhận &amp; Ảnh biên lai (kiểu Alobo)</span>
+                  <span>Xác nhận chuyển khoản</span>
                 </span>
               </div>
 
@@ -368,7 +368,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
                   {compressing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Đang nén ảnh nhẹ cho mạng 4G...</span>
+                      <span>Đang xử lý ảnh...</span>
                     </>
                   ) : (
                     <>
@@ -376,7 +376,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
                       <span>
                         {selectedBlob
                           ? 'Đổi ảnh biên lai khác'
-                          : '📷 Chọn ảnh chụp biên lai (Tự nén nhẹ ~70KB)'}
+                          : 'Đính kèm ảnh biên lai (tùy chọn)'}
                       </span>
                     </>
                   )}
@@ -391,7 +391,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
                     className="max-h-44 rounded-xl mx-auto border border-slate-700 object-contain"
                   />
                   <div className="text-[11px] text-emerald-400 font-semibold">
-                    Đã nén gọn: {Math.max(1, Math.round(selectedBlob.size / 1024))} KB
+                    Đã chọn ảnh biên lai
                   </div>
                 </div>
               )}
@@ -406,7 +406,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
                       onClick={() => handleSubmitWithOptionalReceipt(true)}
                       className="w-full py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition"
                     >
-                      Gửi báo không kèm ảnh
+                      Xác nhận không kèm ảnh
                     </button>
                   )}
                 </div>
@@ -429,8 +429,8 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
                       <Send className="w-4 h-4" />
                       <span>
                         {selectedBlob
-                          ? 'Gửi xác nhận + Ảnh biên lai'
-                          : 'Tôi đã chuyển (Không cần ảnh)'}
+                          ? 'Gửi biên lai & Xác nhận'
+                          : 'Xác nhận đã chuyển'}
                       </span>
                     </>
                   )}

@@ -1363,7 +1363,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                       className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs rounded-2xl transition flex items-center justify-center gap-2"
                     >
                       <FileSpreadsheet className="w-4 h-4" />
-                      <span>📊 Xuất bảng thu tiền ra Excel (.csv)</span>
+                      <span>Xuất bảng thu tiền (Excel / CSV)</span>
                     </button>
                   )}
                 </div>
@@ -1426,7 +1426,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                       Gộp tiền độ vào tổng chuyển khoản ở bảng trên
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      (Mặc định TẮT để tiền sân &amp; tiền độ tách riêng; bật lên nếu Chủ sân thu gom 1 lần qua VietQR)
+                      Gộp tiền độ vào số tiền chuyển khoản để thu một lần.
                     </span>
                   </div>
                   <input

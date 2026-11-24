@@ -14,6 +14,7 @@ interface BottomNavProps {
   onSelectTab: (tab: NavTab) => void;
   waitingCount: number;
   conflictCount: number;
+  isViewer?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -21,8 +22,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onSelectTab,
   waitingCount,
   conflictCount,
+  isViewer = false,
 }) => {
-  const tabs = [
+  const allTabs = [
     {
       id: 'courts' as const,
       label: 'Sân',
@@ -60,9 +62,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     },
   ];
 
+  // Ẩn hoàn toàn tab "Luật cặp" ở chế độ Chỉ xem (VIEWER) vì nội dung nhạy cảm
+  const tabs = isViewer ? allTabs.filter((t) => t.id !== 'rules') : allTabs;
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur border-t border-slate-800 safe-area-bottom">
-      <div className="max-w-md mx-auto grid grid-cols-5 h-16">
+      <div className={`max-w-md mx-auto grid h-16 ${isViewer ? 'grid-cols-4' : 'grid-cols-5'}`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

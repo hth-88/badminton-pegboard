@@ -110,14 +110,18 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   }, []);
 
   const viewerUrl = roomCode ? `${baseUrl}?room=${roomCode}` : '';
-  const coHostUrl = roomCode && pinCode ? `${baseUrl}?room=${roomCode}&pin=${pinCode}` : viewerUrl;
+  const coHostUrl =
+    roomCode && role === 'CO_HOST' && pinCode
+      ? `${baseUrl}?room=${roomCode}&pin=${pinCode}`
+      : viewerUrl;
 
   const qrImageUrl = useMemo(() => {
-    if (!coHostUrl) return '';
+    const targetUrl = role === 'CO_HOST' ? coHostUrl : viewerUrl;
+    if (!targetUrl) return '';
     return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-      coHostUrl
+      targetUrl
     )}`;
-  }, [coHostUrl]);
+  }, [role, coHostUrl, viewerUrl]);
 
   const handleCopy = async (text: string, type: 'VIEWER' | 'HOST' | 'SQL') => {
     vibrateSuccess();
@@ -233,7 +237,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
             <div>
               <h3 className="font-bold text-base">Phòng Online Đồng Bộ</h3>
               <p className="text-[11px] text-slate-400">
-                Đồng bộ realtime giữa Host và người xem trên sân
+                Đồng bộ trực tiếp giữa Ban điều hành và thành viên trên sân
               </p>
             </div>
           </div>
@@ -311,7 +315,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
                           : 'bg-indigo-950 text-indigo-300 border border-indigo-800'
                       }`}
                     >
-                      {role === 'CO_HOST' ? 'Co-Host (Toàn quyền)' : 'Chỉ xem (Viewer)'}
+                      {role === 'CO_HOST' ? 'Quản trị (Co-Host)' : 'Chỉ xem'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
@@ -354,107 +358,111 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
                       </div>
                     )}
                     <p className="text-[11px] text-slate-500 mt-2">
-                      (Chứa link kèm mã PIN để Co-Host điều khiển ngay)
+                      {role === 'CO_HOST'
+                        ? 'Mã QR truy cập nhanh cho Ban điều hành (kèm mã PIN)'
+                        : 'Quét mã để mở trang theo dõi sân (Chỉ xem)'}
                     </p>
                   </div>
 
                   {/* Nút Copy Links */}
                   <div className="space-y-2">
-                    {/* Link Co-Host */}
-                    <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/80 space-y-1.5">
-                      <div className="flex items-center justify-between text-slate-300 font-semibold gap-2">
-                        <span className="flex items-center gap-1.5 text-emerald-400">
-                          <KeyRound className="w-4 h-4" />
-                          <span>Link cho Người Host Hộ (Co-Host)</span>
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-[11px] font-mono text-slate-400">
-                            PIN: {pinCode || '1234'}
+                    {/* Link Co-Host — CHỈ hiển thị cho quyền quản trị (CO_HOST) */}
+                    {role === 'CO_HOST' && (
+                      <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300 font-semibold gap-2">
+                          <span className="flex items-center gap-1.5 text-emerald-400">
+                            <KeyRound className="w-4 h-4" />
+                            <span>Link điều hành (Co-Host)</span>
                           </span>
-                          {role === 'CO_HOST' && onUpdateRoomPin && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setChangePinInput(pinCode || '');
-                                setChangePinError(null);
-                                setShowChangePinForm((prev) => !prev);
-                              }}
-                              className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-amber-300 text-[10px] font-bold transition"
-                            >
-                              {showChangePinForm ? 'Đóng' : 'Đổi PIN'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {role === 'CO_HOST' && onUpdateRoomPin && showChangePinForm && (
-                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              maxLength={6}
-                              value={changePinInput}
-                              onChange={(e) => {
-                                setChangePinInput(e.target.value);
-                                setChangePinError(null);
-                              }}
-                              placeholder="PIN mới (4-6 ký tự)..."
-                              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono font-bold text-xs text-white"
-                            />
-                            <button
-                              type="button"
-                              disabled={isSavingPin}
-                              onClick={async () => {
-                                setChangePinError(null);
-                                setIsSavingPin(true);
-                                const res = await onUpdateRoomPin(changePinInput);
-                                setIsSavingPin(false);
-                                if (res.ok) {
-                                  vibrateSuccess();
-                                  setShowChangePinForm(false);
-                                } else {
-                                  vibrateWarning();
-                                  setChangePinError(res.error || 'Không thể đổi PIN');
-                                }
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition"
-                            >
-                              {isSavingPin ? 'Đang lưu...' : 'Lưu PIN'}
-                            </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[11px] font-mono text-slate-400">
+                              PIN: {pinCode || '••••'}
+                            </span>
+                            {onUpdateRoomPin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setChangePinInput(pinCode || '');
+                                  setChangePinError(null);
+                                  setShowChangePinForm((prev) => !prev);
+                                }}
+                                className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-amber-300 text-[10px] font-bold transition"
+                              >
+                                {showChangePinForm ? 'Đóng' : 'Đổi PIN'}
+                              </button>
+                            )}
                           </div>
-                          {changePinError && (
-                            <p className="text-[11px] text-rose-400 font-medium">{changePinError}</p>
-                          )}
                         </div>
-                      )}
-                      <p className="text-[11px] text-slate-400">
-                        Người mở link này có toàn quyền bấm Kết thúc trận, Xếp người thay bạn.
-                      </p>
-                      <button
-                        onClick={() => handleCopy(coHostUrl, 'HOST')}
-                        className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-2"
-                      >
-                        {copiedHostLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedHostLink ? 'ĐÃ SAO CHÉP LINK CO-HOST!' : 'Sao chép Link Co-Host'}</span>
-                      </button>
-                    </div>
+                        {onUpdateRoomPin && showChangePinForm && (
+                          <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                maxLength={6}
+                                value={changePinInput}
+                                onChange={(e) => {
+                                  setChangePinInput(e.target.value);
+                                  setChangePinError(null);
+                                }}
+                                placeholder="PIN mới (4–6 ký tự)..."
+                                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono font-bold text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                disabled={isSavingPin}
+                                onClick={async () => {
+                                  setChangePinError(null);
+                                  setIsSavingPin(true);
+                                  const res = await onUpdateRoomPin(changePinInput);
+                                  setIsSavingPin(false);
+                                  if (res.ok) {
+                                    vibrateSuccess();
+                                    setShowChangePinForm(false);
+                                  } else {
+                                    vibrateWarning();
+                                    setChangePinError(res.error || 'Không thể đổi PIN');
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition"
+                              >
+                                {isSavingPin ? 'Đang lưu...' : 'Lưu PIN'}
+                              </button>
+                            </div>
+                            {changePinError && (
+                              <p className="text-[11px] text-rose-400 font-medium">{changePinError}</p>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-400">
+                          Dành cho người phụ trách điều phối sân: có quyền xếp lượt, chốt trận và quản lý thu tiền.
+                        </p>
+                        <button
+                          onClick={() => handleCopy(coHostUrl, 'HOST')}
+                          className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-2"
+                        >
+                          {copiedHostLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          <span>{copiedHostLink ? 'Đã sao chép link điều hành' : 'Sao chép link điều hành'}</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Link Viewer */}
                     <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-1.5">
                       <div className="flex items-center justify-between text-slate-300 font-semibold">
                         <span className="flex items-center gap-1.5 text-sky-400">
                           <Eye className="w-4 h-4" />
-                          <span>Link cho Thành viên xem lượt (Chỉ xem)</span>
+                          <span>Link thành viên (Chỉ xem)</span>
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        Mọi người trong nhóm bấm vào để xem ai sắp vào sân, không lo bị bấm nhầm.
+                        Gửi vào nhóm để thành viên theo dõi lượt đánh, tỉ số và bảng thu tiền.
                       </p>
                       <button
                         onClick={() => handleCopy(viewerUrl, 'VIEWER')}
                         className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition flex items-center justify-center gap-2 border border-slate-700"
                       >
                         {copiedViewerLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedViewerLink ? 'ĐÃ SAO CHÉP LINK XEM!' : 'Sao chép Link Chỉ Xem'}</span>
+                        <span>{copiedViewerLink ? 'Đã sao chép link chỉ xem' : 'Sao chép link chỉ xem'}</span>
                       </button>
                     </div>
                   </div>
@@ -464,13 +472,13 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
                     <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-800/60 space-y-2">
                       <p className="font-bold text-amber-300 flex items-center gap-1.5">
                         <Lock className="w-4 h-4" />
-                        <span>Mở khóa quyền Cùng Điều Khiển (Co-Host)</span>
+                        <span>Mở khóa quyền quản trị (Co-Host)</span>
                       </p>
                       <div className="flex gap-2">
                         <input
                           type="password"
                           maxLength={6}
-                          placeholder="Nhập mã PIN 4 số..."
+                          placeholder="Nhập mã PIN quản trị..."
                           value={upgradePinInput}
                           onChange={(e) => setUpgradePinInput(e.target.value)}
                           className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-center font-mono font-bold text-sm"
@@ -510,11 +518,12 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
 
                     <div>
                       <label className="block text-slate-300 font-semibold mb-1">
-                        Mã PIN bảo mật (4 số để cùng điều khiển)
+                        Mã PIN quản trị (4–6 ký tự)
                       </label>
                       <input
                         type="text"
                         required
+                        minLength={4}
                         maxLength={6}
                         value={newPinCode}
                         onChange={(e) => setNewPinCode(e.target.value)}
@@ -522,7 +531,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
                         className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 font-mono font-bold text-sm text-slate-100"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">
-                        Người có mã PIN này mới được phép bấm Kết thúc trận và Đổi người.
+                        Dùng để cấp quyền điều phối sân và xác nhận thu tiền (có thể đổi lại bất kỳ lúc nào).
                       </p>
                     </div>
                   </div>
