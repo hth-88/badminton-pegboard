@@ -4,6 +4,9 @@ import type {
   BadmintonSessionState,
   CourtPolicy,
   Lineup,
+  MatchBalanceRating,
+  MatchBet,
+  MatchScore,
   PairRule,
   Player,
   SessionSettings,
@@ -97,21 +100,50 @@ export function useBadmintonSession() {
     []
   );
 
-  const endMatch = useCallback((courtId: string, expectedMatchId?: string) => {
-    dispatch({
-      type: 'END_MATCH',
-      payload: { courtId, now: Date.now(), expectedMatchId },
-    });
-  }, []);
+  const endMatch = useCallback(
+    (courtId: string, expectedMatchId?: string): string | null => {
+      const targetCourt = state.courts.find((c) => c.id === courtId);
+      if (!targetCourt || !targetCourt.currentMatch) return null;
+      if (
+        expectedMatchId !== undefined &&
+        targetCourt.currentMatch.id !== expectedMatchId
+      ) {
+        return null;
+      }
+      const now = Date.now();
+      const endedMatchId = targetCourt.currentMatch.id || `hist_${courtId}_${now}`;
+      dispatch({
+        type: 'END_MATCH',
+        payload: { courtId, now, expectedMatchId },
+      });
+      return endedMatchId;
+    },
+    [state.courts]
+  );
 
   const endAndStartMatch = useCallback(
-    (courtId: string, nextLineup?: Lineup, expectedMatchId?: string) => {
+    (
+      courtId: string,
+      nextLineup?: Lineup,
+      expectedMatchId?: string
+    ): string | null => {
+      const targetCourt = state.courts.find((c) => c.id === courtId);
+      if (!targetCourt || !targetCourt.currentMatch) return null;
+      if (
+        expectedMatchId !== undefined &&
+        targetCourt.currentMatch.id !== expectedMatchId
+      ) {
+        return null;
+      }
+      const now = Date.now();
+      const endedMatchId = targetCourt.currentMatch.id || `hist_${courtId}_${now}`;
       dispatch({
         type: 'END_AND_START',
-        payload: { courtId, now: Date.now(), nextLineup, expectedMatchId },
+        payload: { courtId, now, nextLineup, expectedMatchId },
       });
+      return endedMatchId;
     },
-    []
+    [state.courts]
   );
 
   const swapPlayers = useCallback(
@@ -283,6 +315,23 @@ export function useBadmintonSession() {
     dispatch({ type: 'DELETE_HISTORY_MATCH', payload: { matchId } });
   }, []);
 
+  const setCourtBet = useCallback((courtId: string, bet: MatchBet | null) => {
+    dispatch({ type: 'SET_COURT_BET', payload: { courtId, bet } });
+  }, []);
+
+  const updateMatchResult = useCallback(
+    (payload: {
+      matchId: string;
+      score?: MatchScore | null;
+      balanceRating?: MatchBalanceRating | null;
+      bet?: MatchBet | null;
+      betWinner?: 1 | 2 | null;
+    }) => {
+      dispatch({ type: 'UPDATE_MATCH_RESULT', payload });
+    },
+    []
+  );
+
   const newSessionKeepPlayers = useCallback(() => {
     // Tự động lưu snapshot buổi vừa kết thúc vào Archive (nếu có ít nhất 1 trận đấu đã hoàn thành)
     if (state.history.length > 0) {
@@ -394,6 +443,8 @@ export function useBadmintonSession() {
     updateSettings,
     snoozeAutoSingles,
     deleteHistoryMatch,
+    setCourtBet,
+    updateMatchResult,
     newSessionKeepPlayers,
     undo,
     redo,

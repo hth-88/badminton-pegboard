@@ -14,12 +14,16 @@ import {
   Square,
   X,
   AlertOctagon,
+  Flame,
 } from 'lucide-react';
 import type {
   BadmintonRank,
   BadmintonSessionState,
+  BetPayoutMode,
+  BetUnit,
   Court,
   Lineup,
+  MatchBet,
   NextUpDraft,
   Player,
 } from '../types/badminton';
@@ -66,6 +70,8 @@ interface CourtCardProps {
   onSnoozeAutoSingles: (courtId: string, queueSize: number) => void;
   onResumePlayer: (playerId: string) => void;
   onEditRank?: (playerId: string, rank: BadmintonRank) => void;
+  isViewer?: boolean;
+  onSetCourtBet?: (courtId: string, bet: MatchBet | null) => void;
   onTriggerUndoToast: (message: string) => void;
   onShowWarningToast?: (message: string) => void;
 }
@@ -87,11 +93,36 @@ export const CourtCard: React.FC<CourtCardProps> = ({
   onSnoozeAutoSingles: _onSnoozeAutoSingles,
   onResumePlayer,
   onEditRank,
+  isViewer = false,
+  onSetCourtBet,
   onTriggerUndoToast,
   onShowWarningToast,
 }) => {
   // Ref chống bấm đúp nút Kết thúc
   const lastEndClickRef = useRef<number>(0);
+
+  // Popup chỉnh kèo độ live trên sân
+  const [showBetEditor, setShowBetEditor] = useState(false);
+  const [betLabelInput, setBetLabelInput] = useState('1 nước');
+  const [betAmountInput, setBetAmountInput] = useState(0);
+  const [betUnitInput, setBetUnitInput] = useState<BetUnit>('PER_PLAYER');
+  const [betPayoutInput, setBetPayoutInput] = useState<BetPayoutMode>('TEAM_TO_TEAM');
+
+  const openLiveBetEditor = () => {
+    const cur = court.currentMatch?.bet;
+    if (cur) {
+      setBetLabelInput(cur.label);
+      setBetAmountInput(cur.amountVnd);
+      setBetUnitInput(cur.unit);
+      setBetPayoutInput(cur.payoutMode);
+    } else {
+      setBetLabelInput('1 nước');
+      setBetAmountInput(0);
+      setBetUnitInput('PER_PLAYER');
+      setBetPayoutInput('TEAM_TO_TEAM');
+    }
+    setShowBetEditor((prev) => !prev);
+  };
 
   // Slot sheet state
   const [slotSheetTarget, setSlotSheetTarget] = useState<{
@@ -539,6 +570,139 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
             {court.currentMatch ? (
               <>
+                {/* Nhãn Kèo Đánh Độ Live (Hiển thị cho cả VIEWER tạo không khí) */}
+                {court.currentMatch.bet && (
+                  <button
+                    type="button"
+                    disabled={isViewer || !onSetCourtBet}
+                    onClick={() => !isViewer && openLiveBetEditor()}
+                    className="w-full mb-2.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/50 text-amber-200 flex items-center justify-between gap-2 text-xs font-bold text-left disabled:cursor-default hover:bg-amber-500/20 transition"
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0 truncate">
+                      <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="truncate">
+                        KÈO ĐỘ: {court.currentMatch.bet.label} (
+                        {court.currentMatch.bet.unit === 'PER_PLAYER' ? 'mỗi người' : 'cả đội'}
+                        {' • '}
+                        {court.currentMatch.bet.payoutMode === 'LOSER_TO_FUND'
+                          ? 'Góp quỹ'
+                          : 'Trả đội thắng'}
+                        )
+                      </span>
+                    </span>
+                    {!isViewer && onSetCourtBet && (
+                      <span className="text-[10px] text-amber-400 underline shrink-0">Sửa</span>
+                    )}
+                  </button>
+                )}
+
+                {/* Popup mini chỉnh nhanh kèo độ live */}
+                {showBetEditor && !isViewer && onSetCourtBet && (
+                  <div className="mb-3 p-3 rounded-2xl bg-slate-950 border border-amber-600/50 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-amber-300 flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5" />
+                        <span>Cài kèo độ trực tiếp</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBetEditor(false)}
+                        className="text-slate-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: '1 nước', amt: 0, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                        { label: '1 quả cầu', amt: 0, unit: 'PER_TEAM' as BetUnit, pay: 'LOSER_TO_FUND' as BetPayoutMode },
+                        { label: '20k/người', amt: 20000, unit: 'PER_PLAYER' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                        { label: '50k/đội', amt: 50000, unit: 'PER_TEAM' as BetUnit, pay: 'TEAM_TO_TEAM' as BetPayoutMode },
+                      ].map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => {
+                            setBetLabelInput(p.label);
+                            setBetAmountInput(p.amt);
+                            setBetUnitInput(p.unit);
+                            setBetPayoutInput(p.pay);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 font-semibold text-[11px] transition"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Tên kèo..."
+                        value={betLabelInput}
+                        onChange={(e) => setBetLabelInput(e.target.value)}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
+                      />
+                      <input
+                        type="number"
+                        step={5000}
+                        min={0}
+                        placeholder="Tiền VNĐ (0=vật)"
+                        value={betAmountInput}
+                        onChange={(e) => setBetAmountInput(Number(e.target.value) || 0)}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-amber-300"
+                      />
+                      <select
+                        value={betUnitInput}
+                        onChange={(e) => setBetUnitInput(e.target.value as BetUnit)}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[11px]"
+                      >
+                        <option value="PER_PLAYER">Mỗi người</option>
+                        <option value="PER_TEAM">Cả đội</option>
+                      </select>
+                      <select
+                        value={betPayoutInput}
+                        onChange={(e) => setBetPayoutInput(e.target.value as BetPayoutMode)}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[11px]"
+                      >
+                        <option value="TEAM_TO_TEAM">Trả đội thắng</option>
+                        <option value="LOSER_TO_FUND">Góp Quỹ chung</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {court.currentMatch.bet && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSetCourtBet(court.id, null);
+                            setShowBetEditor(false);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-rose-950/70 text-rose-300 border border-rose-700/60 text-[11px] font-bold"
+                        >
+                          Tắt kèo
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = betLabelInput.trim() || '1 nước';
+                          onSetCourtBet(court.id, {
+                            category: betAmountInput > 0 ? 'MONEY' : 'DRINK',
+                            label: clean,
+                            quantity: 1,
+                            unit: betUnitInput,
+                            amountVnd: Math.max(0, Math.round(betAmountInput)),
+                            payoutMode: betPayoutInput,
+                          });
+                          setShowBetEditor(false);
+                        }}
+                        className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-extrabold"
+                      >
+                        Áp dụng
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Match Teams Grid */}
                 <div className="flex flex-col sm:grid sm:grid-cols-2 gap-2 mb-3">
                   {/* Team 1 */}
@@ -639,6 +803,23 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                           <span>Cân kèo</span>
                         </button>
                       </>
+                    )}
+
+                    {/* Nút "🔥 Độ" bật kèo trực tiếp */}
+                    {!isViewer && onSetCourtBet && (
+                      <button
+                        type="button"
+                        onClick={openLiveBetEditor}
+                        title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
+                        className={`py-2 px-2.5 rounded-xl border font-semibold text-xs transition flex items-center justify-center gap-1 ${
+                          court.currentMatch.bet
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                            : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+                        }`}
+                      >
+                        <Flame className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Độ</span>
+                      </button>
                     )}
 
                     {/* Nút "⏹ Chỉ kết thúc" */}
