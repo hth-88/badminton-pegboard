@@ -729,4 +729,97 @@ describe('Unit tests cho sessionReducer fixes (Mục 1 - 4)', () => {
       expect(res.readyQueue.length).toBe(1);
     });
   });
+
+  // =========================================================================
+  // 6) Mục B5: Không tạo undo snapshot rỗng và giữ nguyên redoStack khi no-op
+  // =========================================================================
+  describe('6) Mục B5: Không tạo undo snapshot rỗng và giữ nguyên redoStack khi no-op', () => {
+    it('các action không đổi dữ liệu trả về đúng state cũ, không thêm undoStack và không xóa redoStack', () => {
+      let state = createInitialSessionState();
+      state.players = [
+        createMockPlayer('p1', 'P1', 'M', 'tbk'),
+        createMockPlayer('p2', 'P2', 'M', 'tb'),
+        createMockPlayer('p3', 'P3', 'M', 'tbk'),
+        createMockPlayer('p4', 'P4', 'M', 'tb'),
+      ];
+      state.courts[0].nextUp = {
+        type: 'DOUBLES',
+        slots: ['p1', 'p2', 'p3', 'p4'],
+        slotSource: ['MANUAL', 'MANUAL', 'MANUAL', 'MANUAL'],
+      };
+      state.courts[1].nextUp = {
+        type: 'SINGLES',
+        slots: [null, null],
+        slotSource: [null, null],
+      };
+      state.readyQueue = [
+        {
+          id: 'rq-1',
+          courtId: 'court-1',
+          isLockedByHost: false,
+          createdAt: 1000,
+          lineup: {
+            type: 'SINGLES',
+            team1: ['p1'],
+            team2: ['p2'],
+            slotSource: { p1: 'AUTO', p2: 'AUTO' },
+          },
+        },
+      ];
+      // Tạo redoStack có sẵn 1 item
+      const { undoStack: _u, redoStack: _r, ...snap } = state;
+      state = { ...state, redoStack: [snap] };
+
+      // 1. REARRANGE_NEXT_UP BALANCE khi đã cân nhất
+      const r1 = badmintonReducer(state, {
+        type: 'REARRANGE_NEXT_UP',
+        payload: { courtId: 'court-1', mode: 'BALANCE' },
+      });
+      expect(r1).toBe(state);
+
+      // 2. CLEAR_NEXT_UP khi đã trống và suggestCursor = 0
+      const r2 = badmintonReducer(state, {
+        type: 'CLEAR_NEXT_UP',
+        payload: { courtId: 'court-2' },
+      });
+      expect(r2).toBe(state);
+
+      // 3. SET_NEXT_UP_SLOT null vào ô đã null
+      const r3 = badmintonReducer(state, {
+        type: 'SET_NEXT_UP_SLOT',
+        payload: { courtId: 'court-2', slotIndex: 0, playerId: null },
+      });
+      expect(r3).toBe(state);
+
+      // 4. SET_NEXT_UP_SLOT cùng playerId đang là MANUAL
+      const r4 = badmintonReducer(state, {
+        type: 'SET_NEXT_UP_SLOT',
+        payload: { courtId: 'court-1', slotIndex: 0, playerId: 'p1' },
+      });
+      expect(r4).toBe(state);
+
+      // 5. DEQUEUE_READY_QUEUE id không tồn tại
+      const r5 = badmintonReducer(state, {
+        type: 'DEQUEUE_READY_QUEUE',
+        payload: { itemId: 'missing-id' },
+      });
+      expect(r5).toBe(state);
+
+      // 6. REORDER_READY_QUEUE fromIndex === toIndex
+      const r6 = badmintonReducer(state, {
+        type: 'REORDER_READY_QUEUE',
+        payload: { fromIndex: 0, toIndex: 0 },
+      });
+      expect(r6).toBe(state);
+
+      // 7. REMOVE_PAIR_RULE id không tồn tại
+      const r7 = badmintonReducer(state, {
+        type: 'REMOVE_PAIR_RULE',
+        payload: { ruleId: 'missing-rule' },
+      });
+      expect(r7).toBe(state);
+      expect(r7.undoStack.length).toBe(0);
+      expect(r7.redoStack.length).toBe(1);
+    });
+  });
 });

@@ -19,6 +19,7 @@ import {
   createEmptyNextUp,
   getSlotCandidateStatus,
   isNextUpComplete,
+  isNextUpEmpty,
   normalizeNextUp,
   rotatePairing,
   slotsToLineup,
@@ -834,6 +835,12 @@ export function badmintonReducer(
       if (slotIndex < 0 || slotIndex >= expectedLength) return state;
 
       if (playerId === null) {
+        if (
+          targetCourt.nextUp.slots[slotIndex] === null &&
+          targetCourt.nextUp.slotSource[slotIndex] === null
+        ) {
+          return state;
+        }
         const newSlots = [...targetCourt.nextUp.slots];
         const newSource = [...targetCourt.nextUp.slotSource];
         newSlots[slotIndex] = null;
@@ -855,6 +862,13 @@ export function badmintonReducer(
           ...baseNextState,
           courts: updatedCourts,
         };
+      }
+
+      if (
+        targetCourt.nextUp.slots[slotIndex] === playerId &&
+        targetCourt.nextUp.slotSource[slotIndex] === 'MANUAL'
+      ) {
+        return state;
       }
 
       const status = getSlotCandidateStatus(baseNextState, courtId, slotIndex, playerId);
@@ -888,7 +902,13 @@ export function badmintonReducer(
     case 'REARRANGE_NEXT_UP': {
       const { courtId, mode } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
-      if (!targetCourt || !isNextUpComplete(targetCourt.nextUp)) return state;
+      if (
+        !targetCourt ||
+        targetCourt.nextUp.type !== 'DOUBLES' ||
+        !isNextUpComplete(targetCourt.nextUp)
+      ) {
+        return state;
+      }
 
       let newSlots: (string | null)[];
       if (mode === 'ROTATE') {
@@ -899,6 +919,11 @@ export function badmintonReducer(
           baseNextState.players,
           baseNextState.settings.maleBonus
         );
+      }
+
+      const isUnchanged = newSlots.every((id, idx) => id === targetCourt.nextUp.slots[idx]);
+      if (isUnchanged) {
+        return state;
       }
 
       const sourceByPlayer = new Map<string, 'AUTO' | 'MANUAL' | null>();
@@ -933,6 +958,9 @@ export function badmintonReducer(
       const { courtId } = action.payload;
       const targetCourt = baseNextState.courts.find((c) => c.id === courtId);
       if (!targetCourt) return state;
+      if (isNextUpEmpty(targetCourt.nextUp) && (targetCourt.suggestCursor || 0) === 0) {
+        return state;
+      }
 
       const updatedCourts = baseNextState.courts.map((c) =>
         c.id === courtId
@@ -1016,6 +1044,9 @@ export function badmintonReducer(
     }
 
     case 'DEQUEUE_READY_QUEUE': {
+      if (!baseNextState.readyQueue.some((item) => item.id === action.payload.itemId)) {
+        return state;
+      }
       return {
         ...baseNextState,
         readyQueue: baseNextState.readyQueue.filter((item) => item.id !== action.payload.itemId),
@@ -1025,7 +1056,13 @@ export function badmintonReducer(
     case 'REORDER_READY_QUEUE': {
       const { fromIndex, toIndex } = action.payload;
       const queue = [...baseNextState.readyQueue];
-      if (fromIndex < 0 || fromIndex >= queue.length || toIndex < 0 || toIndex >= queue.length) {
+      if (
+        fromIndex === toIndex ||
+        fromIndex < 0 ||
+        fromIndex >= queue.length ||
+        toIndex < 0 ||
+        toIndex >= queue.length
+      ) {
         return state;
       }
       const [moved] = queue.splice(fromIndex, 1);
@@ -1580,6 +1617,9 @@ export function badmintonReducer(
     }
 
     case 'REMOVE_PAIR_RULE': {
+      if (!baseNextState.pairRules.some((r) => r.id === action.payload.ruleId)) {
+        return state;
+      }
       return {
         ...baseNextState,
         pairRules: baseNextState.pairRules.filter((r) => r.id !== action.payload.ruleId),
