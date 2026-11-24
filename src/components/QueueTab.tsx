@@ -13,6 +13,9 @@ import {
   Coffee,
   UserMinus,
   Users,
+  FileText,
+  Lock,
+  Check,
 } from 'lucide-react';
 import type { BadmintonRank, Court, Player, Sex } from '../types/badminton';
 import { getEffectiveSkill, ORDERED_RANKS, RANK_METADATA, stepRankDown, stepRankUp } from '../engine/skillConfig';
@@ -22,17 +25,20 @@ import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 import { parsePasteLines } from '../utils/parsePasteLines';
 import {
   type ClubMember,
+  CLUB_MEMBER_PRESET_TAGS,
   getClubRoster,
   upsertClubMember,
   deleteClubMember,
   isClubMember,
   syncClubMemberRank,
+  updateClubMemberProfile,
 } from '../engine/clubRosterStorage';
 
 interface QueueTabProps {
   players: Player[];
   courts: Court[];
   maleBonus?: number;
+  isViewer?: boolean;
   onAddPlayer: (
     playerData: Omit<
       Player,
@@ -60,6 +66,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   players,
   courts,
   maleBonus = 1.5,
+  isViewer = false,
   onAddPlayer,
   onAddPlayers,
   onPausePlayer,
@@ -85,6 +92,28 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   const [rosterNewName, setRosterNewName] = useState('');
   const [rosterNewSex, setRosterNewSex] = useState<Sex>('M');
   const [rosterNewRank, setRosterNewRank] = useState<BadmintonRank>('tb');
+
+  // Modal ghi chú & thẻ kín thành viên CLB (100% kín cho Chủ sân)
+  const [profileModalMember, setProfileModalMember] = useState<ClubMember | null>(null);
+  const [profileNotesInput, setProfileNotesInput] = useState('');
+  const [profileTagsInput, setProfileTagsInput] = useState<string[]>([]);
+
+  const openClubProfileModal = (member: ClubMember) => {
+    setProfileModalMember(member);
+    setProfileNotesInput(member.notes || '');
+    setProfileTagsInput(member.tags || []);
+  };
+
+  const handleSaveClubProfile = () => {
+    if (!profileModalMember) return;
+    updateClubMemberProfile(profileModalMember.id, {
+      notes: profileNotesInput,
+      tags: profileTagsInput,
+    });
+    setClubRoster(getClubRoster());
+    setProfileModalMember(null);
+    vibrateSuccess();
+  };
 
   // Mở modal thêm người kèm chuẩn bị danh sách điểm danh CLB
   const handleOpenAddModal = (mode: 'ROSTER' | 'SINGLE' | 'PASTE' = 'ROSTER') => {
@@ -485,6 +514,33 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     <span className="font-bold text-sm sm:text-base text-slate-100 truncate">
                       {player.name}
                     </span>
+                    {!isViewer && (() => {
+                      const clubMember = clubRoster.find(
+                        (m) => m.name.trim().toLowerCase() === player.name.trim().toLowerCase()
+                      );
+                      if (!clubMember) return null;
+                      const hasNoteOrTags = Boolean(
+                        clubMember.notes?.trim() || (clubMember.tags && clubMember.tags.length > 0)
+                      );
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => openClubProfileModal(clubMember)}
+                          title={
+                            hasNoteOrTags
+                              ? `Ghi chú kín CLB: ${clubMember.tags?.join(', ') || ''} ${clubMember.notes || ''}`
+                              : 'Thêm ghi chú / thẻ kín Sổ CLB'
+                          }
+                          className={`p-1 rounded-lg border text-[10px] font-bold flex items-center gap-0.5 shrink-0 transition ${
+                            hasNoteOrTags
+                              ? 'bg-amber-950/60 border-amber-600/50 text-amber-300'
+                              : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-amber-300'
+                          }`}
+                        >
+                          <FileText className="w-3 h-3" />
+                        </button>
+                      );
+                    })()}
                     {isPlaying && (
                       <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1 shrink-0">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -963,7 +1019,21 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                               </div>
                             </label>
 
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!isViewer && (
+                                <button
+                                  type="button"
+                                  onClick={() => openClubProfileModal(member)}
+                                  title="Ghi chú & thẻ kín thành viên CLB"
+                                  className={`p-1 rounded transition ${
+                                    member.notes || (member.tags && member.tags.length > 0)
+                                      ? 'text-amber-300 bg-amber-950/60'
+                                      : 'text-slate-500 hover:text-amber-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               {inSession ? (
                                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/40">
                                   Đã có mặt
@@ -1285,6 +1355,91 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL GHI CHÚ & THẺ KÍN THÀNH VIÊN CLB (CHỈ CHỦ SÂN) */}
+      {!isViewer && profileModalMember && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-700/50 rounded-3xl p-5 max-w-md w-full text-slate-100 shadow-2xl space-y-3.5 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="font-bold text-sm text-amber-300 flex items-center gap-1.5">
+                  <Lock className="w-4 h-4" />
+                  <span>Ghi chú kín thành viên CLB — {profileModalMember.name}</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  🔒 Chỉ lưu trên máy bạn, thành viên không thấy &amp; dùng làm ngữ cảnh cho AI phân tích trình độ.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfileModalMember(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="font-semibold text-slate-300">Thẻ nhanh:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {CLUB_MEMBER_PRESET_TAGS.map((tag) => {
+                  const active = profileTagsInput.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() =>
+                        setProfileTagsInput((prev) =>
+                          prev.includes(tag)
+                            ? prev.filter((t) => t !== tag)
+                            : [...prev, tag]
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-lg font-bold border text-[11px] transition ${
+                        active
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-300 block">
+                Ghi chú riêng (thể lực, thói quen, trình độ thực tế...):
+              </label>
+              <textarea
+                rows={3}
+                value={profileNotesInput}
+                onChange={(e) => setProfileNotesInput(e.target.value)}
+                placeholder="VD: Trình khá cứng, hợp đánh công, hay xin về sớm..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setProfileModalMember(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveClubProfile}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow"
+              >
+                <Check className="w-4 h-4" />
+                <span>Lưu ghi chú</span>
+              </button>
             </div>
           </div>
         </div>

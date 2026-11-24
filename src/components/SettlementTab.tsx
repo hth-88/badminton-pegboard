@@ -21,6 +21,9 @@ import {
   X,
   AlertCircle,
   Flame,
+  FileSpreadsheet,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type {
   BadmintonRank,
@@ -44,11 +47,18 @@ import {
 } from '../engine/betLedger';
 import {
   type ArchivedSessionSummary,
+  type ArchivedSettlementSnapshot,
   archiveCurrentSession,
   clearAllArchivedSessions,
+  computeMultiSessionFinanceSummary,
   deleteArchivedSession,
   getArchivedSessions,
+  toggleArchivedPlayerPaid,
 } from '../engine/storage';
+import {
+  buildMultiSessionStatementCsv,
+  buildSessionStatementCsv,
+} from '../utils/statementCsv';
 import type { RoomRole } from '../hooks/useCloudRoom';
 import { EquityTable } from './EquityTable';
 import { PaymentQrModal } from './PaymentQrModal';
@@ -77,7 +87,10 @@ interface SettlementTabProps {
   onEditRank?: (playerId: string, rank: BadmintonRank) => void;
   onExportJson: () => string;
   onImportJson: (json: string) => { ok: true } | { ok: false; error: string };
-  onNewSessionKeepPlayers: () => void;
+  onNewSessionKeepPlayers: (
+    totalCost?: number,
+    settlementSnapshot?: ArchivedSettlementSnapshot
+  ) => void;
   onResetSession: () => void;
 }
 
@@ -127,6 +140,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
   } | null>(null);
   const [rejectReasonInput, setRejectReasonInput] = useState('');
   const [cleaningReceipts, setCleaningReceipts] = useState(false);
+  const [expandedArchiveIds, setExpandedArchiveIds] = useState<Set<string>>(new Set());
 
   // Danh sách các buổi lưu trữ (Archive tối đa 20 buổi)
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionSummary[]>(() =>
@@ -197,6 +211,97 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     }
   };
 
+  const buildCurrentSettlementSnapshot = (): ArchivedSettlementSnapshot => {
+    const snapPlayers = settlementResult.players.map((item) => {
+      const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+      const finalAmount = getEffectivePlayerPayable(
+        item.roundedAmount,
+        adj,
+        mergeBets
+      );
+      const rec = payments[item.playerId];
+      return {
+        playerId: item.playerId,
+        name: item.name,
+        sex: item.sex,
+        gamesPlayed: item.gamesPlayed,
+        courtAmount: item.roundedAmount,
+        ...(adj !== 0 ? { betAdjustmentVnd: adj } : {}),
+        finalAmount,
+        paid: rec?.status === 'PAID',
+        ...(rec?.approvedAt ? { paidAt: rec.approvedAt } : {}),
+      };
+    });
+
+    return {
+      courtCost: settlementResult.courtCost,
+      shuttleCost: settlementResult.shuttleCost,
+      extraCost: settlementResult.extraCost,
+      extraCostNote: settings.extraCostNote,
+      totalCost: settlementResult.totalCost,
+      totalCollected: settlementResult.totalCollected,
+      surplus: settlementResult.surplus,
+      betFundTotal: betLedger.totalFundVnd,
+      mergeBetsIntoSettlement: mergeBets,
+      players: snapPlayers,
+    };
+  };
+
+  const downloadCsvFile = (filename: string, csvContent: string) => {
+    vibrateSuccess();
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCurrentSessionCsv = () => {
+    const dateStr = new Date().toLocaleDateString('vi-VN');
+    const csv = buildSessionStatementCsv({
+      dateStr,
+      courtCost: settlementResult.courtCost,
+      shuttleCost: settlementResult.shuttleCost,
+      extraCost: settlementResult.extraCost,
+      extraCostNote: settings.extraCostNote,
+      totalCost: settlementResult.totalCost,
+      totalCollected: settlementResult.totalCollected,
+      surplus: settlementResult.surplus,
+      betFundTotal: betLedger.totalFundVnd,
+      players: settlementResult.players.map((item) => {
+        const adj = betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+        const eff = getEffectivePlayerPayable(item.roundedAmount, adj, mergeBets);
+        const st = payments[item.playerId]?.status;
+        const statusLabel =
+          eff < 0
+            ? 'Được nhận lại'
+            : eff === 0
+            ? 'Miễn phí'
+            : st === 'PAID'
+            ? 'Đã đóng'
+            : st === 'PENDING_REVIEW'
+            ? 'Chờ duyệt'
+            : 'Chưa đóng';
+        return {
+          name: item.name,
+          sex: item.sex,
+          gamesPlayed: item.gamesPlayed,
+          courtAmount: item.roundedAmount,
+          betAdjustmentVnd: adj,
+          finalAmount: eff,
+          statusLabel,
+          note: item.discountNote || '',
+        };
+      }),
+    });
+    downloadCsvFile(
+      `sao_ke_caulongs_${new Date().toISOString().slice(0, 10)}.csv`,
+      csv
+    );
+  };
+
   // Lưu phiên hiện tại vào Archive
   const handleArchiveCurrentSession = () => {
     if (!currentState) {
@@ -204,9 +309,13 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
       return;
     }
     vibrateSuccess();
-    archiveCurrentSession(currentState, settlementResult.totalCost);
+    archiveCurrentSession(
+      currentState,
+      settlementResult.totalCost,
+      buildCurrentSettlementSnapshot()
+    );
     setArchivedSessions(getArchivedSessions());
-    alert('Đã lưu thành công buổi đánh này vào sổ lưu trữ!');
+    alert('Đã lưu thành công buổi đánh này (kèm bản chụp tài chính) vào sổ lưu trữ!');
   };
 
   // Tải JSON của một buổi lưu trữ
@@ -1246,6 +1355,17 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     {copiedZalo ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5" />}
                     <span>{copiedZalo ? 'ĐÃ SAO CHÉP VÀO CLIPBOARD!' : 'SAO CHÉP TIN NHẮN ZALO'}</span>
                   </button>
+
+                  {!isViewer && (
+                    <button
+                      type="button"
+                      onClick={handleExportCurrentSessionCsv}
+                      className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs rounded-2xl transition flex items-center justify-center gap-2"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span>📊 Xuất bảng thu tiền ra Excel (.csv)</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1698,114 +1818,280 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           </div>
 
           {/* ========================================================= */}
-          {/* 6. SỔ LƯU TRỮ CÁC BUỔI ĐÁNH TRƯỚC (ARCHIVE) */}
+          {/* 6. SỔ LƯU TRỮ CÁC BUỔI ĐÁNH TRƯỚC & SAO KÊ ĐA BUỔI (ARCHIVE) */}
           {/* ========================================================= */}
-          <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-                <Archive className="w-4 h-4 text-emerald-400" />
-                <span>6. Sổ lưu trữ các buổi đánh trước</span>
-              </h3>
-              <span className="text-slate-400 font-mono">
-                {archivedSessions.length}/20 buổi
-              </span>
-            </div>
+          {(() => {
+            const financeSummary = computeMultiSessionFinanceSummary(archivedSessions);
+            return (
+              <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                    <Archive className="w-4 h-4 text-emerald-400" />
+                    <span>6. Sổ lưu trữ &amp; Sao kê đa buổi</span>
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    {financeSummary.sessionsWithFinance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadCsvFile(
+                            `sao_ke_nhieu_buoi_clb_${new Date().toISOString().slice(0, 10)}.csv`,
+                            buildMultiSessionStatementCsv(archivedSessions)
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-600/40 font-bold text-[11px] flex items-center gap-1 transition"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Xuất sao kê Excel (.csv)</span>
+                      </button>
+                    )}
+                    <span className="text-slate-400 font-mono">
+                      {archivedSessions.length}/20 buổi
+                    </span>
+                  </div>
+                </div>
 
-            {archivedSessions.length === 0 ? (
-              <div className="py-6 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
-                <p>Chưa có buổi đánh nào trong sổ lưu trữ.</p>
-                <p className="text-[11px] text-slate-600 mt-0.5">
-                  Bấm &quot;Lưu vào sổ các buổi đánh&quot; hoặc &quot;Buổi mới&quot; để lưu lại kết quả.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {archivedSessions.map((session) => {
-                  const dateStr = new Date(session.createdAt).toLocaleDateString('vi-VN', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                  });
-                  const timeStr = new Date(session.createdAt).toLocaleTimeString('vi-VN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
-
-                  return (
-                    <div
-                      key={session.id}
-                      className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap"
-                    >
-                      <div className="space-y-0.5 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span className="font-bold text-slate-200 text-xs">
-                            {dateStr} lúc {timeStr}
-                          </span>
+                {/* Thẻ Tổng hợp Quỹ dư & Nợ cũ nhiều buổi */}
+                {financeSummary.sessionsWithFinance > 0 && (
+                  <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/50">
+                        <div className="text-[10px] text-emerald-300/80 font-semibold">
+                          Quỹ dư tích lũy ({financeSummary.sessionsWithFinance} buổi)
                         </div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                          <span>{session.totalPlayers} người</span>
-                          <span>•</span>
-                          <span>{session.totalGames} trận</span>
-                          {session.totalCost > 0 && (
-                            <>
-                              <span>•</span>
-                              <span className="text-emerald-400 font-semibold">
-                                {formatVND(session.totalCost)}
-                              </span>
-                            </>
-                          )}
+                        <div className="text-sm font-black text-emerald-400 mt-0.5">
+                          {formatVND(financeSummary.cumulativeSurplus)}
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleRestoreArchivedSession(session)}
-                          title="Khôi phục buổi này vào ứng dụng"
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Mở lại</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleDownloadArchivedJson(session)}
-                          title="Tải tệp JSON của buổi này"
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteArchivedSession(session.id)}
-                          title="Xóa buổi này khỏi sổ lưu trữ"
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/50">
+                        <div className="text-[10px] text-amber-300/80 font-semibold">
+                          Nợ chưa thu buổi trước ({financeSummary.unpaidDebts.length} khoản)
+                        </div>
+                        <div className="text-sm font-black text-amber-400 mt-0.5">
+                          {formatVND(financeSummary.totalUnpaidAmount)}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
 
-                {/* Xóa toàn bộ sổ lưu trữ (2 bước) */}
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={handleClearAllArchive}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
-                      showClearArchiveConfirm
-                        ? 'bg-rose-600 text-white border-rose-500 animate-pulse'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-rose-400'
-                    }`}
-                  >
-                    {showClearArchiveConfirm
-                      ? 'Bấm lần nữa để xác nhận XÓA TẤT CẢ'
-                      : 'Xóa toàn bộ sổ lưu trữ'}
-                  </button>
-                </div>
+                    {financeSummary.unpaidDebts.length > 0 && (
+                      <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+                        <div className="text-[11px] font-bold text-amber-300">
+                          ⏳ Danh sách còn nợ các buổi trước (Bấm khi trả bù):
+                        </div>
+                        <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                          {financeSummary.unpaidDebts.map((debt) => (
+                            <div
+                              key={`${debt.archiveId}_${debt.playerId}`}
+                              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800"
+                            >
+                              <div className="min-w-0 truncate">
+                                <span className="font-bold text-slate-200">
+                                  {debt.playerName}
+                                </span>
+                                <span className="text-slate-500 mx-1.5">•</span>
+                                <span className="text-[11px] text-slate-400">
+                                  {new Date(debt.createdAt).toLocaleDateString('vi-VN')}
+                                </span>
+                                <span className="text-slate-500 mx-1.5">•</span>
+                                <span className="font-bold text-amber-300">
+                                  {formatVND(debt.amount)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  vibrateSuccess();
+                                  const next = toggleArchivedPlayerPaid(
+                                    debt.archiveId,
+                                    debt.playerId
+                                  );
+                                  setArchivedSessions(next);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0 transition"
+                              >
+                                Đã trả bù ✓
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {archivedSessions.length === 0 ? (
+                  <div className="py-6 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+                    <p>Chưa có buổi đánh nào trong sổ lưu trữ.</p>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Bấm &quot;Lưu vào sổ các buổi đánh&quot; hoặc &quot;Buổi mới&quot; để lưu lại kết quả.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {archivedSessions.map((session) => {
+                      const dateStr = new Date(session.createdAt).toLocaleDateString('vi-VN', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                      });
+                      const timeStr = new Date(session.createdAt).toLocaleTimeString('vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                      const snap = session.settlementSnapshot;
+                      const paidCountSnap = snap
+                        ? snap.players.filter((p) => p.finalAmount <= 0 || p.paid).length
+                        : 0;
+                      const isExpanded = expandedArchiveIds.has(session.id);
+
+                      return (
+                        <div
+                          key={session.id}
+                          className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                            <div className="space-y-0.5 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span className="font-bold text-slate-200 text-xs">
+                                  {dateStr} lúc {timeStr}
+                                </span>
+                                {snap && (
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                      paidCountSnap === snap.players.length
+                                        ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/50'
+                                        : 'bg-amber-950/70 text-amber-300 border-amber-700/50'
+                                    }`}
+                                  >
+                                    Đã thu {paidCountSnap}/{snap.players.length}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                                <span>{session.totalPlayers} người</span>
+                                <span>•</span>
+                                <span>{session.totalGames} trận</span>
+                                {session.totalCost > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-emerald-400 font-semibold">
+                                      {formatVND(session.totalCost)}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {snap && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedArchiveIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(session.id)) next.delete(session.id);
+                                      else next.add(session.id);
+                                      return next;
+                                    });
+                                  }}
+                                  title="Xem chi tiết đóng tiền buổi này"
+                                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleRestoreArchivedSession(session)}
+                                title="Khôi phục buổi này vào ứng dụng"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Mở lại</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDownloadArchivedJson(session)}
+                                title="Tải tệp JSON của buổi này"
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteArchivedSession(session.id)}
+                                title="Xóa buổi này khỏi sổ lưu trữ"
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {snap && isExpanded && (
+                            <div className="pt-2 border-t border-slate-800/80 space-y-1 text-[11px]">
+                              {snap.players.map((sp) => (
+                                <div
+                                  key={sp.playerId}
+                                  className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-slate-900/80"
+                                >
+                                  <span className="text-slate-200 truncate">{sp.name}</span>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="font-mono text-slate-300">
+                                      {formatVND(sp.finalAmount)}
+                                    </span>
+                                    {sp.finalAmount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          vibrateSuccess();
+                                          setArchivedSessions(
+                                            toggleArchivedPlayerPaid(session.id, sp.playerId)
+                                          );
+                                        }}
+                                        className={`px-2 py-0.5 rounded font-bold border transition ${
+                                          sp.paid
+                                            ? 'bg-emerald-600 text-white border-emerald-500'
+                                            : 'bg-slate-800 text-amber-300 border-slate-700'
+                                        }`}
+                                      >
+                                        {sp.paid ? 'Đã đóng ✓' : 'Chưa đóng'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Xóa toàn bộ sổ lưu trữ (2 bước) */}
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        onClick={handleClearAllArchive}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                          showClearArchiveConfirm
+                            ? 'bg-rose-600 text-white border-rose-500 animate-pulse'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-rose-400'
+                        }`}
+                      >
+                        {showClearArchiveConfirm
+                          ? 'Bấm lần nữa để xác nhận XÓA TẤT CẢ'
+                          : 'Xóa toàn bộ sổ lưu trữ'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
             </>
           )}
         </div>
@@ -1835,7 +2121,11 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               <button
                 onClick={() => {
                   vibrateSuccess();
-                  onNewSessionKeepPlayers();
+                  onNewSessionKeepPlayers(
+                    settlementResult.totalCost,
+                    buildCurrentSettlementSnapshot()
+                  );
+                  setTimeout(() => setArchivedSessions(getArchivedSessions()), 50);
                   setShowNewSessionModal(false);
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow"

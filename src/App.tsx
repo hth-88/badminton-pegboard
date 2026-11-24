@@ -474,6 +474,7 @@ export function App() {
             players={players}
             courts={courts}
             maleBonus={settings.maleBonus}
+            isViewer={role === 'VIEWER'}
             onAddPlayer={(data) => guardAction(() => addPlayer(data))}
             onAddPlayers={(list) => guardAction(() => addPlayers(list))}
             onPausePlayer={(id) => guardAction(() => pausePlayer(id))}
@@ -556,9 +557,9 @@ export function App() {
               }
               return importSession(json);
             }}
-            onNewSessionKeepPlayers={() =>
+            onNewSessionKeepPlayers={(totalCost, settlementSnapshot) =>
               guardAction(() => {
-                newSessionKeepPlayers();
+                newSessionKeepPlayers(totalCost, settlementSnapshot);
                 resetPaymentsForNewSession();
                 if (roomCode) {
                   deleteRoomReceipts(roomCode).catch(() => {});

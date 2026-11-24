@@ -27,6 +27,7 @@ import {
   saveSessionImmediate,
   subscribeStorageError,
   validateAndMigrateImport,
+  type ArchivedSettlementSnapshot,
 } from './storage';
 
 /**
@@ -332,13 +333,16 @@ export function useBadmintonSession() {
     []
   );
 
-  const newSessionKeepPlayers = useCallback(() => {
-    // Tự động lưu snapshot buổi vừa kết thúc vào Archive (nếu có ít nhất 1 trận đấu đã hoàn thành)
-    if (state.history.length > 0) {
-      archiveCurrentSession(state);
-    }
-    dispatch({ type: 'NEW_SESSION_KEEP_PLAYERS', payload: { now: Date.now() } });
-  }, [state]);
+  const newSessionKeepPlayers = useCallback(
+    (totalCost: number = 0, settlementSnapshot?: ArchivedSettlementSnapshot) => {
+      // Tự động lưu snapshot buổi vừa kết thúc vào Archive (nếu có ít nhất 1 trận đấu đã hoàn thành)
+      if (state.history.length > 0) {
+        archiveCurrentSession(state, totalCost, settlementSnapshot);
+      }
+      dispatch({ type: 'NEW_SESSION_KEEP_PLAYERS', payload: { now: Date.now() } });
+    },
+    [state]
+  );
 
   const undo = useCallback(() => {
     dispatch({ type: 'UNDO' });
