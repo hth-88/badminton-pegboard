@@ -42,11 +42,14 @@ export function useSettlementState() {
         delete nextPayments[playerId];
       } else {
         const now = Date.now();
-        nextPayments[playerId] = {
+        const approvedRec: PlayerPaymentRecord = {
           status: 'PAID',
           reportedAt: existing?.reportedAt,
           approvedAt: now,
         };
+        if (existing?.receiptUrl) approvedRec.receiptUrl = existing.receiptUrl;
+        if (existing?.receiptPath) approvedRec.receiptPath = existing.receiptPath;
+        nextPayments[playerId] = approvedRec;
       }
       savePaymentRecords(nextPayments);
       return {
@@ -57,13 +60,24 @@ export function useSettlementState() {
     });
   }, []);
 
-  const rejectPendingPayment = useCallback((playerId: string) => {
+  const rejectPendingPayment = useCallback((playerId: string, reason?: string) => {
     setSettlementData((prev) => {
-      if (!prev.payments[playerId]) {
+      const existing = prev.payments[playerId];
+      const cleanReason = reason?.trim();
+      if (!existing && !cleanReason) {
         return prev;
       }
       const nextPayments: Record<string, PlayerPaymentRecord> = { ...prev.payments };
-      delete nextPayments[playerId];
+      if (cleanReason) {
+        nextPayments[playerId] = {
+          status: 'REJECTED',
+          reportedAt: existing?.reportedAt,
+          rejectedAt: Date.now(),
+          rejectionReason: cleanReason.slice(0, 160),
+        };
+      } else {
+        delete nextPayments[playerId];
+      }
       savePaymentRecords(nextPayments);
       return {
         ...prev,

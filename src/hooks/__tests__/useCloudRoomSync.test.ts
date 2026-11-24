@@ -1192,4 +1192,124 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
 
     expect(mockUpdateRoomSettlementOnly).not.toHaveBeenCalled();
   });
+
+  it('19. Nhóm 3: reportPlayerPayment kèm receiptUrl và receiptPath cập nhật PENDING_REVIEW và xóa trạng thái REJECTED cũ', async () => {
+    const baseState = createInitialSessionState();
+    const rejectedSettlement: CloudSettlementData = {
+      ...createDefaultCloudSettlementData(1000),
+      payments: {
+        p1: {
+          status: 'REJECTED',
+          reportedAt: 800,
+          rejectedAt: 900,
+          rejectionReason: 'Ảnh mờ',
+        },
+      },
+    };
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: rejectedSettlement,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+    mockUpdateRoomSettlementOnly.mockResolvedValue({ error: null });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: vi.fn(),
+      })
+    );
+
+    harness.render({ state: baseState, settlement: createDefaultCloudSettlementData(0) });
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+    mockUpdateRoomSettlementOnly.mockClear();
+
+    const res = await harness.getResult().reportPlayerPayment('p1', {
+      receiptUrl: 'https://cdn.example/r1.jpg',
+      receiptPath: 'SAN-49/p1_2000.jpg',
+    });
+
+    expect(res.ok).toBe(true);
+    expect(mockUpdateRoomSettlementOnly).toHaveBeenCalledTimes(1);
+    const sentPayload: CloudSettlementData = mockUpdateRoomSettlementOnly.mock.calls[0][1];
+    expect(sentPayload.payments.p1.status).toBe('PENDING_REVIEW');
+    expect(sentPayload.payments.p1.receiptUrl).toBe('https://cdn.example/r1.jpg');
+    expect(sentPayload.payments.p1.receiptPath).toBe('SAN-49/p1_2000.jpg');
+    expect(sentPayload.payments.p1.rejectionReason).toBeUndefined();
+    expect(sentPayload.payments.p1.rejectedAt).toBeUndefined();
+  });
+
+  it('20. Nhóm 3: Realtime nhận REJECTED kèm rejectionReason đẩy xuống VIEWER mà không đụng session_data', async () => {
+    const baseState = createInitialSessionState();
+    const baseSettlement = createDefaultCloudSettlementData(1000);
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: baseState,
+        settlement_data: baseSettlement,
+        updated_at: 1000,
+        updated_by: 'HOST',
+      },
+    });
+
+    const onApplyStateSpy = vi.fn();
+    const onApplySettlementSpy = vi.fn();
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: onApplyStateSpy,
+        onShowToast: vi.fn(),
+        currentSettlement: props.settlement,
+        onApplyCloudSettlement: onApplySettlementSpy,
+      })
+    );
+
+    harness.render({ state: baseState, settlement: baseSettlement });
+    await harness.getResult().joinRoom('SAN-49');
+    await vi.runAllTimersAsync();
+    onApplyStateSpy.mockClear();
+    onApplySettlementSpy.mockClear();
+
+    const rejectedRemote: CloudSettlementData = {
+      ...baseSettlement,
+      payments: {
+        p1: {
+          status: 'REJECTED',
+          rejectedAt: 5000,
+          rejectionReason: 'Ảnh mờ',
+        },
+      },
+      updatedAt: 5000,
+    };
+
+    realtimeSubscriber!({
+      room_code: 'SAN-49',
+      pin_code: '1234',
+      session_data: baseState,
+      settlement_data: rejectedRemote,
+      updated_at: 5000,
+      updated_by: 'HOST',
+    });
+
+    expect(onApplyStateSpy).not.toHaveBeenCalled();
+    expect(onApplySettlementSpy).toHaveBeenCalledTimes(1);
+    expect(onApplySettlementSpy.mock.calls[0][0].payments.p1).toEqual({
+      status: 'REJECTED',
+      rejectedAt: 5000,
+      rejectionReason: 'Ảnh mờ',
+    });
+  });
 });

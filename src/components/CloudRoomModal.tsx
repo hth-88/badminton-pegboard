@@ -182,7 +182,36 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
 
   if (!isOpen) return null;
 
-  const sqlSetupCode = `-- Tạo bảng lưu phòng cầu lông\ncreate table if not exists public.badminton_rooms (\n  room_code text primary key,\n  pin_code text not null default '1234',\n  session_data jsonb not null,\n  settlement_data jsonb,\n  updated_at bigint not null,\n  updated_by text not null\n);\nalter table public.badminton_rooms enable row level security;\ncreate policy "Allow public read and write by room_code" on public.badminton_rooms for all using (true) with check (true);\nalter publication supabase_realtime add table public.badminton_rooms;`;
+  const sqlSetupCode = `-- Tạo bảng lưu phòng cầu lông + Storage ảnh biên lai
+create table if not exists public.badminton_rooms (
+  room_code text primary key,
+  pin_code text not null default '1234',
+  session_data jsonb not null,
+  settlement_data jsonb,
+  updated_at bigint not null,
+  updated_by text not null
+);
+alter table public.badminton_rooms enable row level security;
+drop policy if exists "Allow public read and write by room_code" on public.badminton_rooms;
+create policy "Allow public read and write by room_code" on public.badminton_rooms for all using (true) with check (true);
+alter publication supabase_realtime add table public.badminton_rooms;
+
+-- Bucket lưu ảnh biên lai chuyển khoản (Nhóm 3)
+insert into storage.buckets (id, name, public)
+values ('payment-receipts', 'payment-receipts', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Public read receipts" on storage.objects;
+create policy "Public read receipts" on storage.objects for select using (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public upload receipts" on storage.objects;
+create policy "Public upload receipts" on storage.objects for insert with check (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public update receipts" on storage.objects;
+create policy "Public update receipts" on storage.objects for update using (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public delete receipts" on storage.objects;
+create policy "Public delete receipts" on storage.objects for delete using (bucket_id = 'payment-receipts');`;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">

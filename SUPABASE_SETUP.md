@@ -30,6 +30,7 @@ create table if not exists public.badminton_rooms (
 alter table public.badminton_rooms enable row level security;
 
 -- 3. Tạo policy cho phép đọc và ghi tự do theo room_code
+drop policy if exists "Allow public read and write by room_code" on public.badminton_rooms;
 create policy "Allow public read and write by room_code"
   on public.badminton_rooms
   for all
@@ -38,6 +39,31 @@ create policy "Allow public read and write by room_code"
 
 -- 4. Bật Realtime cho bảng badminton_rooms để đồng bộ tức thì
 alter publication supabase_realtime add table public.badminton_rooms;
+
+-- 5. Tạo Storage bucket công khai lưu ảnh biên lai chuyển khoản (tính năng Alobo)
+insert into storage.buckets (id, name, public)
+values ('payment-receipts', 'payment-receipts', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Public read receipts" on storage.objects;
+create policy "Public read receipts"
+  on storage.objects for select
+  using (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public upload receipts" on storage.objects;
+create policy "Public upload receipts"
+  on storage.objects for insert
+  with check (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public update receipts" on storage.objects;
+create policy "Public update receipts"
+  on storage.objects for update
+  using (bucket_id = 'payment-receipts');
+
+drop policy if exists "Public delete receipts" on storage.objects;
+create policy "Public delete receipts"
+  on storage.objects for delete
+  using (bucket_id = 'payment-receipts');
 ```
 
 ---

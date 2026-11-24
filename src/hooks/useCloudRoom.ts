@@ -4,6 +4,7 @@ import {
   createDefaultCloudSettlementData,
   normalizeCloudSettlementData,
   type CloudSettlementData,
+  type PlayerPaymentRecord,
 } from '../engine/settlement';
 import type { BadmintonSessionSnapshot, BadmintonSessionState } from '../types/badminton';
 import {
@@ -753,7 +754,10 @@ export function useCloudRoom({
 
   // 9. Thành viên (VIEWER) báo "Tôi đã chuyển" (chỉ cập nhật 1 entry PENDING_REVIEW qua updateRoomSettlementOnly)
   const reportPlayerPayment = useCallback(
-    async (playerId: string): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      playerId: string,
+      options?: { receiptUrl?: string; receiptPath?: string }
+    ): Promise<{ ok: boolean; error?: string }> => {
       if (!roomCode) {
         return { ok: false, error: 'Chưa kết nối phòng Online' };
       }
@@ -779,14 +783,22 @@ export function useCloudRoom({
       }
 
       const now = Date.now();
+      const nextRec: PlayerPaymentRecord = {
+        status: 'PENDING_REVIEW',
+        reportedAt: now,
+      };
+      if (options?.receiptUrl) {
+        nextRec.receiptUrl = options.receiptUrl;
+      }
+      if (options?.receiptPath) {
+        nextRec.receiptPath = options.receiptPath;
+      }
+
       const merged: CloudSettlementData = {
         settings: latest.settings,
         payments: {
           ...latest.payments,
-          [playerId]: {
-            status: 'PENDING_REVIEW',
-            reportedAt: now,
-          },
+          [playerId]: nextRec,
         },
         updatedAt: now,
       };
