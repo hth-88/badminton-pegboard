@@ -45,10 +45,10 @@ export function normalizeNextUp(
     rawNextUp.type === 'SINGLES'
       ? 'SINGLES'
       : rawNextUp.type === 'DOUBLES'
-      ? 'DOUBLES'
-      : matchType === 'SINGLES'
-      ? 'SINGLES'
-      : 'DOUBLES';
+        ? 'DOUBLES'
+        : matchType === 'SINGLES'
+          ? 'SINGLES'
+          : 'DOUBLES';
   const expectedCount = effectiveType === 'SINGLES' ? 2 : 4;
 
   if (Array.isArray(rawNextUp.slots)) {
@@ -499,7 +499,7 @@ export function resolveTargetMatchType(
     state.settings?.autoSingles === 'AUTO' || state.settings?.autoSingles === 'ASK';
   const isSnoozed =
     Boolean(state.autoSinglesSnooze?.[court.id] &&
-    state.autoSinglesSnooze[court.id].untilTs > now);
+      state.autoSinglesSnooze[court.id].untilTs > now);
 
   // 2.3. 100% Đôi
   if (matchMix.doubles === 1) {
