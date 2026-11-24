@@ -160,9 +160,8 @@ export function migrateSessionState(raw: any, fallbackNow: number = 0): Badminto
     playingByCourt.set(c.id, set);
   }
 
-  const seenNextUpPlayerIds = new Set<string>();
-
   for (const c of courts) {
+    const seenNextUpPlayerIds = new Set<string>();
     if (!c.nextUp) {
       c.nextUp = createEmptyNextUp(c.forcedType || (c.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES'));
     }

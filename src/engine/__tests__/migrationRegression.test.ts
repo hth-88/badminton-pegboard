@@ -74,4 +74,36 @@ describe('Storage and State Migration Defensiveness', () => {
     expect(() => evaluateNextUp(nextState.courts[0].nextUp, nextState.players)).not.toThrow();
     expect(() => evaluateNextUp(nextState.courts[1].nextUp, nextState.players)).not.toThrow();
   });
+
+  it('preserves player shared across two different courts nextUp while deduplicating within same court', () => {
+    const raw: any = {
+      schemaVersion: 3,
+      players: [
+        { id: 'p1', name: 'P1', sex: 'M', rank: 'tb', status: 'ACTIVE' },
+        { id: 'p2', name: 'P2', sex: 'M', rank: 'tb', status: 'ACTIVE' },
+        { id: 'p3', name: 'P3', sex: 'F', rank: 'tb', status: 'ACTIVE' },
+        { id: 'p4', name: 'P4', sex: 'F', rank: 'tb', status: 'ACTIVE' },
+      ],
+      courts: [
+        {
+          id: 'court-1',
+          name: 'Sân 1',
+          isActive: true,
+          currentMatch: null,
+          nextUp: { type: 'DOUBLES', slots: ['p1', 'p2', 'p3', 'p4'], slotSource: ['AUTO', 'AUTO', 'AUTO', 'AUTO'] },
+        },
+        {
+          id: 'court-2',
+          name: 'Sân 2',
+          isActive: true,
+          currentMatch: null,
+          nextUp: { type: 'DOUBLES', slots: ['p1', 'p1', 'p3', null], slotSource: ['MANUAL', 'MANUAL', 'AUTO', null] },
+        },
+      ],
+    };
+
+    const migrated = migrateSessionState(raw);
+    expect(migrated.courts[0].nextUp.slots).toEqual(['p1', 'p2', 'p3', 'p4']);
+    expect(migrated.courts[1].nextUp.slots).toEqual(['p1', null, 'p3', null]);
+  });
 });
