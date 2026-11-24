@@ -648,7 +648,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 <div>
                   <span className="font-bold text-slate-300 block">Giảm giá người chơi ít trận</span>
                   <span className="text-[11px] text-slate-500">
-                    Khoản tiền giảm tự động chia đều cho người chơi đủ trận gánh
+                    Khoản tiền giảm bù vào người đủ trận (tối đa +30%, theo đúng chế độ chia tiền)
                   </span>
                 </div>
                 <input
@@ -730,6 +730,13 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 )}
               </div>
             </div>
+
+            {settlementResult.warning && (
+              <div className="bg-amber-950/40 border border-amber-700/60 text-amber-200 rounded-2xl p-3 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>{settlementResult.warning}</span>
+              </div>
+            )}
 
             <div className="overflow-x-auto no-scrollbar">
               <table className="w-full text-xs text-left">

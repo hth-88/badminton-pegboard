@@ -6,6 +6,8 @@ export type SplitMode = 'EQUAL' | 'GENDER_RATIO' | 'MALE_EXTRA';
 export type UnderPlayedDiscountType = 'PROPORTIONAL' | 'PERCENT_50' | 'FREE';
 export type ZeroGamesPolicy = 'FREE' | 'FULL';
 
+export const MAX_DEFICIT_SURCHARGE_RATE = 0.3;
+
 export interface SettlementSettings {
   // Tiền sân
   courtCostMode: CourtCostMode;
@@ -309,6 +311,8 @@ export function calculateSettlement(
 
   const discountNotes: Record<string, string> = {};
   const discountedShares: Record<string, number> = {};
+  const discountedPlayerIds: string[] = [];
+  const intendedDiscounts: Record<string, number> = {};
   let totalDeficit = 0;
   const regularPlayerIds: string[] = [];
 
@@ -333,20 +337,86 @@ export function calculateSettlement(
       }
 
       discountedShares[p.id] = finalDiscounted;
-      totalDeficit += share - finalDiscounted;
+      const intendedDiscount = share - finalDiscounted;
+      intendedDiscounts[p.id] = intendedDiscount;
+      discountedPlayerIds.push(p.id);
+      totalDeficit += intendedDiscount;
     } else {
       discountedShares[p.id] = share;
       regularPlayerIds.push(p.id);
     }
   }
 
-  // 5. Bù phần tiền thiếu hụt (deficit) do giảm giá chia đều cho những người chơi đủ trận
+  // 5. Bù phần tiền thiếu hụt (deficit) theo đúng splitMode (C3) và khóa trần +30% (A12)
   // (1) nếu không có người chơi đủ trận để bù phần giảm giá thì HỦY toàn bộ giảm giá (mọi người trả đúng phần chia gốc) để tổng thu >= tổng chi
+  let capWarning: string | undefined;
   if (totalDeficit > 0) {
     if (regularPlayerIds.length > 0) {
-      const deficitPerRegular = totalDeficit / regularPlayerIds.length;
+      const surchargeWeights: Record<string, number> = {};
+      const caps: Record<string, number> = {};
+      const surcharges: Record<string, number> = {};
+      let sumCap = 0;
+
       for (const rid of regularPlayerIds) {
-        discountedShares[rid] += deficitPerRegular;
+        surchargeWeights[rid] = effectiveSplitMode === 'GENDER_RATIO' ? baseWeights[rid] : 1;
+        caps[rid] = Math.max(0, initialShares[rid] * MAX_DEFICIT_SURCHARGE_RATE);
+        surcharges[rid] = 0;
+        sumCap += caps[rid];
+      }
+
+      let remaining = Math.min(totalDeficit, sumCap);
+      let uncapped = [...regularPlayerIds];
+
+      for (let iter = 0; iter < regularPlayerIds.length; iter++) {
+        const weightSum = uncapped.reduce((s, id) => s + surchargeWeights[id], 0);
+        if (weightSum <= 1e-9 || remaining <= 1e-6) break;
+
+        const newlyCapped: string[] = [];
+        for (const id of uncapped) {
+          const proposed = remaining * (surchargeWeights[id] / weightSum);
+          if (surcharges[id] + proposed >= caps[id] - 1e-9) {
+            newlyCapped.push(id);
+          }
+        }
+
+        if (newlyCapped.length > 0) {
+          const newlyCappedSet = new Set(newlyCapped);
+          for (const id of newlyCapped) {
+            const added = Math.max(0, caps[id] - surcharges[id]);
+            surcharges[id] = caps[id];
+            remaining -= added;
+          }
+          uncapped = uncapped.filter((id) => !newlyCappedSet.has(id));
+        } else {
+          for (const id of uncapped) {
+            surcharges[id] += remaining * (surchargeWeights[id] / weightSum);
+          }
+          remaining = 0;
+          break;
+        }
+      }
+
+      for (const rid of regularPlayerIds) {
+        discountedShares[rid] += surcharges[rid];
+      }
+
+      if (totalDeficit > sumCap + 1e-6) {
+        const discountScale = sumCap > 1e-6 ? sumCap / totalDeficit : 0;
+        for (const pid of discountedPlayerIds) {
+          const actualDiscount = intendedDiscounts[pid] * discountScale;
+          discountedShares[pid] = initialShares[pid] - actualDiscount;
+          if (discountScale <= 1e-6) {
+            delete discountNotes[pid];
+          } else {
+            const player = payingPlayers.find((p) => p.id === pid);
+            const pct = Math.max(1, Math.round((actualDiscount / (initialShares[pid] || 1)) * 100));
+            if (player) {
+              discountNotes[pid] = `Đánh ${player.gamesPlayed} trận (Giảm nhẹ ${pct}% do chạm trần bù +30%)`;
+            }
+          }
+        }
+        capWarning =
+          'Ít người đánh đủ trận: đã khóa trần tiền bù tối đa +30% và co nhẹ mức giảm giá để vẫn thu đủ tiền sân.';
       }
     } else {
       for (const p of payingPlayers) {
@@ -417,6 +487,8 @@ export function calculateSettlement(
     hideZeroCostPlayers: options?.hideZeroCostPlayers,
   });
 
+  const warning = [maleExtraWarning, capWarning].filter(Boolean).join(' ') || undefined;
+
   return {
     totalCost,
     courtCost,
@@ -425,7 +497,7 @@ export function calculateSettlement(
     totalCollected,
     surplus,
     shortfall,
-    warning: maleExtraWarning,
+    warning,
     payingPlayerCount: payingPlayers.length,
     freePlayerCount: freePlayers.length,
     players: resultItems,

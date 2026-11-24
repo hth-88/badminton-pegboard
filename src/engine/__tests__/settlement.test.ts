@@ -561,4 +561,225 @@ describe('PHA 2 – THUẬT TOÁN TÍNH TIỀN SÂN (SETTLEMENT ENGINE)', () => 
     expect(res.totalCollected).toBe(340000);
     expect(res.surplus).toBe(0);
   });
+
+  it('19. Mục A12: 800k / 8 người EQUAL (7 người 2 trận giảm 50%, 1 người 3 trận) -> khóa trần +30% (130k), 7 người đánh ít đóng 96k, tổng thu >= 800k, shortfall = 0, có warning', () => {
+    const players = [
+      makePlayer('pFull', 'Anh Nam', 'M', 3),
+      ...Array.from({ length: 7 }, (_, i) => makePlayer(`p${i}`, `Người ${i + 1}`, 'M', 2)),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 800000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'EQUAL',
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'PERCENT_50',
+    };
+
+    const res = calculateSettlement(players, settings);
+    const full = res.players.find((p) => p.playerId === 'pFull')!;
+    const under = res.players.filter((p) => p.playerId !== 'pFull');
+
+    expect(full.roundedAmount).toBe(130000);
+    expect(under.every((p) => p.roundedAmount === 96000)).toBe(true);
+    expect(res.totalCollected).toBe(802000);
+    expect(res.shortfall).toBe(0);
+    expect(res.warning).toBeDefined();
+  });
+
+  it('20. Mục A12: chế độ FREE khi 7 người đánh ít và 1 người đủ trận -> người đủ trận vẫn tối đa 130k, không bị gánh 800k, có warning', () => {
+    const players = [
+      makePlayer('pFull', 'Anh Nam', 'M', 3),
+      ...Array.from({ length: 7 }, (_, i) => makePlayer(`p${i}`, `Người ${i + 1}`, 'F', 2)),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 800000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'EQUAL',
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'FREE',
+    };
+
+    const res = calculateSettlement(players, settings);
+    const full = res.players.find((p) => p.playerId === 'pFull')!;
+    const under = res.players.filter((p) => p.playerId !== 'pFull');
+
+    expect(full.roundedAmount).toBe(130000);
+    expect(under.every((p) => p.roundedAmount === 96000)).toBe(true);
+    expect(res.totalCollected).toBe(802000);
+    expect(res.shortfall).toBe(0);
+    expect(res.warning).toBeDefined();
+  });
+
+  it('21. Mục A12: bảo toàn thứ tự công bằng khi co mức giảm (1 trận < 2 trận < 3 trận) trong PROPORTIONAL', () => {
+    const players = [
+      makePlayer('p1g', 'Ít nhất', 'M', 1),
+      ...Array.from({ length: 6 }, (_, i) => makePlayer(`p2g_${i}`, `Vừa ${i + 1}`, 'M', 2)),
+      makePlayer('p3g', 'Đủ trận', 'M', 3),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 800000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'EQUAL',
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'PROPORTIONAL',
+    };
+
+    const res = calculateSettlement(players, settings);
+    const p1 = res.players.find((p) => p.playerId === 'p1g')!;
+    const p2 = res.players.find((p) => p.playerId === 'p2g_0')!;
+    const p3 = res.players.find((p) => p.playerId === 'p3g')!;
+
+    expect(p3.roundedAmount).toBe(130000);
+    expect(p1.roundedAmount).toBeLessThan(p2.roundedAmount);
+    expect(p2.roundedAmount).toBeLessThan(p3.roundedAmount);
+    expect(res.shortfall).toBe(0);
+    expect(res.warning).toBeDefined();
+  });
+
+  it('22. Mục C3: GENDER_RATIO 65/35 (4 Nam + 4 Nữ, 800k, 1 Nam + 1 Nữ về sớm giảm 50%) -> Nam đóng 152k, Nữ đóng 82k (giữ nguyên tỷ lệ 65:35 cả dưới trần lẫn khi chạm trần +30%)', () => {
+    // Trường hợp 1: dưới trần
+    const playersUnderCap = [
+      makePlayer('m1', 'Nam 1', 'M', 2),
+      makePlayer('m2', 'Nam 2', 'M', 4),
+      makePlayer('m3', 'Nam 3', 'M', 4),
+      makePlayer('m4', 'Nam 4', 'M', 4),
+      makePlayer('f1', 'Nữ 1', 'F', 2),
+      makePlayer('f2', 'Nữ 2', 'F', 4),
+      makePlayer('f3', 'Nữ 3', 'F', 4),
+      makePlayer('f4', 'Nữ 4', 'F', 4),
+    ];
+
+    const settings: SettlementSettings = {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 800000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'GENDER_RATIO',
+      genderRatioMalePercent: 65,
+      genderRatioFemalePercent: 35,
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'PERCENT_50',
+    };
+
+    const resUnder = calculateSettlement(playersUnderCap, settings);
+    const mFull = resUnder.players.find((p) => p.playerId === 'm2')!;
+    const fFull = resUnder.players.find((p) => p.playerId === 'f2')!;
+
+    expect(mFull.roundedAmount).toBe(152000);
+    expect(fFull.roundedAmount).toBe(82000);
+    expect(resUnder.warning).toBeUndefined();
+    expect(resUnder.shortfall).toBe(0);
+
+    // Trường hợp 2: chạm trần +30% (3 Nam + 3 Nữ về sớm, 1 Nam + 1 Nữ đủ trận)
+    const playersAtCap = [
+      makePlayer('m1', 'Nam 1', 'M', 2),
+      makePlayer('m2', 'Nam 2', 'M', 2),
+      makePlayer('m3', 'Nam 3', 'M', 2),
+      makePlayer('m4', 'Nam 4', 'M', 4),
+      makePlayer('f1', 'Nữ 1', 'F', 2),
+      makePlayer('f2', 'Nữ 2', 'F', 2),
+      makePlayer('f3', 'Nữ 3', 'F', 2),
+      makePlayer('f4', 'Nữ 4', 'F', 4),
+    ];
+
+    const resCap = calculateSettlement(playersAtCap, settings);
+    const m4 = resCap.players.find((p) => p.playerId === 'm4')!;
+    const f4 = resCap.players.find((p) => p.playerId === 'f4')!;
+
+    // Mức gốc: Nam 130k, Nữ 70k -> trần +30%: Nam 169k, Nữ 91k (đúng tỷ lệ 65:35)
+    expect(m4.roundedAmount).toBe(169000);
+    expect(f4.roundedAmount).toBe(91000);
+    expect(m4.rawAmount / f4.rawAmount).toBeCloseTo(65 / 35, 4);
+    expect(resCap.shortfall).toBe(0);
+    expect(resCap.warning).toBeDefined();
+  });
+
+  it('23. Mục C3 + A12: MALE_EXTRA +20k dưới trần giữ đúng chênh lệch +20k; khi Nữ chạm trần +30% trước thì water-filling sang Nam không vượt +30%', () => {
+    // 1. Dưới trần: 4 Nam + 4 Nữ, 800k, Nam thêm +20k -> M gốc 110k, F gốc 90k
+    const playersUnder = [
+      makePlayer('m1', 'Nam 1', 'M', 2),
+      makePlayer('m2', 'Nam 2', 'M', 4),
+      makePlayer('m3', 'Nam 3', 'M', 4),
+      makePlayer('m4', 'Nam 4', 'M', 4),
+      makePlayer('f1', 'Nữ 1', 'F', 2),
+      makePlayer('f2', 'Nữ 2', 'F', 4),
+      makePlayer('f3', 'Nữ 3', 'F', 4),
+      makePlayer('f4', 'Nữ 4', 'F', 4),
+    ];
+
+    const resUnder = calculateSettlement(playersUnder, {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 800000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'MALE_EXTRA',
+      maleExtraAmount: 20000,
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'PERCENT_50',
+    });
+
+    const mUnder = resUnder.players.find((p) => p.playerId === 'm2')!;
+    const fUnder = resUnder.players.find((p) => p.playerId === 'f2')!;
+    expect(mUnder.roundedAmount - fUnder.roundedAmount).toBe(20000);
+    expect(resUnder.shortfall).toBe(0);
+
+    // 2. Chênh lớn khiến Nữ chạm trần +30% trước: 4M + 4F, 160k, maleExtra = 30k
+    // Gốc: F = 5k (trần +30% = 6.5k), M = 35k (trần +30% = 45.5k)
+    // 3M + 3F đánh ít (FREE), 1M + 1F đủ trận -> F khóa ở 6.5k (7k), M nhận tối đa 45.5k (46k)
+    const playersCap = [
+      makePlayer('m1', 'Nam 1', 'M', 1),
+      makePlayer('m2', 'Nam 2', 'M', 1),
+      makePlayer('m3', 'Nam 3', 'M', 1),
+      makePlayer('m4', 'Nam 4', 'M', 4),
+      makePlayer('f1', 'Nữ 1', 'F', 1),
+      makePlayer('f2', 'Nữ 2', 'F', 1),
+      makePlayer('f3', 'Nữ 3', 'F', 1),
+      makePlayer('f4', 'Nữ 4', 'F', 4),
+    ];
+
+    const resCap = calculateSettlement(playersCap, {
+      ...DEFAULT_SETTLEMENT_SETTINGS,
+      courtCostMode: 'DIRECT',
+      courtCostDirect: 160000,
+      shuttleCostMode: 'DIRECT',
+      shuttleCostDirect: 0,
+      extraCost: 0,
+      splitMode: 'MALE_EXTRA',
+      maleExtraAmount: 30000,
+      discountUnderPlayed: true,
+      underPlayedThreshold: 2,
+      underPlayedDiscountType: 'FREE',
+    });
+
+    const mCap = resCap.players.find((p) => p.playerId === 'm4')!;
+    const fCap = resCap.players.find((p) => p.playerId === 'f4')!;
+    expect(fCap.rawAmount).toBeLessThanOrEqual(6500);
+    expect(mCap.rawAmount).toBeLessThanOrEqual(45500);
+    expect(resCap.shortfall).toBe(0);
+    expect(resCap.warning).toBeDefined();
+  });
 });
