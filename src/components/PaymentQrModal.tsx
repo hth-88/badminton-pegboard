@@ -54,6 +54,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
 }) => {
   const [copiedStk, setCopiedStk] = useState(false);
   const [copiedNote, setCopiedNote] = useState(false);
+  const [showQrZoomHint, setShowQrZoomHint] = useState(false);
 
   const [selectedBlob, setSelectedBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
       setUploadError(null);
       setCompressing(false);
       setSubmitting(false);
+      setShowQrZoomHint(false);
     }
   }
 
@@ -132,18 +134,39 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
   const handleDownloadQr = async () => {
     if (!qrUrl) return;
     vibrateSuccess();
+    const fileName = `VietQR_${playerName.replace(/\s+/g, '_')}.png`;
     try {
-      const response = await fetch(qrUrl);
+      const response = await fetch(qrUrl, { mode: 'cors' });
       if (!response.ok) throw new Error('Fetch failed');
       const blob = await response.blob();
+      const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] }) &&
+        typeof navigator.share === 'function'
+      ) {
+        try {
+          await navigator.share({ files: [file], title: `VietQR - ${playerName}` });
+          return;
+        } catch (shareErr: unknown) {
+          if (shareErr instanceof Error && shareErr.name === 'AbortError') {
+            return;
+          }
+        }
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `VietQR_${playerName.replace(/\s+/g, '_')}.png`;
+      a.download = fileName;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
-      window.open(qrUrl, '_blank', 'noopener,noreferrer');
+      setShowQrZoomHint(true);
     }
   };
 
@@ -170,7 +193,11 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
   };
 
   const handleSubmitWithOptionalReceipt = async (forceNoImage = false) => {
-    if (!roomCode) return;
+    if (!roomCode) {
+      vibrateWarning();
+      setUploadError('Chưa bật Phòng Online nên không thể gửi xác nhận lên máy chủ.');
+      return;
+    }
     setUploadError(null);
     setSubmitting(true);
     try {
@@ -178,8 +205,9 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
         const upRes = await uploadPaymentReceipt(roomCode, playerId, selectedBlob);
         if (upRes.error || !upRes.url) {
           vibrateWarning();
+          const detail = upRes.error ? ` (${upRes.error})` : '';
           setUploadError(
-            'Không thể tải ảnh biên lai lúc này. Bạn có thể bấm "Xác nhận không kèm ảnh" bên dưới.'
+            `Không thể tải ảnh biên lai lúc này${detail}. Bạn có thể bấm "Xác nhận không kèm ảnh" bên dưới.`
           );
           setSubmitting(false);
           return;
@@ -253,9 +281,26 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
               <img
                 src={qrUrl}
                 alt={`VietQR cho ${playerName}`}
-                className="w-52 h-auto max-h-64 object-contain mx-auto"
+                className={
+                  showQrZoomHint
+                    ? 'w-64 h-auto max-h-80 object-contain mx-auto'
+                    : 'w-52 h-auto max-h-64 object-contain mx-auto'
+                }
               />
             </div>
+
+            {showQrZoomHint && (
+              <div
+                className="text-[13px] font-medium px-3 py-2 rounded-xl border"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--color-accent)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Nhấn giữ vào ảnh QR bên trên để <strong>Lưu về máy</strong> (hoặc chụp màn hình).
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-2">
               <button

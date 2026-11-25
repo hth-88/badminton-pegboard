@@ -1,6 +1,22 @@
 export const MAX_RECEIPT_DIMENSION = 1080;
 export const DEFAULT_RECEIPT_QUALITY = 0.72;
 export const MAX_COMPRESSED_BYTES = 180 * 1024;
+export const MAX_RAW_FALLBACK_BYTES = 350 * 1024;
+
+function readFileAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Không thể đọc dữ liệu ảnh biên lai.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Không thể đọc dữ liệu ảnh biên lai.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function loadImageElement(objectUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -54,7 +70,22 @@ export async function compressReceiptImage(
 
   const objectUrl = URL.createObjectURL(file);
   try {
-    const img = await loadImageElement(objectUrl);
+    let img: HTMLImageElement;
+    try {
+      img = await loadImageElement(objectUrl);
+    } catch {
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        img = await loadImageElement(dataUrl);
+      } catch {
+        if (file.size <= MAX_RAW_FALLBACK_BYTES) {
+          return file;
+        }
+        throw new Error(
+          'Trình duyệt không giải mã được định dạng ảnh này (thử chụp màn hình hoặc chọn ảnh JPG/PNG).'
+        );
+      }
+    }
     const origWidth = img.naturalWidth || img.width || maxDimension;
     const origHeight = img.naturalHeight || img.height || maxDimension;
     const scale = Math.min(1, maxDimension / Math.max(origWidth, origHeight));

@@ -89,7 +89,11 @@ export function buildPlayerTransferNote(
   playerName: string
 ): string {
   const prefix = baseNote?.trim() || 'Tien cau long';
-  return sanitizeTransferNote(`${prefix} ${playerName}`, 50);
+  const upperName = sanitizeTransferNote(playerName, 50).toUpperCase();
+  const cleanPrefix = sanitizeTransferNote(prefix, 50);
+  if (!upperName) return cleanPrefix;
+  if (!cleanPrefix) return upperName;
+  return sanitizeTransferNote(`${upperName} ${cleanPrefix}`, 50);
 }
 
 export function buildVietQrUrl(params: {

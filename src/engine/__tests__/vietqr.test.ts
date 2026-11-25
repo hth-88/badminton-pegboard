@@ -45,9 +45,9 @@ describe('VietQR Engine (Nhóm 4)', () => {
     expect(resolveBankOption('', 'Ngân hàng lạ chưa có')?.code).toBeUndefined();
   });
 
-  it('buildPlayerTransferNote tự ghép nội dung mặc định + tên người chơi không dấu', () => {
-    expect(buildPlayerTransferNote(undefined, 'Đức Anh')).toBe('Tien cau long Duc Anh');
-    expect(buildPlayerTransferNote('Cầu thứ 5', 'Phương Thảo')).toBe('Cau thu 5 Phuong Thao');
+  it('buildPlayerTransferNote tự ghép TÊN IN HOA không dấu + nội dung chuyển khoản', () => {
+    expect(buildPlayerTransferNote(undefined, 'Đức Anh')).toBe('DUC ANH Tien cau long');
+    expect(buildPlayerTransferNote('Cầu thứ 5', 'Phương Thảo')).toBe('PHUONG THAO Cau thu 5');
   });
 
   it('buildVietQrUrl sinh URL động đúng chuẩn img.vietqr.io với đầy đủ tham số', () => {
