@@ -114,7 +114,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       <div
         ref={dockRef}
         className={`pointer-events-auto relative w-full ui-dock p-1.5 grid ${
-          isViewer ? 'max-w-xs grid-cols-2' : 'max-w-lg grid-cols-5'
+          isViewer ? 'max-w-md grid-cols-4' : 'max-w-lg grid-cols-5'
         }`}
       >
         {pillStyle.ready && (

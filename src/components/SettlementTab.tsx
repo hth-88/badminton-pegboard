@@ -1513,19 +1513,311 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   </div>
                 )}
 
-                <div className="overflow-x-auto no-scrollbar">
+                {/* Mobile compact cards: QR first before Name, zero horizontal scroll */}
+                <div className="md:hidden space-y-2.5">
+                  {settlementResult.players.map((item) => {
+                    const rec = payments[item.playerId];
+                    const status = rec?.status ?? 'UNPAID';
+                    const isPaid = status === 'PAID';
+                    const isPending = status === 'PENDING_REVIEW';
+                    const isRejected = status === 'REJECTED';
+                    const betAdj =
+                      betLedger.settlementAdjustmentByPlayer[item.playerId] || 0;
+                    const effectiveAmount = getEffectivePlayerPayable(
+                      item.roundedAmount,
+                      betAdj,
+                      mergeBets
+                    );
+
+                    const renderStatusAction = () => {
+                      if (!isViewer) {
+                        if (isPending) {
+                          return (
+                            <div className="inline-flex items-center gap-1.5 flex-wrap">
+                              {rec?.receiptUrl && (
+                                <button
+                                  type="button"
+                                  title="Xem ảnh biên lai"
+                                  onClick={() => {
+                                    setRejectReasonInput('');
+                                    setReviewReceiptTarget({
+                                      playerId: item.playerId,
+                                      playerName: item.name,
+                                      amount: Math.max(0, effectiveAmount),
+                                      receiptUrl: rec.receiptUrl,
+                                      isPending: true,
+                                    });
+                                  }}
+                                  className="ui-btn ui-btn-secondary min-h-[40px] px-2.5 text-[13px]"
+                                >
+                                  <ImageIcon className="w-3.5 h-3.5" />
+                                  <span>Ảnh</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  vibrateSuccess();
+                                  onToggleApprovePayment(item.playerId);
+                                }}
+                                className="ui-btn ui-btn-primary min-h-[40px] px-3 text-[13px]"
+                              >
+                                Duyệt
+                              </button>
+                              <button
+                                type="button"
+                                title="Từ chối"
+                                aria-label={`Từ chối biên lai của ${item.name}`}
+                                onClick={() => {
+                                  vibrateWarning();
+                                  setRejectReasonInput('');
+                                  setReviewReceiptTarget({
+                                    playerId: item.playerId,
+                                    playerName: item.name,
+                                    amount: Math.max(0, effectiveAmount),
+                                    receiptUrl: rec?.receiptUrl,
+                                    isPending: true,
+                                  });
+                                }}
+                                className="ui-btn ui-btn-danger-soft min-w-[40px] min-h-[40px] px-2.5 text-[13px]"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="inline-flex items-center gap-2">
+                            <label className="inline-flex items-center gap-2 cursor-pointer text-[13px]">
+                              <input
+                                type="checkbox"
+                                checked={isPaid}
+                                onChange={() => {
+                                  vibrateSuccess();
+                                  onToggleApprovePayment(item.playerId);
+                                }}
+                                aria-label={`Đã đóng tiền: ${item.name}`}
+                                className="ui-checkbox w-5 h-5 cursor-pointer"
+                              />
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                {isPaid ? 'Đã đóng' : 'Chưa đóng'}
+                              </span>
+                            </label>
+                            {rec?.receiptUrl && (
+                              <button
+                                type="button"
+                                title="Xem lại ảnh biên lai"
+                                aria-label={`Xem ảnh biên lai của ${item.name}`}
+                                onClick={() => {
+                                  setRejectReasonInput('');
+                                  setReviewReceiptTarget({
+                                    playerId: item.playerId,
+                                    playerName: item.name,
+                                    amount: Math.max(0, effectiveAmount),
+                                    receiptUrl: rec.receiptUrl,
+                                    isPending: false,
+                                  });
+                                }}
+                                className="ui-icon-btn w-10 h-10"
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+                            )}
+                            {isRejected && (
+                              <span
+                                title={rec?.rejectionReason || 'Đã từ chối'}
+                                className="text-[12px] font-semibold"
+                                style={{ color: 'var(--color-danger)' }}
+                              >
+                                Từ chối
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (effectiveAmount < 0) return <StatusPill tone="accent">Nhận lại</StatusPill>;
+                      if (effectiveAmount === 0) {
+                        return (
+                          <span className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
+                            {mergeBets && betAdj < 0 ? 'Trừ độ' : 'Miễn phí'}
+                          </span>
+                        );
+                      }
+                      if (isPaid) return <StatusPill tone="accent">Đã đóng</StatusPill>;
+                      if (isPending) {
+                        return (
+                          <div className="inline-flex items-center gap-1.5">
+                            <StatusPill tone="warning">Chờ duyệt</StatusPill>
+                            {rec?.receiptUrl && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReviewReceiptTarget({
+                                    playerId: item.playerId,
+                                    playerName: item.name,
+                                    amount: effectiveAmount,
+                                    receiptUrl: rec.receiptUrl,
+                                    isPending: false,
+                                  })
+                                }
+                                className="text-[12px] underline font-semibold"
+                                style={{ color: 'var(--color-accent)' }}
+                              >
+                                Ảnh
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+                      if (isRejected) {
+                        return (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setQrModalTarget({
+                                  playerId: item.playerId,
+                                  playerName: item.name,
+                                  amount: effectiveAmount,
+                                })
+                              }
+                              className="ui-btn ui-btn-danger-soft min-h-[38px] px-3 text-[12px]"
+                            >
+                              Gửi lại
+                            </button>
+                            {rec?.rejectionReason && (
+                              <span className="text-[11px]" style={{ color: 'var(--color-danger)' }}>
+                                {rec.rejectionReason}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQrModalTarget({
+                              playerId: item.playerId,
+                              playerName: item.name,
+                              amount: effectiveAmount,
+                            })
+                          }
+                          className="ui-btn ui-btn-secondary min-h-[38px] px-3 text-[13px]"
+                        >
+                          Tôi đã chuyển
+                        </button>
+                      );
+                    };
+
+                    return (
+                      <div
+                        key={item.playerId}
+                        className="ui-tile p-3 space-y-2"
+                        style={
+                          isPaid
+                            ? { backgroundColor: 'var(--color-accent-soft)' }
+                            : isPending
+                              ? { backgroundColor: 'var(--color-warning-soft)' }
+                              : isRejected
+                                ? { backgroundColor: 'var(--color-danger-soft)' }
+                                : undefined
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {effectiveAmount > 0 && (
+                              <button
+                                type="button"
+                                title={`Mở mã VietQR cho ${item.name}`}
+                                aria-label={`Mở mã VietQR cho ${item.name}`}
+                                onClick={() =>
+                                  setQrModalTarget({
+                                    playerId: item.playerId,
+                                    playerName: item.name,
+                                    amount: effectiveAmount,
+                                  })
+                                }
+                                className="ui-icon-btn w-10 h-10 shrink-0"
+                                style={{
+                                  backgroundColor: 'var(--bg-surface)',
+                                  color: 'var(--color-accent)',
+                                }}
+                              >
+                                <QrCode className="w-4 h-4" />
+                              </button>
+                            )}
+                            <GenderDot sex={item.sex} />
+                            <div className="min-w-0">
+                              <div
+                                className="font-semibold text-[15px] truncate"
+                                style={{ color: 'var(--text-primary)' }}
+                              >
+                                {item.name}
+                              </div>
+                              <div
+                                className="text-[12px] tabular-nums"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                {item.gamesPlayed} trận
+                                {item.discountNote ? ` · ${item.discountNote}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            {effectiveAmount < 0 ? (
+                              <StatusPill tone="accent">
+                                Nhận lại {formatVND(Math.abs(effectiveAmount))}
+                              </StatusPill>
+                            ) : effectiveAmount === 0 ? (
+                              <span
+                                className="text-[13px]"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                {mergeBets && betAdj < 0 ? '0đ' : 'Miễn phí'}
+                              </span>
+                            ) : (
+                              <span
+                                className="font-bold text-[15px] tabular-nums"
+                                style={{
+                                  color: isPending
+                                    ? 'var(--color-warning)'
+                                    : 'var(--color-accent)',
+                                }}
+                              >
+                                {formatVND(effectiveAmount)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-1.5 border-t ui-divider">
+                          {renderStatusAction()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop table: QR column before Name */}
+                <div className="hidden md:block overflow-x-auto no-scrollbar">
                   <table className="w-full text-[14px] text-left">
                     <thead>
                       <tr
                         className="border-b ui-divider text-[13px]"
                         style={{ color: 'var(--text-muted)' }}
                       >
-                        <th className="py-2.5 px-2 font-semibold text-center min-w-[110px]">
-                          {isViewer ? 'Trạng thái' : 'Đã đóng'}
+                        <th className="py-2.5 px-2 font-semibold text-center w-14">
+                          QR
                         </th>
                         <th className="py-2.5 px-2 font-semibold">Tên</th>
                         <th className="py-2.5 px-2 font-semibold text-center">Trận</th>
                         <th className="py-2.5 px-2 font-semibold text-right">Số tiền</th>
+                        <th className="py-2.5 px-2 font-semibold text-center min-w-[120px]">
+                          {isViewer ? 'Trạng thái' : 'Đã đóng'}
+                        </th>
                         <th className="py-2.5 px-2 font-semibold text-right">Ghi chú</th>
                       </tr>
                     </thead>
@@ -1558,6 +1850,89 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                             }
                           >
                             <td className="py-3 px-2 text-center">
+                              {effectiveAmount > 0 ? (
+                                <button
+                                  type="button"
+                                  title={`Mở mã VietQR cho ${item.name}`}
+                                  aria-label={`Mở mã VietQR cho ${item.name}`}
+                                  onClick={() =>
+                                    setQrModalTarget({
+                                      playerId: item.playerId,
+                                      playerName: item.name,
+                                      amount: effectiveAmount,
+                                    })
+                                  }
+                                  className="ui-icon-btn w-10 h-10 mx-auto"
+                                  style={{ color: 'var(--color-accent)' }}
+                                >
+                                  <QrCode className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-2">
+                              <div className="flex items-center gap-2 max-w-[160px]">
+                                <GenderDot sex={item.sex} />
+                                <span
+                                  className="font-semibold truncate"
+                                  style={{ color: 'var(--text-primary)' }}
+                                >
+                                  {item.name}
+                                </span>
+                              </div>
+                            </td>
+
+                            <td
+                              className="py-3 px-2 text-center tabular-nums"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {item.gamesPlayed}
+                            </td>
+
+                            <td className="py-3 px-2 text-right font-bold tabular-nums">
+                              {effectiveAmount < 0 ? (
+                                <StatusPill tone="accent">
+                                  Nhận lại {formatVND(Math.abs(effectiveAmount))}
+                                </StatusPill>
+                              ) : effectiveAmount === 0 ? (
+                                <span
+                                  className="font-normal text-[13px]"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
+                                  {mergeBets && betAdj < 0
+                                    ? '0đ (Trừ thắng độ)'
+                                    : 'Miễn phí'}
+                                </span>
+                              ) : (
+                                <div className="inline-flex flex-col items-end gap-0.5">
+                                  <span
+                                    style={{
+                                      color: isPending
+                                        ? 'var(--color-warning)'
+                                        : 'var(--color-accent)',
+                                    }}
+                                  >
+                                    {formatVND(effectiveAmount)}
+                                  </span>
+                                  {mergeBets && betAdj !== 0 && (
+                                    <span
+                                      className="text-[12px] font-normal"
+                                      style={{ color: 'var(--color-warning)' }}
+                                    >
+                                      (Sân {formatVND(item.roundedAmount)}{' '}
+                                      {betAdj > 0
+                                        ? `+ Độ ${formatVND(betAdj)}`
+                                        : `- Thắng ${formatVND(Math.abs(betAdj))}`}
+                                      )
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-2 text-center">
                               {!isViewer ? (
                                 isPending ? (
                                   <div className="inline-flex items-center gap-1.5 flex-wrap justify-center">
@@ -1575,7 +1950,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             isPending: true,
                                           });
                                         }}
-                                        className="ui-btn ui-btn-secondary min-h-[44px] px-3 text-[13px]"
+                                        className="ui-btn ui-btn-secondary min-h-[40px] px-3 text-[13px]"
                                       >
                                         <ImageIcon className="w-3.5 h-3.5" />
                                         <span>Ảnh</span>
@@ -1587,7 +1962,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                         vibrateSuccess();
                                         onToggleApprovePayment(item.playerId);
                                       }}
-                                      className="ui-btn ui-btn-primary min-h-[44px] px-3 text-[13px]"
+                                      className="ui-btn ui-btn-primary min-h-[40px] px-3 text-[13px]"
                                     >
                                       Duyệt
                                     </button>
@@ -1606,7 +1981,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                           isPending: true,
                                         });
                                       }}
-                                      className="ui-btn ui-btn-danger-soft min-w-[44px] min-h-[44px] px-3 text-[13px]"
+                                      className="ui-btn ui-btn-danger-soft min-w-[40px] min-h-[40px] px-3 text-[13px]"
                                     >
                                       ✕
                                     </button>
@@ -1638,7 +2013,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             isPending: false,
                                           });
                                         }}
-                                        className="ui-icon-btn w-11 h-11"
+                                        className="ui-icon-btn w-10 h-10"
                                       >
                                         <ImageIcon className="w-4 h-4" />
                                       </button>
@@ -1746,84 +2121,6 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                 >
                                   Tôi đã chuyển
                                 </button>
-                              )}
-                            </td>
-
-                            <td className="py-3 px-2">
-                              <div className="flex items-center gap-2 max-w-[140px]">
-                                <GenderDot sex={item.sex} />
-                                <span
-                                  className="font-semibold truncate"
-                                  style={{ color: 'var(--text-primary)' }}
-                                >
-                                  {item.name}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td
-                              className="py-3 px-2 text-center tabular-nums"
-                              style={{ color: 'var(--text-secondary)' }}
-                            >
-                              {item.gamesPlayed}
-                            </td>
-
-                            <td className="py-3 px-2 text-right font-bold tabular-nums">
-                              {effectiveAmount < 0 ? (
-                                <StatusPill tone="accent">
-                                  Nhận lại {formatVND(Math.abs(effectiveAmount))}
-                                </StatusPill>
-                              ) : effectiveAmount === 0 ? (
-                                <span
-                                  className="font-normal text-[13px]"
-                                  style={{ color: 'var(--text-muted)' }}
-                                >
-                                  {mergeBets && betAdj < 0
-                                    ? '0đ (Trừ thắng độ)'
-                                    : 'Miễn phí'}
-                                </span>
-                              ) : (
-                                <div className="inline-flex flex-col items-end gap-0.5">
-                                  <div className="inline-flex items-center justify-end gap-2">
-                                    <span
-                                      style={{
-                                        color: isPending
-                                          ? 'var(--color-warning)'
-                                          : 'var(--color-accent)',
-                                      }}
-                                    >
-                                      {formatVND(effectiveAmount)}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      title={`Mở mã VietQR cho ${item.name}`}
-                                      aria-label={`Mở mã VietQR cho ${item.name}`}
-                                      onClick={() =>
-                                        setQrModalTarget({
-                                          playerId: item.playerId,
-                                          playerName: item.name,
-                                          amount: effectiveAmount,
-                                        })
-                                      }
-                                      className="ui-icon-btn w-11 h-11"
-                                      style={{ color: 'var(--color-accent)' }}
-                                    >
-                                      <QrCode className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                  {mergeBets && betAdj !== 0 && (
-                                    <span
-                                      className="text-[12px] font-normal"
-                                      style={{ color: 'var(--color-warning)' }}
-                                    >
-                                      (Sân {formatVND(item.roundedAmount)}{' '}
-                                      {betAdj > 0
-                                        ? `+ Độ ${formatVND(betAdj)}`
-                                        : `- Thắng ${formatVND(Math.abs(betAdj))}`}
-                                      )
-                                    </span>
-                                  )}
-                                </div>
                               )}
                             </td>
 

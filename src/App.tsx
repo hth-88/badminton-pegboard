@@ -637,12 +637,12 @@ export function App() {
             />
           )}
 
-          {/* TAB 4: LỊCH SỬ (Ẩn hoàn toàn với VIEWER) */}
-          {effectiveTab === 'history' && role !== 'VIEWER' && (
+          {/* TAB 4: LỊCH SỬ */}
+          {effectiveTab === 'history' && (
             <HistoryTab
               history={history}
               players={players}
-              isViewer={false}
+              isViewer={role === 'VIEWER'}
               onEditMatchResult={(m) =>
                 guardAction(() =>
                   setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
@@ -652,8 +652,8 @@ export function App() {
             />
           )}
 
-          {/* TAB 5: TÍNH TIỀN (Ẩn hoàn toàn với VIEWER) */}
-          {effectiveTab === 'settlement' && role !== 'VIEWER' && (
+          {/* TAB 5: TÍNH TIỀN */}
+          {effectiveTab === 'settlement' && (
             <SettlementTab
               players={players}
               history={history}
