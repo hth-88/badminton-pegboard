@@ -78,7 +78,7 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
         clubRoster: getClubRoster(),
         maleBonus,
       });
-      if (!res.ok) {
+      if ('error' in res) {
         vibrateWarning();
         setAiError(res.error);
       } else {

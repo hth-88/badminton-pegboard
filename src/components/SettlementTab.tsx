@@ -291,12 +291,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           eff < 0
             ? 'Được nhận lại'
             : eff === 0
-            ? 'Miễn phí'
-            : st === 'PAID'
-            ? 'Đã đóng'
-            : st === 'PENDING_REVIEW'
-            ? 'Chờ duyệt'
-            : 'Chưa đóng';
+              ? 'Miễn phí'
+              : st === 'PAID'
+                ? 'Đã đóng'
+                : st === 'PENDING_REVIEW'
+                  ? 'Chờ duyệt'
+                  : 'Chưa đóng';
         return {
           name: item.name,
           sex: item.sex,
@@ -353,10 +353,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     ) {
       vibrateSuccess();
       const res = onImportJson(JSON.stringify(session.sessionData));
-      if (res.ok) {
-        alert('Khôi phục buổi đánh thành công!');
-      } else {
+      if ('error' in res) {
         alert(`Lỗi khi khôi phục: ${res.error}`);
+      } else {
+        alert('Khôi phục buổi đánh thành công!');
       }
     }
   };
@@ -391,9 +391,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
         const betPartNote =
           eff < 0
             ? `Được nhận lại ${formatVND(Math.abs(eff))}`
-            : `Sân ${formatVND(item.roundedAmount)} ${
-                adj > 0 ? '+' : '-'
-              } Độ ${formatVND(Math.abs(adj))}`;
+            : `Sân ${formatVND(item.roundedAmount)} ${adj > 0 ? '+' : '-'
+            } Độ ${formatVND(Math.abs(adj))}`;
         const combinedNote = [item.discountNote, betPartNote]
           .filter(Boolean)
           .join('; ');
@@ -473,9 +472,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     <div className="max-w-[820px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
       {/* Sub-Navigation Segmented Control */}
       <div
-        className={`ui-segmented-track grid gap-1 ${
-          isViewer ? 'grid-cols-2' : 'grid-cols-3'
-        }`}
+        className={`ui-segmented-track grid gap-1 ${isViewer ? 'grid-cols-2' : 'grid-cols-3'
+          }`}
       >
         {(
           [
@@ -497,10 +495,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               style={
                 active
                   ? {
-                      backgroundColor: 'var(--bg-surface-elevated)',
-                      color: 'var(--text-primary)',
-                      boxShadow: 'var(--shadow-sm)',
-                    }
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-primary)',
+                    boxShadow: 'var(--shadow-sm)',
+                  }
                   : { color: 'var(--text-secondary)' }
               }
             >
@@ -770,10 +768,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         style={
                           active
                             ? {
-                                backgroundColor: 'var(--bg-surface-elevated)',
-                                color: 'var(--color-accent)',
-                                boxShadow: 'var(--shadow-sm)',
-                              }
+                              backgroundColor: 'var(--bg-surface-elevated)',
+                              color: 'var(--color-accent)',
+                              boxShadow: 'var(--shadow-sm)',
+                            }
                             : { color: 'var(--text-secondary)' }
                         }
                       >
@@ -874,10 +872,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         style={
                           active
                             ? {
-                                backgroundColor: 'var(--bg-surface-elevated)',
-                                color: 'var(--color-accent)',
-                                boxShadow: 'var(--shadow-sm)',
-                              }
+                              backgroundColor: 'var(--bg-surface-elevated)',
+                              color: 'var(--color-accent)',
+                              boxShadow: 'var(--shadow-sm)',
+                            }
                             : { color: 'var(--text-secondary)' }
                         }
                       >
@@ -1061,10 +1059,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     style={
                       active
                         ? {
-                            backgroundColor: 'var(--bg-surface-elevated)',
-                            color: 'var(--color-accent)',
-                            boxShadow: 'var(--shadow-sm)',
-                          }
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          color: 'var(--color-accent)',
+                          boxShadow: 'var(--shadow-sm)',
+                        }
                         : { color: 'var(--text-secondary)' }
                     }
                   >
@@ -1169,15 +1167,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                             genderRatioFemalePercent: preset.f,
                           })
                         }
-                        className={`min-h-[36px] px-3 rounded-full text-[13px] font-semibold tabular-nums transition ${
-                          active ? 'ui-btn-primary' : ''
-                        }`}
+                        className={`min-h-[36px] px-3 rounded-full text-[13px] font-semibold tabular-nums transition ${active ? 'ui-btn-primary' : ''
+                          }`}
                         style={
                           !active
                             ? {
-                                backgroundColor: 'var(--bg-surface)',
-                                color: 'var(--text-secondary)',
-                              }
+                              backgroundColor: 'var(--bg-surface)',
+                              color: 'var(--text-secondary)',
+                            }
                             : undefined
                         }
                       >
@@ -1398,10 +1395,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               isPaid
                                 ? { backgroundColor: 'var(--color-accent-soft)' }
                                 : isPending
-                                ? { backgroundColor: 'var(--color-warning-soft)' }
-                                : isRejected
-                                ? { backgroundColor: 'var(--color-danger-soft)' }
-                                : undefined
+                                  ? { backgroundColor: 'var(--color-warning-soft)' }
+                                  : isRejected
+                                    ? { backgroundColor: 'var(--color-danger-soft)' }
+                                    : undefined
                             }
                           >
                             <td className="py-3 px-2 text-center">
@@ -1878,9 +1875,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               vibrateSuccess();
                               onToggleBetPaid(t.id);
                             }}
-                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${
-                              paid ? 'ui-btn-primary' : 'ui-btn-secondary'
-                            }`}
+                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${paid ? 'ui-btn-primary' : 'ui-btn-secondary'
+                              }`}
                             style={
                               !paid
                                 ? { backgroundColor: 'var(--bg-surface)' }
@@ -1947,9 +1943,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               vibrateSuccess();
                               onToggleBetPaid(f.id);
                             }}
-                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${
-                              paid ? 'ui-btn-primary' : 'ui-btn-secondary'
-                            }`}
+                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${paid ? 'ui-btn-primary' : 'ui-btn-secondary'
+                              }`}
                             style={
                               !paid
                                 ? { backgroundColor: 'var(--bg-surface)' }
@@ -2000,9 +1995,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                               vibrateSuccess();
                               onToggleBetPaid(item.id);
                             }}
-                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${
-                              paid ? 'ui-btn-primary' : 'ui-btn-secondary'
-                            }`}
+                            className={`ui-btn min-h-[36px] px-3 text-[13px] shrink-0 ${paid ? 'ui-btn-primary' : 'ui-btn-secondary'
+                              }`}
                             style={
                               !paid
                                 ? { backgroundColor: 'var(--bg-surface)' }
@@ -2508,7 +2502,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                       const snap = session.settlementSnapshot;
                       const paidCountSnap = snap
                         ? snap.players.filter((p) => p.finalAmount <= 0 || p.paid)
-                            .length
+                          .length
                         : 0;
                       const isExpanded = expandedArchiveIds.has(session.id);
 
@@ -2660,9 +2654,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             )
                                           );
                                         }}
-                                        className={`ui-btn min-h-[44px] px-3 text-[13px] ${
-                                          sp.paid ? 'ui-btn-primary' : 'ui-btn-warning-soft'
-                                        }`}
+                                        className={`ui-btn min-h-[44px] px-3 text-[13px] ${sp.paid ? 'ui-btn-primary' : 'ui-btn-warning-soft'
+                                          }`}
                                       >
                                         {sp.paid ? 'Đã đóng' : 'Chưa đóng'}
                                       </button>
@@ -2680,11 +2673,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                       <button
                         type="button"
                         onClick={handleClearAllArchive}
-                        className={`ui-btn px-4 text-[13px] ${
-                          showClearArchiveConfirm
-                            ? 'ui-btn-danger'
-                            : 'ui-btn-ghost'
-                        }`}
+                        className={`ui-btn px-4 text-[13px] ${showClearArchiveConfirm
+                          ? 'ui-btn-danger'
+                          : 'ui-btn-ghost'
+                          }`}
                       >
                         {showClearArchiveConfirm
                           ? 'Bấm lần nữa để xác nhận xóa tất cả'
@@ -2814,12 +2806,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               type="button"
               onClick={() => {
                 const res = onImportJson(importText);
-                if (res.ok) {
+                if ('error' in res) {
+                  alert(`Lỗi khi nhập: ${res.error}`);
+                } else {
                   setShowImportModal(false);
                   setImportText('');
                   alert('Nhập dữ liệu thành công!');
-                } else {
-                  alert(`Lỗi khi nhập: ${res.error}`);
                 }
               }}
               className="ui-btn ui-btn-primary px-5 rounded-full"
@@ -2931,9 +2923,8 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                           key={chip}
                           type="button"
                           onClick={() => setRejectReasonInput(chip)}
-                          className={`ui-btn min-h-[36px] px-3 rounded-full text-[13px] ${
-                            active ? 'ui-btn-danger-soft' : 'ui-btn-secondary'
-                          }`}
+                          className={`ui-btn min-h-[36px] px-3 rounded-full text-[13px] ${active ? 'ui-btn-danger-soft' : 'ui-btn-secondary'
+                            }`}
                           style={
                             !active
                               ? { backgroundColor: 'var(--bg-surface)' }
