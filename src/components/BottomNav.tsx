@@ -73,9 +73,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       },
     ];
 
-    // VIEWER chỉ thấy Sân và Hàng chờ (ẩn hoàn toàn Luật cặp, Lịch sử, Tính tiền)
+    // VIEWER thấy Sân, Hàng chờ, Lịch sử, Tính tiền (ẩn hoàn toàn Luật cặp)
     return isViewer
-      ? allTabs.filter((t) => t.id === 'courts' || t.id === 'queue')
+      ? allTabs.filter((t) => t.id !== 'rules')
       : allTabs;
   }, [waitingCount, conflictCount, pendingPaymentsCount, isViewer]);
 

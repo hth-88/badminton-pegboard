@@ -799,6 +799,76 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
           })()}
 
           {/* 1. SESSION COSTS */}
+          {isViewer ? (
+            <section className="ui-card p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3
+                  className="font-bold text-[16px] flex items-center gap-2"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <Coins
+                    className="w-4 h-4"
+                    style={{ color: 'var(--color-accent)' }}
+                  />
+                  <span>Chi phí buổi chơi</span>
+                </h3>
+                <span
+                  className="font-bold text-[17px] tabular-nums"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  {formatVND(settlementResult.totalCost)}
+                </span>
+              </div>
+
+              <div className="space-y-2 text-[14px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span style={{ color: 'var(--text-secondary)' }}>Tiền sân</span>
+                  <span
+                    className="font-semibold tabular-nums"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {formatVND(settlementResult.courtCost)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span style={{ color: 'var(--text-secondary)' }}>Tiền cầu</span>
+                  <span
+                    className="font-semibold tabular-nums"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {formatVND(settlementResult.shuttleCost)}
+                  </span>
+                </div>
+                {settlementResult.extraCost > 0 && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {settings.extraCostNote?.trim() || 'Phụ phí'}
+                    </span>
+                    <span
+                      className="font-semibold tabular-nums"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {formatVND(settlementResult.extraCost)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t ui-divider">
+                  <span
+                    className="font-semibold"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    Tổng chi phí
+                  </span>
+                  <span
+                    className="font-bold text-[16px] tabular-nums"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    {formatVND(settlementResult.totalCost)}
+                  </span>
+                </div>
+              </div>
+            </section>
+          ) : (
           <section className="ui-card p-5 space-y-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3
@@ -1122,8 +1192,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </div>
             </div>
           </section>
+          )}
 
           {/* 2. SPLIT MODE & DISCOUNTS */}
+          {!isViewer && (
           <section className="ui-card p-5 space-y-4">
             <h3
               className="font-bold text-[16px] flex items-center gap-2"
@@ -1393,6 +1465,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </select>
             </div>
           </section>
+          )}
 
           {/* 3. PAYMENT TABLE */}
           {(() => {

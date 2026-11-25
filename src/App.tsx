@@ -163,9 +163,9 @@ export function App() {
     onApplyCloudSettlement: handleApplyCloudSettlement,
   });
 
-  // Tự động rời khỏi mọi tab không dành cho VIEWER (chỉ cho phép Sân & Hàng chờ)
+  // Tự động rời khỏi tab Luật cặp nếu đang ở chế độ VIEWER
   const effectiveTab: NavTab =
-    role === 'VIEWER' && activeTab !== 'courts' && activeTab !== 'queue'
+    role === 'VIEWER' && activeTab === 'rules'
       ? 'courts'
       : activeTab;
 
