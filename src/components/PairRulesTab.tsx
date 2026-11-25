@@ -7,12 +7,18 @@ import {
   Lock,
   ShieldAlert,
   Swords,
-  X,
 } from 'lucide-react';
 import type { PairRule, PairRuleType, Player } from '../types/badminton';
 import type { RuleConflictInfo } from '../engine/sessionReducer';
 import { RANK_METADATA } from '../engine/skillConfig';
 import { vibrateSuccess } from '../utils/vibrate';
+import {
+  GenderDot,
+  RankBadge,
+  StatusPill,
+  UiEmptyState,
+  UiModal,
+} from './ui/Primitives';
 
 interface PairRulesTabProps {
   pairRules: PairRule[];
@@ -40,25 +46,23 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
 
   if (isViewer) {
     return (
-      <div className="max-w-md mx-auto py-16 px-4 text-center space-y-3">
-        <div className="vo-glass-card w-12 h-12 rounded-2xl text-amber-400 flex items-center justify-center mx-auto">
-          <Lock className="w-6 h-6" />
-        </div>
-        <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-          Mục chỉ dành cho Ban điều hành
-        </h3>
-        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Thiết lập luật cặp đôi được bảo mật và chỉ hiển thị khi đăng nhập quyền quản trị phòng.
-        </p>
-        {onRequestUpgrade && (
-          <button
-            type="button"
-            onClick={onRequestUpgrade}
-            className="vo-cta-lime mt-2 px-5 py-2.5 rounded-full text-xs font-extrabold"
-          >
-            Nhập mã PIN quản trị
-          </button>
-        )}
+      <div className="max-w-md mx-auto py-16 px-4">
+        <UiEmptyState
+          icon={<Lock className="w-6 h-6" />}
+          title="Mục chỉ dành cho Ban điều hành"
+          description="Thiết lập luật cặp đôi chỉ hiển thị khi đăng nhập quyền quản trị phòng."
+          action={
+            onRequestUpgrade ? (
+              <button
+                type="button"
+                onClick={onRequestUpgrade}
+                className="ui-btn ui-btn-primary px-5 rounded-full"
+              >
+                Nhập mã PIN quản trị
+              </button>
+            ) : undefined
+          }
+        />
       </div>
     );
   }
@@ -84,56 +88,53 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
     setShowAddModal(false);
   };
 
-  const getRuleBadge = (type: PairRuleType) => {
+  const getRuleMeta = (type: PairRuleType) => {
     switch (type) {
       case 'LOCK_PARTNER':
         return {
           icon: Lock,
-          label: 'Cùng đội (LOCK)',
-          color: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60',
+          label: 'Cùng đội',
+          tone: 'accent' as const,
           desc: 'Luôn xếp chung 1 đội khi vào sân',
         };
       case 'AVOID_PARTNER':
         return {
           icon: ShieldAlert,
-          label: 'Cấm cùng đội (AVOID)',
-          color: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
-          desc: 'Không bao giờ xếp chung 1 đội',
+          label: 'Cấm cùng đội',
+          tone: 'warning' as const,
+          desc: 'Không xếp chung 1 đội',
         };
       case 'AVOID_MATCH':
         return {
           icon: Swords,
-          label: 'Cấm đối đầu (NO MATCH)',
-          color: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
-          desc: 'Không vào chung 1 trận đấu (cả cùng đội lẫn đối thủ)',
+          label: 'Cấm chung trận',
+          tone: 'danger' as const,
+          desc: 'Không vào chung 1 trận đấu',
         };
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-3.5 md:p-5 space-y-4">
-      {/* Top Banner & Action */}
-      <div className="flex items-center justify-between gap-2">
+    <div className="max-w-[780px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2
-            className="text-lg font-bold tracking-[-0.025em] flex items-center gap-2"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            <Scale className="w-5 h-5" style={{ color: 'var(--accent-lime)' }} />
-            <span>Luật cặp đôi</span>
-            <span
-              className="text-xs px-2.5 py-0.5 rounded-full font-mono-tabular font-bold"
-              style={{
-                background: 'var(--accent-lime-soft)',
-                color: 'var(--accent-lime)',
-                border: '1px solid var(--accent-lime-border)',
-              }}
+          <div className="flex items-center gap-2.5">
+            <h2
+              className="text-[20px] font-bold tracking-[-0.02em]"
+              style={{ color: 'var(--text-primary)' }}
             >
-              {pairRules.length} luật
-            </span>
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Cố định cặp đánh chung, tách người kỵ nhau hoặc giới hạn đối đầu
+              Luật cặp đôi
+            </h2>
+            <StatusPill tone="neutral">
+              <span className="tabular-nums">{pairRules.length} luật</span>
+            </StatusPill>
+          </div>
+          <p
+            className="text-[14px] mt-1"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Cố định cặp đánh chung hoặc hạn chế ghép trùng trận
           </p>
         </div>
 
@@ -146,99 +147,93 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
             }
             setShowAddModal(true);
           }}
-          className="vo-cta-lime flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-extrabold shrink-0"
+          className="ui-btn ui-btn-primary px-4 rounded-full shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Thêm luật</span>
         </button>
       </div>
 
-      {/* CẢNH BÁO MÂU THUẪN LUẬT (RULE CONFLICTS) */}
+      {/* Rule Conflicts Banner */}
       {ruleConflicts.length > 0 && (
-        <div className="rounded-2xl bg-rose-950/40 border border-rose-800/80 p-3.5 space-y-2 text-rose-200">
-          <div className="flex items-center gap-2 font-bold text-xs text-rose-300">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>Phát hiện {ruleConflicts.length} mâu thuẫn luật:</span>
+        <div className="ui-banner-danger p-4 space-y-2">
+          <div className="flex items-center gap-2 font-semibold text-[14px]">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Phát hiện {ruleConflicts.length} mâu thuẫn luật</span>
           </div>
-          <div className="space-y-1.5 text-xs">
+          <div className="space-y-1.5 text-[14px]">
             {ruleConflicts.map((c, i) => (
-              <p key={i} className="bg-rose-900/30 p-2 rounded-xl border border-rose-800/40">
-                {c.message}
+              <p key={i} className="leading-relaxed">
+                • {c.message}
               </p>
             ))}
           </div>
         </div>
       )}
 
-      {/* DANH SÁCH LUẬT HIỆN CÓ */}
+      {/* Rules List */}
       <div className="space-y-2.5">
         {pairRules.length === 0 ? (
-          <div
-            className="vo-glass-card p-8 text-center rounded-[22px]"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <Scale className="w-10 h-10 mx-auto mb-2 opacity-40" />
-            <p className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Chưa có luật cặp nào
-            </p>
-            <p className="text-xs mt-1">
-              Thuật toán sẽ ghép tự do cân bằng theo trình độ và hàng đợi.
-            </p>
-          </div>
+          <UiEmptyState
+            icon={<Scale className="w-6 h-6" />}
+            title="Chưa có luật cặp nào"
+            description="Hệ thống sẽ tự động ghép cân bằng theo trình độ và thứ tự chờ."
+          />
         ) : (
           pairRules.map((rule) => {
             const pA = playerMap.get(rule.playerAId);
             const pB = playerMap.get(rule.playerBId);
-            const meta = getRuleBadge(rule.type);
+            const meta = getRuleMeta(rule.type);
             const Icon = meta.icon;
 
             return (
               <div
                 key={rule.id}
-                className="vo-glass-card p-3.5 rounded-[20px] flex items-center justify-between gap-3 transition"
+                className="ui-card px-4 py-3.5 flex items-center justify-between gap-3"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                    <span
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${meta.color}`}
-                    >
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <StatusPill tone={meta.tone}>
                       <Icon className="w-3.5 h-3.5" />
                       <span>{meta.label}</span>
-                    </span>
-                    <span className="text-[11px] hidden sm:inline" style={{ color: 'var(--text-muted)' }}>
-                      • {meta.desc}
+                    </StatusPill>
+                    <span
+                      className="text-[13px] hidden sm:inline"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {meta.desc}
                     </span>
                   </div>
 
-                  <div
-                    className="flex items-center gap-2 text-xs font-semibold flex-wrap"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    <span className="truncate">{pA?.name || rule.playerAId}</span>
-                    {pA && (
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <div className="inline-flex items-center gap-1.5 min-w-0">
+                      {pA && <GenderDot sex={pA.sex} />}
                       <span
-                        className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded"
-                        style={{
-                          background: 'var(--bg-pill-track)',
-                          color: 'var(--text-secondary)',
-                        }}
+                        className="text-[15px] font-semibold truncate"
+                        style={{ color: 'var(--text-primary)' }}
                       >
-                        {RANK_METADATA[pA.rank].code}
+                        {pA?.name || rule.playerAId}
                       </span>
-                    )}
-                    <span style={{ color: 'var(--text-muted)' }}>và</span>
-                    <span className="truncate">{pB?.name || rule.playerBId}</span>
-                    {pB && (
+                      {pA && <RankBadge rank={pA.rank} surface="card" />}
+                    </div>
+
+                    <span
+                      className="text-[14px]"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      và
+                    </span>
+
+                    <div className="inline-flex items-center gap-1.5 min-w-0">
+                      {pB && <GenderDot sex={pB.sex} />}
                       <span
-                        className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded"
-                        style={{
-                          background: 'var(--bg-pill-track)',
-                          color: 'var(--text-secondary)',
-                        }}
+                        className="text-[15px] font-semibold truncate"
+                        style={{ color: 'var(--text-primary)' }}
                       >
-                        {RANK_METADATA[pB.rank].code}
+                        {pB?.name || rule.playerBId}
                       </span>
-                    )}
+                      {pB && <RankBadge rank={pB.rank} surface="card" />}
+                    </div>
                   </div>
                 </div>
 
@@ -247,7 +242,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
                   onClick={() => onRemoveRule(rule.id)}
                   title="Xóa luật này"
                   aria-label="Xóa luật này"
-                  className="vo-btn-subtle p-2 rounded-xl hover:text-rose-400"
+                  className="ui-icon-btn w-11 h-11 shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -257,167 +252,144 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
         )}
       </div>
 
-      {/* MODAL THÊM LUẬT */}
-      {showAddModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="vo-glass-card rounded-3xl w-full max-w-md p-5 shadow-2xl"
-            style={{ background: 'var(--bg-card-solid)' }}
-          >
-            <div
-              className="flex items-center justify-between pb-3 border-b"
-              style={{ borderColor: 'var(--border-subtle)' }}
+      {/* Add Rule Modal */}
+      <UiModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        sheetOnMobile
+        maxWidthClass="max-w-md"
+        title="Thêm luật cặp"
+      >
+        <form onSubmit={handleAddSubmit} className="space-y-4">
+          <div>
+            <label
+              className="block text-[14px] font-semibold mb-1.5"
+              style={{ color: 'var(--text-secondary)' }}
             >
-              <h3 className="font-bold text-base flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                <Scale className="w-5 h-5" style={{ color: 'var(--accent-lime)' }} />
-                <span>Thêm luật cặp</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="vo-btn-subtle p-1.5 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddSubmit} className="space-y-4 py-3">
-              <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Người chơi thứ nhất (A) *
-                </label>
-                <select
-                  required
-                  value={playerAId}
-                  onChange={(e) => setPlayerAId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none"
-                >
-                  <option value="">-- Chọn người chơi A --</option>
-                  {players.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({RANK_METADATA[p.rank].code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Người chơi thứ hai (B) *
-                </label>
-                <select
-                  required
-                  value={playerBId}
-                  onChange={(e) => setPlayerBId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none"
-                >
-                  <option value="">-- Chọn người chơi B --</option>
-                  {players
-                    .filter((p) => p.id !== playerAId)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({RANK_METADATA[p.rank].code})
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                  Loại luật áp dụng
-                </label>
-                <div className="space-y-2">
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
-                      ruleType === 'LOCK_PARTNER'
-                        ? 'bg-emerald-950/40 border-emerald-600 text-emerald-300'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="ruleType"
-                      checked={ruleType === 'LOCK_PARTNER'}
-                      onChange={() => setRuleType('LOCK_PARTNER')}
-                      className="mt-0.5 accent-lime-400"
-                    />
-                    <div>
-                      <span className="font-bold text-xs block">Cùng đội (LOCK_PARTNER)</span>
-                      <span className="text-[11px] text-slate-400">
-                        Luôn xếp 2 người chung đội mỗi khi cùng vào sân.
-                      </span>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
-                      ruleType === 'AVOID_PARTNER'
-                        ? 'bg-amber-950/40 border-amber-600 text-amber-300'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="ruleType"
-                      checked={ruleType === 'AVOID_PARTNER'}
-                      onChange={() => setRuleType('AVOID_PARTNER')}
-                      className="mt-0.5 accent-amber-400"
-                    />
-                    <div>
-                      <span className="font-bold text-xs block">Cấm cùng đội (AVOID_PARTNER)</span>
-                      <span className="text-[11px] text-slate-400">
-                        Không bao giờ xếp chung đội (nhưng vẫn có thể là đối thủ của nhau).
-                      </span>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
-                      ruleType === 'AVOID_MATCH'
-                        ? 'bg-rose-950/40 border-rose-600 text-rose-300'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="ruleType"
-                      checked={ruleType === 'AVOID_MATCH'}
-                      onChange={() => setRuleType('AVOID_MATCH')}
-                      className="mt-0.5 accent-rose-400"
-                    />
-                    <div>
-                      <span className="font-bold text-xs block">Cấm đối đầu (AVOID_MATCH)</span>
-                      <span className="text-[11px] text-slate-400">
-                        Tránh xếp chung trận đấu (cả cùng đội lẫn đối thủ khác đội).
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="vo-btn-subtle px-4 py-2 rounded-xl text-xs font-semibold"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="vo-cta-lime px-5 py-2 rounded-xl text-xs font-extrabold"
-                >
-                  Lưu luật
-                </button>
-              </div>
-            </form>
+              Người chơi thứ nhất (A) *
+            </label>
+            <select
+              required
+              value={playerAId}
+              onChange={(e) => setPlayerAId(e.target.value)}
+              className="ui-select"
+            >
+              <option value="">-- Chọn người chơi A --</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({RANK_METADATA[p.rank].code})
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      )}
+
+          <div>
+            <label
+              className="block text-[14px] font-semibold mb-1.5"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Người chơi thứ hai (B) *
+            </label>
+            <select
+              required
+              value={playerBId}
+              onChange={(e) => setPlayerBId(e.target.value)}
+              className="ui-select"
+            >
+              <option value="">-- Chọn người chơi B --</option>
+              {players
+                .filter((p) => p.id !== playerAId)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({RANK_METADATA[p.rank].code})
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label
+              className="block text-[14px] font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Loại luật áp dụng
+            </label>
+            {(
+              [
+                {
+                  val: 'LOCK_PARTNER' as const,
+                  title: 'Cùng đội (LOCK)',
+                  desc: 'Luôn xếp 2 người chung đội mỗi khi cùng vào sân.',
+                },
+                {
+                  val: 'AVOID_PARTNER' as const,
+                  title: 'Cấm cùng đội (AVOID)',
+                  desc: 'Không xếp chung đội, vẫn có thể là đối thủ của nhau.',
+                },
+                {
+                  val: 'AVOID_MATCH' as const,
+                  title: 'Cấm chung trận (NO MATCH)',
+                  desc: 'Tránh xếp vào chung 1 trận đấu (cả cùng đội lẫn đối thủ).',
+                },
+              ] as const
+            ).map((opt) => {
+              const active = ruleType === opt.val;
+              return (
+                <label
+                  key={opt.val}
+                  className="ui-tile flex items-start gap-3 p-3.5 cursor-pointer"
+                  style={
+                    active
+                      ? {
+                          backgroundColor: 'var(--color-accent-soft)',
+                          border: '1px solid var(--color-accent-border)',
+                        }
+                      : { border: '1px solid transparent' }
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="ruleType"
+                    checked={active}
+                    onChange={() => setRuleType(opt.val)}
+                    className="ui-radio mt-1 shrink-0"
+                  />
+                  <div>
+                    <span
+                      className="font-semibold text-[14px] block"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {opt.title}
+                    </span>
+                    <span
+                      className="text-[13px] leading-snug"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {opt.desc}
+                    </span>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="pt-3 border-t ui-divider flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(false)}
+              className="ui-btn ui-btn-secondary px-4"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              className="ui-btn ui-btn-primary px-5 rounded-full"
+            >
+              Lưu luật
+            </button>
+          </div>
+        </form>
+      </UiModal>
     </div>
   );
 };

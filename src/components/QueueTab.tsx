@@ -6,7 +6,6 @@ import {
   Sparkles,
   ClipboardPaste,
   AlertCircle,
-  X,
   Minus,
   Plus,
   Star,
@@ -16,9 +15,17 @@ import {
   FileText,
   Lock,
   Check,
+  CheckSquare,
+  Pause,
 } from 'lucide-react';
 import type { BadmintonRank, Court, Player, Sex } from '../types/badminton';
-import { getEffectiveSkill, ORDERED_RANKS, RANK_METADATA, stepRankDown, stepRankUp } from '../engine/skillConfig';
+import {
+  getEffectiveSkill,
+  ORDERED_RANKS,
+  RANK_METADATA,
+  stepRankDown,
+  stepRankUp,
+} from '../engine/skillConfig';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
 import { SAMPLE_16_PLAYERS } from '../data/samplePlayers';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
@@ -33,6 +40,14 @@ import {
   syncClubMemberRank,
   updateClubMemberProfile,
 } from '../engine/clubRosterStorage';
+import {
+  GenderDot,
+  GenderToggleButton,
+  RankBadge,
+  StatusPill,
+  UiEmptyState,
+  UiModal,
+} from './ui/Primitives';
 
 interface QueueTabProps {
   players: Player[];
@@ -81,11 +96,9 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   const [addMode, setAddMode] = useState<'ROSTER' | 'SINGLE' | 'PASTE'>('ROSTER');
   const [pickerPlayer, setPickerPlayer] = useState<Player | null>(null);
 
-  // Hạng mục 3.2: Chế độ chọn nhiều người chơi (Bulk mode)
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
 
-  // Sổ thành viên CLB & điểm danh
   const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster());
   const [selectedRosterIds, setSelectedRosterIds] = useState<Set<string>>(new Set());
   const [showRosterAddInline, setShowRosterAddInline] = useState(false);
@@ -93,7 +106,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   const [rosterNewSex, setRosterNewSex] = useState<Sex>('M');
   const [rosterNewRank, setRosterNewRank] = useState<BadmintonRank>('tb');
 
-  // Modal ghi chú & thẻ kín thành viên CLB (100% kín cho Chủ sân)
   const [profileModalMember, setProfileModalMember] = useState<ClubMember | null>(null);
   const [profileNotesInput, setProfileNotesInput] = useState('');
   const [profileTagsInput, setProfileTagsInput] = useState<string[]>([]);
@@ -115,14 +127,13 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     vibrateSuccess();
   };
 
-  // Mở modal thêm người kèm chuẩn bị danh sách điểm danh CLB
   const handleOpenAddModal = (mode: 'ROSTER' | 'SINGLE' | 'PASTE' = 'ROSTER') => {
     const currentRoster = getClubRoster();
     setClubRoster(currentRoster);
-    const inSessionNames = new Set(players.map((p) => p.name.trim().toLowerCase()));
+    const inSession = new Set(players.map((p) => p.name.trim().toLowerCase()));
     const initialSelected = new Set<string>();
     currentRoster.forEach((m) => {
-      if (!inSessionNames.has(m.name.trim().toLowerCase())) {
+      if (!inSession.has(m.name.trim().toLowerCase())) {
         initialSelected.add(m.id);
       }
     });
@@ -131,7 +142,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setShowAddModal(true);
   };
 
-  // Toggle hoặc lưu người chơi vào Sổ CLB
   const handleToggleClubMember = (player: Player) => {
     const isMember = isClubMember(player.name, clubRoster);
     if (isMember) {
@@ -156,7 +166,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     }
   };
 
-  // Rút người chơi khỏi buổi hôm nay (Vắng mặt)
   const handleWithdrawPlayer = (player: Player) => {
     const isPlaying = playingPlayerIds.has(player.id);
     if (isPlaying) {
@@ -181,7 +190,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     }
   };
 
-  // Đổi trình độ và tự đồng bộ vào Sổ CLB nếu là thành viên
   const handleEditRankAndSync = (playerId: string, rank: BadmintonRank) => {
     onEditRank(playerId, rank);
     const p = players.find((pl) => pl.id === playerId);
@@ -191,7 +199,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     }
   };
 
-  // Thêm thành viên mới vào Sổ CLB
   const handleAddMemberToRoster = (e: React.FormEvent) => {
     e.preventDefault();
     if (!rosterNewName.trim()) return;
@@ -202,13 +209,11 @@ export const QueueTab: React.FC<QueueTabProps> = ({
       noSingles: false,
     });
     setRosterNewName('');
-    const updated = getClubRoster();
-    setClubRoster(updated);
+    setClubRoster(getClubRoster());
     setShowRosterAddInline(false);
     vibrateSuccess();
   };
 
-  // Xóa thành viên khỏi Sổ CLB
   const handleDeleteFromRoster = (id: string, name: string) => {
     if (window.confirm(`Xóa vĩnh viễn "${name}" khỏi Sổ Thành Viên CLB?`)) {
       deleteClubMember(id);
@@ -222,25 +227,19 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     }
   };
 
-  // Toggle chọn điểm danh 1 thành viên
   const toggleSelectRosterMember = (id: string) => {
     setSelectedRosterIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  // Danh sách tên đang trong buổi chơi
   const inSessionNames = useMemo(() => {
     return new Set(players.map((p) => p.name.trim().toLowerCase()));
   }, [players]);
 
-  // Chọn tất cả thành viên chưa có mặt
   const handleSelectAllRoster = () => {
     const next = new Set<string>();
     clubRoster.forEach((m) => {
@@ -255,7 +254,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setSelectedRosterIds(new Set());
   };
 
-  // Đưa các thành viên đã chọn vào buổi hôm nay
   const handleImportRosterMembers = () => {
     const selectedMembers = clubRoster.filter(
       (m) => selectedRosterIds.has(m.id) && !inSessionNames.has(m.name.trim().toLowerCase())
@@ -285,18 +283,15 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setShowAddModal(false);
   };
 
-  // Single form state
   const [newName, setNewName] = useState('');
   const [newSex, setNewSex] = useState<Sex>('M');
   const [newRank, setNewRank] = useState<BadmintonRank>('tb');
   const [newPool, setNewPool] = useState<string>('ALL');
   const [newNoSingles, setNewNoSingles] = useState(false);
 
-  // Quick paste state
   const [pasteText, setPasteText] = useState('');
   const [allowZaloDefaults, setAllowZaloDefaults] = useState(true);
 
-  // Tách nhóm ACTIVE và PAUSED
   const activePlayers = useMemo(() => {
     return sortPlayersByWaitPriority(players.filter((p) => p.status === 'ACTIVE'));
   }, [players]);
@@ -305,7 +300,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     return players.filter((p) => p.status === 'PAUSED');
   }, [players]);
 
-  // Người đang đánh trên sân
   const playingPlayerIds = useMemo(() => {
     const ids = new Set<string>();
     for (const c of courts) {
@@ -317,7 +311,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     return ids;
   }, [courts]);
 
-  // Thêm 1 người chơi
   const handleAddSinglePlayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
@@ -338,12 +331,10 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setShowAddModal(false);
   };
 
-  // Parser Quick Paste sử dụng hàm thuần parsePasteLines
   const parsedPasteResults = useMemo(() => {
     return parsePasteLines(pasteText, players, { allowDefaults: allowZaloDefaults });
   }, [pasteText, players, allowZaloDefaults]);
 
-  // Nạp danh sách từ Quick Paste
   const handleImportPaste = () => {
     if (parsedPasteResults.valid.length === 0) return;
     vibrateSuccess();
@@ -358,171 +349,247 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setShowAddModal(false);
   };
 
-  // Nạp 16 người mẫu
   const handleLoadSample16 = () => {
     vibrateSuccess();
     onAddPlayers(SAMPLE_16_PLAYERS);
   };
 
+  const selectedRosterCount = clubRoster.filter(
+    (m) =>
+      selectedRosterIds.has(m.id) &&
+      !inSessionNames.has(m.name.trim().toLowerCase())
+  ).length;
+
   return (
-    <div className="max-w-2xl mx-auto pb-24 p-3 md:p-4 space-y-4">
-      {/* Top Banner & Action */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+    <div className="max-w-[780px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
+      {/* Page Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            <span>Hàng chờ xoay tua</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-              {players.length} người
-            </span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Ưu tiên người đợi lâu nhất và có số trận ít nhất
+          <div className="flex items-center gap-2.5">
+            <h2
+              className="text-[20px] font-bold tracking-[-0.02em]"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Hàng chờ
+            </h2>
+            <StatusPill tone="neutral">
+              <span className="tabular-nums">{players.length} người</span>
+            </StatusPill>
+          </div>
+          <p
+            className="text-[14px] mt-1"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Ưu tiên người đợi lâu nhất và đánh ít trận nhất
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Hạng mục 3.2: Nút bật/tắt chế độ Chọn nhiều */}
-          {players.length > 0 && (
+        {!isViewer && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {players.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBulkMode((prev) => !prev);
+                  if (isBulkMode) {
+                    setSelectedPlayerIds(new Set());
+                  }
+                }}
+                title="Chọn nhiều người để tạm nghỉ hoặc rút hàng loạt"
+                className={`ui-btn px-3.5 ${
+                  isBulkMode ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                }`}
+              >
+                <CheckSquare className="w-4 h-4 shrink-0" />
+                <span>Chọn nhiều</span>
+                {selectedPlayerIds.size > 0 && (
+                  <span className="tabular-nums font-bold">
+                    ({selectedPlayerIds.size})
+                  </span>
+                )}
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => {
-                setIsBulkMode((prev) => !prev);
-                if (isBulkMode) {
-                  setSelectedPlayerIds(new Set());
-                }
-              }}
-              title="Bật/tắt chế độ chọn nhiều người để xóa hoặc tạm nghỉ hàng loạt"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm border ${
-                isBulkMode
-                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-950/50'
-                  : 'bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700'
-              }`}
+              onClick={() => handleOpenAddModal('ROSTER')}
+              className="ui-btn ui-btn-secondary px-3.5"
             >
-              <span>☑️ Chọn nhiều</span>
-              {selectedPlayerIds.size > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-[10px] font-extrabold text-emerald-400">
-                  {selectedPlayerIds.size}
-                </span>
-              )}
+              <Star
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span>Điểm danh CLB</span>
             </button>
-          )}
 
-          {/* Nút Điểm danh thành viên CLB */}
-          <button
-            onClick={() => handleOpenAddModal('ROSTER')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition shadow-sm"
-          >
-            <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-            <span>Điểm danh CLB</span>
-          </button>
-
-          {/* Nút thêm khách */}
-          <button
-            onClick={() => handleOpenAddModal('SINGLE')}
-            className="vo-cta-lime flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-extrabold"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Thêm khách</span>
-          </button>
-
-          {/* Nút nạp 16 người mẫu */}
-          {players.length === 0 && (
             <button
-              onClick={handleLoadSample16}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-600/40 rounded-xl text-xs font-semibold transition"
+              type="button"
+              onClick={() => handleOpenAddModal('SINGLE')}
+              className="ui-btn ui-btn-primary px-4 rounded-full"
             >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>16 mẫu</span>
+              <UserPlus className="w-4 h-4 shrink-0" />
+              <span>Thêm khách</span>
             </button>
-          )}
-        </div>
+
+            {players.length === 0 && (
+              <button
+                type="button"
+                onClick={handleLoadSample16}
+                className="ui-btn ui-btn-secondary px-3.5"
+              >
+                <Sparkles
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: 'var(--color-accent)' }}
+                />
+                <span>16 mẫu</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* DANH SÁCH NGƯỜI CHƠI ACTIVE */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-semibold">
+      {/* ACTIVE PLAYERS LIST */}
+      <section className="space-y-2.5">
+        <div
+          className="flex items-center justify-between px-1 text-[13px] font-semibold"
+          style={{ color: 'var(--text-muted)' }}
+        >
           <span>SẴN SÀNG ({activePlayers.length})</span>
-          <span>THAO TÁC / TRÌNH ĐỘ</span>
+          <span>{isViewer ? 'TRÌNH · TRẬN' : 'TRÌNH ĐỘ & THAO TÁC'}</span>
         </div>
 
         {activePlayers.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-500">
-            <UserPlus className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            <p className="font-semibold text-slate-400 text-sm">Chưa có người chơi nào</p>
-            <p className="text-xs mt-1 text-slate-500">
-              Bấm &quot;Thêm người&quot; hoặc &quot;Nạp 16 người mẫu&quot; để bắt đầu buổi chơi.
-            </p>
-          </div>
+          <UiEmptyState
+            icon={<Users className="w-6 h-6" />}
+            title="Chưa có người chơi nào"
+            description={
+              isViewer
+                ? 'Chủ sân chưa thêm danh sách người chơi cho buổi này.'
+                : 'Bấm Thêm khách, Điểm danh CLB hoặc nạp 16 mẫu để bắt đầu buổi chơi.'
+            }
+          />
         ) : (
-          activePlayers.map((player) => {
-            const isPlaying = playingPlayerIds.has(player.id);
-            const rankMeta = RANK_METADATA[player.rank];
-            const effectiveSkill = getEffectiveSkill(player.rank, player.sex, maleBonus);
-            const isMember = isClubMember(player.name, clubRoster);
+          <div className="space-y-2.5">
+            {activePlayers.map((player, idx) => {
+              const isPlaying = playingPlayerIds.has(player.id);
+              const rankMeta = RANK_METADATA[player.rank];
+              const effectiveSkill = getEffectiveSkill(player.rank, player.sex, maleBonus);
+              const isMember = isClubMember(player.name, clubRoster);
+              const clubMember = !isViewer
+                ? clubRoster.find(
+                    (m) => m.name.trim().toLowerCase() === player.name.trim().toLowerCase()
+                  )
+                : undefined;
+              const hasNoteOrTags = Boolean(
+                clubMember?.notes?.trim() || (clubMember?.tags && clubMember.tags.length > 0)
+              );
 
-            return (
-              <div
-                key={player.id}
-                className={`vo-glass-card ${
-                  player.sex === 'F' ? 'vo-gender-bar-f' : 'vo-gender-bar-m'
-                } pl-4 pr-3 py-3 rounded-[18px] transition space-y-2 ${
-                  isPlaying ? 'opacity-80' : ''
-                }`}
-              >
-                {/* HÀNG 1: Tên người chơi & Thống kê số trận/nghỉ */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-                    {/* Hạng mục 3.2: Checkbox chọn nhiều */}
-                    {isBulkMode && (
-                      <input
-                        type="checkbox"
-                        checked={selectedPlayerIds.has(player.id)}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          const next = new Set(selectedPlayerIds);
-                          if (next.has(player.id)) {
-                            next.delete(player.id);
-                          } else {
-                            next.add(player.id);
+              if (isViewer) {
+                return (
+                  <div
+                    key={player.id}
+                    className="ui-card px-4 py-3.5 flex items-center justify-between gap-3"
+                    style={isPlaying ? { opacity: 0.78 } : undefined}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span
+                        className="w-6 text-[13px] font-semibold tabular-nums text-center shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {idx + 1}
+                      </span>
+                      <GenderDot sex={player.sex} />
+                      <span
+                        className="text-[15px] font-semibold truncate min-w-0 flex-1"
+                        style={{ color: 'var(--text-primary)' }}
+                        title={player.name}
+                      >
+                        {player.name}
+                      </span>
+                      {isPlaying && (
+                        <StatusPill tone="accent">Đang đánh</StatusPill>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <RankBadge rank={player.rank} surface="card" />
+                      <div
+                        className="text-[13px] tabular-nums text-right min-w-[96px]"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        <span>{player.gamesPlayed} trận</span>
+                        <span className="mx-1">·</span>
+                        <span
+                          style={
+                            player.waitStreak > 1
+                              ? { color: 'var(--color-accent)', fontWeight: 600 }
+                              : undefined
                           }
-                          setSelectedPlayerIds(next);
-                        }}
-                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-700 cursor-pointer shrink-0 mr-1"
-                      />
-                    )}
+                        >
+                          Nghỉ {player.waitStreak}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
-                    {/* Nút Ngôi sao thành viên CLB */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleClubMember(player)}
-                      title={
-                        isMember
-                          ? 'Thành viên CLB cố định (Bấm để cập nhật trình độ)'
-                          : 'Bấm để lưu người này vào Sổ thành viên CLB cố định'
-                      }
-                      className="p-1 rounded text-slate-400 hover:text-amber-400 transition shrink-0"
-                    >
-                      <Star
-                        className={`w-4 h-4 ${
+              return (
+                <div
+                  key={player.id}
+                  className="ui-card px-4 py-3.5 space-y-3"
+                  style={isPlaying ? { opacity: 0.82 } : undefined}
+                >
+                  {/* Row 1: Identity & Stats */}
+                  <div className="flex items-center justify-between gap-3 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {isBulkMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedPlayerIds.has(player.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const next = new Set(selectedPlayerIds);
+                            if (next.has(player.id)) next.delete(player.id);
+                            else next.add(player.id);
+                            setSelectedPlayerIds(next);
+                          }}
+                          aria-label={`Chọn ${player.name}`}
+                          className="ui-checkbox w-5 h-5 shrink-0 cursor-pointer"
+                        />
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleClubMember(player)}
+                        title={
                           isMember
-                            ? 'text-amber-400 fill-amber-400'
-                            : 'text-slate-600 hover:text-amber-400'
-                        }`}
-                      />
-                    </button>
+                            ? 'Thành viên CLB cố định (Bấm để cập nhật trình độ)'
+                            : 'Lưu người này vào Sổ thành viên CLB cố định'
+                        }
+                        aria-label={`Sổ CLB cho ${player.name}`}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition"
+                        style={{
+                          color: isMember ? 'var(--color-warning)' : 'var(--text-muted)',
+                        }}
+                      >
+                        <Star
+                          className="w-4 h-4"
+                          fill={isMember ? 'currentColor' : 'none'}
+                        />
+                      </button>
 
-                    <span className="font-bold text-sm sm:text-base text-slate-100 truncate">
-                      {player.name}
-                    </span>
-                    {!isViewer && (() => {
-                      const clubMember = clubRoster.find(
-                        (m) => m.name.trim().toLowerCase() === player.name.trim().toLowerCase()
-                      );
-                      if (!clubMember) return null;
-                      const hasNoteOrTags = Boolean(
-                        clubMember.notes?.trim() || (clubMember.tags && clubMember.tags.length > 0)
-                      );
-                      return (
+                      <GenderDot sex={player.sex} />
+
+                      <span
+                        className="text-[15px] font-semibold truncate min-w-0 flex-1"
+                        style={{ color: 'var(--text-primary)' }}
+                        title={player.name}
+                      >
+                        {player.name}
+                      </span>
+
+                      {clubMember && (
                         <button
                           type="button"
                           onClick={() => openClubProfileModal(clubMember)}
@@ -531,210 +598,254 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                               ? `Ghi chú kín CLB: ${clubMember.tags?.join(', ') || ''} ${clubMember.notes || ''}`
                               : 'Thêm ghi chú / thẻ kín Sổ CLB'
                           }
-                          className={`p-1 rounded-lg border text-[10px] font-bold flex items-center gap-0.5 shrink-0 transition ${
+                          aria-label={`Ghi chú kín cho ${player.name}`}
+                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition"
+                          style={
                             hasNoteOrTags
-                              ? 'bg-amber-950/60 border-amber-600/50 text-amber-300'
-                              : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-amber-300'
-                          }`}
+                              ? {
+                                  backgroundColor: 'var(--color-warning-soft)',
+                                  color: 'var(--color-warning)',
+                                }
+                              : {
+                                  backgroundColor: 'var(--bg-surface-secondary)',
+                                  color: 'var(--text-muted)',
+                                }
+                          }
                         >
-                          <FileText className="w-3 h-3" />
+                          <FileText className="w-4 h-4" />
                         </button>
-                      );
-                    })()}
-                    {isPlaying && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Đang đánh
+                      )}
+
+                      {isPlaying && (
+                        <StatusPill tone="accent" className="shrink-0">
+                          Đang đánh
+                        </StatusPill>
+                      )}
+                    </div>
+
+                    <div
+                      className="flex items-center gap-1.5 text-[13px] tabular-nums shrink-0"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>{player.gamesPlayed} trận</span>
+                      <span>·</span>
+                      <span
+                        style={
+                          player.waitStreak > 1
+                            ? { color: 'var(--color-accent)', fontWeight: 600 }
+                            : undefined
+                        }
+                      >
+                        Nghỉ {player.waitStreak}
                       </span>
-                    )}
+                      {player.virtualGamesOffset > 0 && (
+                        <span
+                          className="text-[12px] font-semibold"
+                          style={{ color: 'var(--color-warning)' }}
+                        >
+                          (+{player.virtualGamesOffset})
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Priority stats */}
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0 font-medium">
-                    <span>{player.gamesPlayed} trận</span>
-                    <span>•</span>
-                    <span className={player.waitStreak > 1 ? 'text-emerald-400 font-semibold' : ''}>
-                      Nghỉ {player.waitStreak}
-                    </span>
-                    {player.virtualGamesOffset > 0 && (
-                      <span className="text-amber-400 text-[10px]">(+{player.virtualGamesOffset})</span>
-                    )}
+                  {/* Row 2: Fixed-width Stepper & Uniform Controls */}
+                  <div className="flex items-center justify-between gap-2 pt-2.5 border-t ui-divider flex-wrap">
+                    {/* Fixed-width Rank Stepper: [-] [118px Rank · Score] [+] */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          vibrateSuccess();
+                          handleEditRankAndSync(player.id, stepRankDown(player.rank));
+                        }}
+                        title="Hạ 1 bậc trình độ"
+                        aria-label={`Hạ trình độ ${player.name}`}
+                        className="ui-icon-btn w-11 h-11"
+                      >
+                        <Minus className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPickerPlayer(player)}
+                        title="Bấm để chọn nhanh 1 trong 12 trình độ"
+                        className="ui-btn ui-btn-secondary w-[118px] px-2 tabular-nums shrink-0"
+                      >
+                        <span className="font-bold">{rankMeta.code}</span>
+                        <span
+                          className="text-[12px] font-medium"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          {effectiveSkill.toFixed(1)}đ
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          vibrateSuccess();
+                          handleEditRankAndSync(player.id, stepRankUp(player.rank));
+                        }}
+                        title="Tăng 1 bậc trình độ"
+                        aria-label={`Tăng trình độ ${player.name}`}
+                        className="ui-icon-btn w-11 h-11"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Uniform Right Controls */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <GenderToggleButton
+                        sex={player.sex}
+                        onClick={() => {
+                          vibrateSuccess();
+                          onUpdatePlayer({
+                            id: player.id,
+                            sex: player.sex === 'M' ? 'F' : 'M',
+                          });
+                        }}
+                        title={`Chuyển sang ${player.sex === 'M' ? 'Nữ' : 'Nam'}`}
+                      />
+
+                      <select
+                        value={player.assignedPool}
+                        onChange={(e) =>
+                          onUpdatePlayer({ id: player.id, assignedPool: e.target.value })
+                        }
+                        aria-label={`Gán sân cho ${player.name}`}
+                        className="ui-select w-auto min-w-[112px] py-2 px-3 hidden md:block"
+                      >
+                        <option value="ALL">Tất cả sân</option>
+                        {courts.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => onPausePlayer(player.id)}
+                        title="Tạm nghỉ giải lao"
+                        aria-label={`Tạm nghỉ cho ${player.name}`}
+                        className="ui-icon-btn w-11 h-11"
+                      >
+                        <Coffee className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleWithdrawPlayer(player)}
+                        title="Rút khỏi buổi hôm nay"
+                        aria-label={`Rút ${player.name} khỏi buổi hôm nay`}
+                        className="ui-icon-btn w-11 h-11"
+                      >
+                        <UserMinus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* PAUSED PLAYERS SECTION */}
+      {pausedPlayers.length > 0 && (
+        <section className="pt-4 border-t ui-divider space-y-2.5">
+          <div className="flex items-center justify-between px-1 gap-2">
+            <span
+              className="text-[13px] font-semibold"
+              style={{ color: 'var(--color-warning)' }}
+            >
+              TẠM NGHỈ ({pausedPlayers.length})
+            </span>
+            <span
+              className="text-[13px] hidden sm:inline"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              Khi vào lại sẽ tự động bù lượt
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {pausedPlayers.map((player) => (
+              <div
+                key={player.id}
+                className="ui-card px-4 py-3 flex items-center justify-between gap-3"
+                style={{ opacity: 0.78 }}
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  {isBulkMode && !isViewer && (
+                    <input
+                      type="checkbox"
+                      checked={selectedPlayerIds.has(player.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        const next = new Set(selectedPlayerIds);
+                        if (next.has(player.id)) next.delete(player.id);
+                        else next.add(player.id);
+                        setSelectedPlayerIds(next);
+                      }}
+                      aria-label={`Chọn ${player.name}`}
+                      className="ui-checkbox w-5 h-5 shrink-0 cursor-pointer"
+                    />
+                  )}
+                  <GenderDot sex={player.sex} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="text-[15px] font-semibold truncate"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {player.name}
+                      </span>
+                      <RankBadge rank={player.rank} surface="card" />
+                    </div>
+                    <p
+                      className="text-[13px] tabular-nums mt-0.5"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Đã đánh {player.gamesPlayed} trận
+                    </p>
                   </div>
                 </div>
 
-                {/* HÀNG 2: Cụm nút bấm thao tác nhanh gọn cho Mobile */}
-                <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/50 flex-wrap">
-                  {/* Stepper trình độ [-] [Badge (XX.Xđ)] [+] */}
-                  <div className="flex items-center gap-1">
+                {!isViewer && (
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => {
-                        vibrateSuccess();
-                        handleEditRankAndSync(player.id, stepRankDown(player.rank));
-                      }}
-                      title="Hạ 1 bậc trình độ"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
+                      onClick={() => onResumePlayer(player.id)}
+                      className="ui-btn ui-btn-primary px-3.5 rounded-full"
                     >
-                      <Minus className="w-3.5 h-3.5" />
+                      <PlayCircle className="w-4 h-4" />
+                      <span>Đánh lại</span>
                     </button>
-
                     <button
                       type="button"
-                      onClick={() => setPickerPlayer(player)}
-                      title="Bấm để chọn nhanh 1 trong 12 trình độ"
-                      className={`px-2 py-1 rounded-lg text-xs font-black tracking-wide flex items-center gap-1 border border-transparent shadow-sm ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-                    >
-                      <span>{rankMeta.code}</span>
-                      <span className="text-[10px] opacity-80 font-normal">
-                        ({effectiveSkill.toFixed(1)}đ)
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        vibrateSuccess();
-                        handleEditRankAndSync(player.id, stepRankUp(player.rank));
-                      }}
-                      title="Tăng 1 bậc trình độ"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 transition text-xs border border-slate-700/60"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Cụm Toggle Nam/Nữ, Gán Sân, Tạm Nghỉ, Rút khỏi buổi */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Toggle Nam/Nữ 1 chạm */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        vibrateSuccess();
-                        onUpdatePlayer({ id: player.id, sex: player.sex === 'M' ? 'F' : 'M' });
-                      }}
-                      title={`Bấm để chuyển sang ${player.sex === 'M' ? 'Nữ' : 'Nam'}`}
-                      className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border ${
-                        player.sex === 'M'
-                          ? 'bg-sky-950/80 border-sky-600/40 text-sky-300 hover:bg-sky-900/80'
-                          : 'bg-pink-950/80 border-pink-600/40 text-pink-300 hover:bg-pink-900/80'
-                      }`}
-                    >
-                      <span>{player.sex === 'M' ? '♂ Nam' : '♀ Nữ'}</span>
-                    </button>
-
-                    {/* Gán sân (Pool) - ẩn trên màn hình quá nhỏ */}
-                    <select
-                      value={player.assignedPool}
-                      onChange={(e) => onUpdatePlayer({ id: player.id, assignedPool: e.target.value })}
-                      aria-label={`Gán sân cho ${player.name}`}
-                      className="bg-slate-800 text-slate-200 text-xs font-semibold rounded-lg px-1.5 py-1 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 hidden md:block"
-                    >
-                      <option value="ALL">Tất cả sân</option>
-                      {courts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Tạm nghỉ (vẫn đi đánh hôm nay nhưng đang giải lao/đến muộn) */}
-                    <button
-                      onClick={() => onPausePlayer(player.id)}
-                      title="Tạm nghỉ giải lao / uống nước (vẫn tham gia buổi hôm nay)"
-                      aria-label={`Tạm nghỉ cho ${player.name}`}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition"
-                    >
-                      <Coffee className="w-4 h-4" />
-                    </button>
-
-                    {/* Vắng mặt / Rút khỏi buổi hôm nay (xóa khỏi danh sách & bảng tính tiền) */}
-                    <button
                       onClick={() => handleWithdrawPlayer(player)}
-                      title="Vắng mặt / Rút khỏi buổi hôm nay (xóa hoàn toàn khỏi danh sách & bảng tính tiền)"
+                      title="Rút khỏi buổi hôm nay"
                       aria-label={`Rút ${player.name} khỏi buổi hôm nay`}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-rose-400 transition"
+                      className="ui-icon-btn w-11 h-11"
                     >
                       <UserMinus className="w-4 h-4" />
                     </button>
                   </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* DANH SÁCH NGƯỜI CHƠI TẠM NGHỈ (PAUSED) */}
-      {pausedPlayers.length > 0 && (
-        <div className="pt-4 border-t border-slate-800/80 space-y-2">
-          <div className="flex items-center justify-between text-xs text-amber-400/80 px-1 font-semibold">
-            <span>TẠM NGHỈ ({pausedPlayers.length})</span>
-            <span className="text-slate-500 font-normal">Khi vào lại sẽ được tính bù lượt tự động</span>
-          </div>
-
-          {pausedPlayers.map((player) => (
-            <div
-              key={player.id}
-              className="p-3 rounded-2xl border border-slate-800/60 bg-slate-950/40 opacity-75 flex items-center justify-between gap-3"
-            >
-              <div className="flex items-center gap-2">
-                {isBulkMode && (
-                  <input
-                    type="checkbox"
-                    checked={selectedPlayerIds.has(player.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      const next = new Set(selectedPlayerIds);
-                      if (next.has(player.id)) {
-                        next.delete(player.id);
-                      } else {
-                        next.add(player.id);
-                      }
-                      setSelectedPlayerIds(next);
-                    }}
-                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-700 cursor-pointer shrink-0"
-                  />
                 )}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-slate-300">{player.name}</span>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      {RANK_METADATA[player.rank].code}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Đã đánh {player.gamesPlayed} trận
-                  </p>
-                </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onResumePlayer(player.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow"
-                >
-                  <PlayCircle className="w-4 h-4" />
-                  <span>Đánh lại</span>
-                </button>
-                <button
-                  onClick={() => handleWithdrawPlayer(player)}
-                  title="Vắng mặt / Rút khỏi buổi hôm nay (xóa hoàn toàn khỏi danh sách & bảng tính tiền)"
-                  aria-label={`Rút ${player.name} khỏi buổi hôm nay`}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition"
-                >
-                  <UserMinus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* HẠNG MỤC 3.2: Floating Action Bar khi chọn nhiều người */}
-      {isBulkMode && selectedPlayerIds.size > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 z-40 px-3 max-w-xl mx-auto animate-in slide-in-from-bottom duration-200">
-          <div className="p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
+      {/* FLOATING BULK ACTION BAR (Host only) */}
+      {!isViewer && isBulkMode && selectedPlayerIds.size > 0 && (
+        <div className="fixed bottom-24 left-4 right-4 z-40 max-w-xl mx-auto">
+          <div className="ui-toast p-3 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => {
@@ -744,19 +855,24 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     setSelectedPlayerIds(new Set(players.map((p) => p.id)));
                   }
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-bold transition border border-slate-700"
+                className="ui-btn ui-btn-secondary px-3"
               >
                 {selectedPlayerIds.size === players.length
                   ? 'Bỏ chọn'
                   : `Chọn tất cả (${players.length})`}
               </button>
-              <span className="text-xs font-semibold text-slate-300">
-                Đã chọn <strong className="text-emerald-400">{selectedPlayerIds.size}</strong>
+              <span
+                className="text-[14px] font-semibold tabular-nums"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Đã chọn{' '}
+                <strong style={{ color: 'var(--color-accent)' }}>
+                  {selectedPlayerIds.size}
+                </strong>
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              {/* Nút Tạm nghỉ */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -768,13 +884,12 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   }
                   setSelectedPlayerIds(new Set());
                 }}
-                title="Tạm nghỉ các người chơi đã chọn"
-                className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1"
+                className="ui-btn ui-btn-warning-soft px-3.5"
               >
-                <span>⏸ Tạm nghỉ ({selectedPlayerIds.size})</span>
+                <Pause className="w-4 h-4" />
+                <span>Tạm nghỉ ({selectedPlayerIds.size})</span>
               </button>
 
-              {/* Nút Xóa đỏ */}
               <button
                 type="button"
                 onClick={() => {
@@ -793,10 +908,9 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     setSelectedPlayerIds(new Set());
                   }
                 }}
-                title="Xóa danh sách người đã chọn khỏi buổi hôm nay"
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-md shadow-rose-950/50"
+                className="ui-btn ui-btn-danger px-3.5"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-4 h-4" />
                 <span>Xóa ({selectedPlayerIds.size})</span>
               </button>
             </div>
@@ -804,646 +918,632 @@ export const QueueTab: React.FC<QueueTabProps> = ({
         </div>
       )}
 
-      {/* MODAL THÊM NGƯỜI CHƠI */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-5 text-slate-100 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-            {/* Header Modal */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-base flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-emerald-400" />
-                <span>Thêm người chơi</span>
-              </h3>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-100 rounded-lg hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Mode Switcher */}
-            <div className="grid grid-cols-3 gap-1.5 my-3 bg-slate-950 p-1 rounded-xl border border-slate-800">
-              <button
-                onClick={() => setAddMode('ROSTER')}
-                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                  addMode === 'ROSTER'
-                    ? 'bg-slate-800 text-amber-300 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                <span className="truncate">Thành viên CLB</span>
-              </button>
-              <button
-                onClick={() => setAddMode('SINGLE')}
-                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                  addMode === 'SINGLE'
-                    ? 'bg-slate-800 text-emerald-400 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span className="truncate">Khách lẻ</span>
-              </button>
-              <button
-                onClick={() => setAddMode('PASTE')}
-                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                  addMode === 'PASTE'
-                    ? 'bg-slate-800 text-emerald-400 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <ClipboardPaste className="w-3.5 h-3.5" />
-                <span className="truncate">Dán Zalo</span>
-              </button>
-            </div>
-
-            {/* Mode Content */}
-            <div className="flex-1 overflow-y-auto space-y-4 py-1">
-              {addMode === 'ROSTER' ? (
-                <div className="space-y-3">
-                  {/* Top Bar inside Roster tab */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/80">
-                    <div className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-amber-400" />
-                      <span>Sổ CLB: {clubRoster.length} người</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={handleSelectAllRoster}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px]"
-                      >
-                        Chọn tất cả
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDeselectAllRoster}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition text-[11px]"
-                      >
-                        Bỏ chọn
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowRosterAddInline(!showRosterAddInline)}
-                        className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition text-[11px] font-bold"
-                      >
-                        {showRosterAddInline ? 'Đóng' : '+ Thêm vào Sổ'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Form thêm nhanh thành viên mới vào Sổ CLB */}
-                  {showRosterAddInline && (
-                    <form
-                      onSubmit={handleAddMemberToRoster}
-                      className="p-3 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-2.5 animate-in fade-in"
-                    >
-                      <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>Thêm thành viên cố định mới vào Sổ CLB</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <input
-                          type="text"
-                          required
-                          placeholder="Tên thành viên..."
-                          value={rosterNewName}
-                          onChange={(e) => setRosterNewName(e.target.value)}
-                          className="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setRosterNewSex('M')}
-                            className={`py-1.5 rounded-lg text-xs font-bold border transition ${
-                              rosterNewSex === 'M'
-                                ? 'bg-sky-950 border-sky-500 text-sky-300'
-                                : 'bg-slate-800 border-slate-700 text-slate-400'
-                            }`}
-                          >
-                            Nam
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRosterNewSex('F')}
-                            className={`py-1.5 rounded-lg text-xs font-bold border transition ${
-                              rosterNewSex === 'F'
-                                ? 'bg-pink-950 border-pink-500 text-pink-300'
-                                : 'bg-slate-800 border-slate-700 text-slate-400'
-                            }`}
-                          >
-                            Nữ
-                          </button>
-                        </div>
-                        <select
-                          value={rosterNewRank}
-                          onChange={(e) => setRosterNewRank(e.target.value as BadmintonRank)}
-                          className="bg-slate-800 border border-slate-700 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        >
-                          {ORDERED_RANKS.map((r) => (
-                            <option key={r} value={r}>
-                              {RANK_METADATA[r].code} ({RANK_METADATA[r].name})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setShowRosterAddInline(false)}
-                          className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:bg-slate-800"
-                        >
-                          Hủy
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow"
-                        >
-                          Lưu vào Sổ
-                        </button>
-                      </div>
-                    </form>
-                  )}
-
-                  {/* Danh sách thành viên trong Sổ CLB để điểm danh */}
-                  <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                    {clubRoster.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-6">
-                        Sổ thành viên trống. Bấm &quot;+ Thêm vào Sổ&quot; để thêm thành viên CLB.
-                      </p>
-                    ) : (
-                      clubRoster.map((member) => {
-                        const inSession = inSessionNames.has(member.name.trim().toLowerCase());
-                        const isSelected = selectedRosterIds.has(member.id);
-                        const meta = RANK_METADATA[member.rank];
-
-                        return (
-                          <div
-                            key={member.id}
-                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition ${
-                              inSession
-                                ? 'bg-slate-950/40 border-slate-800/50 opacity-60'
-                                : isSelected
-                                ? 'bg-amber-950/20 border-amber-500/40'
-                                : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-850'
-                            }`}
-                          >
-                            <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                disabled={inSession}
-                                checked={inSession ? true : isSelected}
-                                onChange={() => !inSession && toggleSelectRosterMember(member.id)}
-                                className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 disabled:opacity-50"
-                              />
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <span className="text-sm font-semibold text-slate-200 truncate">
-                                  {member.name}
-                                </span>
-                                <span
-                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badgeBg} ${meta.badgeText}`}
-                                >
-                                  {meta.code}
-                                </span>
-                                <span
-                                  className={`text-[10px] px-1 rounded ${
-                                    member.sex === 'M'
-                                      ? 'bg-sky-950 text-sky-400'
-                                      : 'bg-pink-950 text-pink-400'
-                                  }`}
-                                >
-                                  {member.sex === 'M' ? 'Nam' : 'Nữ'}
-                                </span>
-                              </div>
-                            </label>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {!isViewer && (
-                                <button
-                                  type="button"
-                                  onClick={() => openClubProfileModal(member)}
-                                  title="Ghi chú & thẻ kín thành viên CLB"
-                                  className={`p-1 rounded transition ${
-                                    member.notes || (member.tags && member.tags.length > 0)
-                                      ? 'text-amber-300 bg-amber-950/60'
-                                      : 'text-slate-500 hover:text-amber-300 hover:bg-slate-800'
-                                  }`}
-                                >
-                                  <FileText className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {inSession ? (
-                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/40">
-                                  Đã có mặt
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteFromRoster(member.id, member.name)}
-                                  title="Xóa khỏi Sổ CLB"
-                                  className="p-1 rounded text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Bottom action button */}
-                  <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddModal(false)}
-                      className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 text-xs font-semibold"
-                    >
-                      Đóng
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleImportRosterMembers}
-                      disabled={
-                        clubRoster.filter(
-                          (m) =>
-                            selectedRosterIds.has(m.id) &&
-                            !inSessionNames.has(m.name.trim().toLowerCase())
-                        ).length === 0
-                      }
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-lg transition flex items-center gap-1.5"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      <span>
-                        Đưa vào buổi hôm nay (
-                        {
-                          clubRoster.filter(
-                            (m) =>
-                              selectedRosterIds.has(m.id) &&
-                              !inSessionNames.has(m.name.trim().toLowerCase())
-                          ).length
+      {/* MODAL 1: ADD PLAYER (ROSTER / SINGLE / PASTE) */}
+      <UiModal
+        isOpen={!isViewer && showAddModal}
+        onClose={() => setShowAddModal(false)}
+        sheetOnMobile
+        title="Thêm người chơi"
+      >
+        <div className="space-y-4">
+          {/* Segmented Mode Switcher */}
+          <div className="ui-segmented-track grid grid-cols-3 gap-1">
+            {(
+              [
+                { id: 'ROSTER', label: 'Sổ CLB', icon: Star },
+                { id: 'SINGLE', label: 'Khách lẻ', icon: UserPlus },
+                { id: 'PASTE', label: 'Dán Zalo', icon: ClipboardPaste },
+              ] as const
+            ).map((tab) => {
+              const Icon = tab.icon;
+              const active = addMode === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setAddMode(tab.id)}
+                  className="min-h-[44px] px-2 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition"
+                  style={
+                    active
+                      ? {
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          color: 'var(--text-primary)',
+                          boxShadow: 'var(--shadow-sm)',
                         }
-                        )
-                      </span>
-                    </button>
-                  </div>
+                      : { color: 'var(--text-secondary)' }
+                  }
+                >
+                  <Icon
+                    className="w-4 h-4 shrink-0"
+                    style={active ? { color: 'var(--color-accent)' } : undefined}
+                  />
+                  <span className="truncate">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {addMode === 'ROSTER' ? (
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span
+                  className="text-[14px] font-semibold"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Sổ CLB ({clubRoster.length})
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllRoster}
+                    className="ui-btn ui-btn-secondary min-h-[36px] px-3 text-[13px]"
+                  >
+                    Chọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllRoster}
+                    className="ui-btn ui-btn-ghost min-h-[36px] px-3 text-[13px]"
+                  >
+                    Bỏ chọn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowRosterAddInline(!showRosterAddInline)}
+                    className="ui-btn ui-btn-accent-soft min-h-[36px] px-3 text-[13px]"
+                  >
+                    {showRosterAddInline ? 'Đóng' : '+ Thêm vào Sổ'}
+                  </button>
                 </div>
-              ) : addMode === 'SINGLE' ? (
-                <form onSubmit={handleAddSinglePlayer} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Tên người chơi *
-                    </label>
+              </div>
+
+              {showRosterAddInline && (
+                <form
+                  onSubmit={handleAddMemberToRoster}
+                  className="ui-tile p-4 space-y-3"
+                >
+                  <div
+                    className="text-[14px] font-semibold"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    Thêm thành viên cố định mới
+                  </div>
+                  <div className="space-y-2.5">
                     <input
                       type="text"
-                      placeholder="Ví dụ: Hoàng Tuấn"
                       required
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Tên thành viên..."
+                      value={rosterNewName}
+                      onChange={(e) => setRosterNewName(e.target.value)}
+                      className="ui-input"
                     />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Giới tính
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-1.5">
                         <button
                           type="button"
-                          onClick={() => setNewSex('M')}
-                          className={`py-2 rounded-xl text-xs font-bold border transition ${
-                            newSex === 'M'
-                              ? 'bg-sky-950/80 border-sky-500 text-sky-300'
-                              : 'bg-slate-800 border-slate-700 text-slate-400'
+                          onClick={() => setRosterNewSex('M')}
+                          className={`ui-btn px-2 ${
+                            rosterNewSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
                           }`}
                         >
-                          Nam
+                          <GenderDot sex="M" />
+                          <span>Nam</span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => setNewSex('F')}
-                          className={`py-2 rounded-xl text-xs font-bold border transition ${
-                            newSex === 'F'
-                              ? 'bg-pink-950/80 border-pink-500 text-pink-300'
-                              : 'bg-slate-800 border-slate-700 text-slate-400'
+                          onClick={() => setRosterNewSex('F')}
+                          className={`ui-btn px-2 ${
+                            rosterNewSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
                           }`}
                         >
-                          Nữ
+                          <GenderDot sex="F" />
+                          <span>Nữ</span>
                         </button>
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Trình độ
-                      </label>
                       <select
-                        value={newRank}
-                        onChange={(e) => setNewRank(e.target.value as BadmintonRank)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        value={rosterNewRank}
+                        onChange={(e) => setRosterNewRank(e.target.value as BadmintonRank)}
+                        className="ui-select"
                       >
                         {ORDERED_RANKS.map((r) => (
                           <option key={r} value={r}>
-                            {RANK_METADATA[r].code} ({RANK_METADATA[r].name})
+                            {RANK_METADATA[r].code} — {RANK_METADATA[r].name}
                           </option>
                         ))}
                       </select>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Gán sân
-                      </label>
-                      <select
-                        value={newPool}
-                        onChange={(e) => setNewPool(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        <option value="ALL">Tất cả sân (Chung)</option>
-                        {courts.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-center pt-5">
-                      <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-                        <input
-                          type="checkbox"
-                          checked={newNoSingles}
-                          onChange={(e) => setNewNoSingles(e.target.checked)}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-0"
-                        />
-                        <span>Không đánh đơn</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 flex justify-end gap-2">
+                  <div className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setShowAddModal(false)}
-                      className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 text-xs font-semibold"
+                      onClick={() => setShowRosterAddInline(false)}
+                      className="ui-btn ui-btn-ghost px-3.5"
                     >
                       Hủy
                     </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg transition"
-                    >
-                      Thêm người
+                    <button type="submit" className="ui-btn ui-btn-primary px-4">
+                      Lưu vào Sổ
                     </button>
                   </div>
                 </form>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Dán danh sách (mỗi người 1 dòng)
-                    </label>
-                    <p className="text-[11px] text-slate-400 mb-2">
-                      Cú pháp: <code className="text-emerald-400">Tên - Nam/Nữ - Trình độ</code> (ví dụ: &quot;Tuấn - Nam - tb&quot;)
-                    </p>
-                    <textarea
-                      rows={6}
-                      value={pasteText}
-                      onChange={(e) => setPasteText(e.target.value)}
-                      placeholder={`Tuấn - Nam - tb\nLinh - Nữ - tb-\nHoàng - Nam - y+\nThảo - Nữ - tby`}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
+              )}
 
-                  <div className="flex items-center">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={allowZaloDefaults}
-                        onChange={(e) => setAllowZaloDefaults(e.target.checked)}
-                        className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-0"
-                      />
-                      <span>Tự điền Nam & TB- nếu thiếu (Chuẩn tin nhắn Zalo)</span>
-                    </label>
-                  </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+                {clubRoster.length === 0 ? (
+                  <p
+                    className="text-[14px] text-center py-8"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Sổ thành viên trống. Bấm &quot;+ Thêm vào Sổ&quot; để tạo mới.
+                  </p>
+                ) : (
+                  clubRoster.map((member) => {
+                    const inSession = inSessionNames.has(
+                      member.name.trim().toLowerCase()
+                    );
+                    const isSelected = selectedRosterIds.has(member.id);
 
-                  {/* Parse Preview */}
-                  {pasteText.trim() && (
-                    <div className="rounded-xl border border-slate-800 p-2.5 bg-slate-950/60 text-xs space-y-1.5">
-                      <div className="flex items-center justify-between font-semibold">
-                        <span className="text-emerald-400">
-                          Hợp lệ: {parsedPasteResults.valid.length} người
-                        </span>
-                        {parsedPasteResults.errors.length > 0 && (
-                          <span className="text-rose-400">
-                            Lỗi: {parsedPasteResults.errors.length} dòng
+                    return (
+                      <div
+                        key={member.id}
+                        className="ui-tile px-3.5 py-2.5 flex items-center justify-between gap-2"
+                        style={
+                          inSession
+                            ? { opacity: 0.55 }
+                            : isSelected
+                            ? {
+                                backgroundColor: 'var(--color-accent-soft)',
+                                border: '1px solid var(--color-accent-border)',
+                              }
+                            : undefined
+                        }
+                      >
+                        <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer min-h-[36px]">
+                          <input
+                            type="checkbox"
+                            disabled={inSession}
+                            checked={inSession ? true : isSelected}
+                            onChange={() =>
+                              !inSession && toggleSelectRosterMember(member.id)
+                            }
+                            className="ui-checkbox w-5 h-5 shrink-0"
+                          />
+                          <GenderDot sex={member.sex} />
+                          <span
+                            className="text-[15px] font-semibold truncate flex-1 min-w-0"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            {member.name}
                           </span>
-                        )}
+                          <RankBadge rank={member.rank} surface="tile" />
+                        </label>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openClubProfileModal(member)}
+                            title="Ghi chú & thẻ kín thành viên CLB"
+                            aria-label={`Ghi chú kín ${member.name}`}
+                            className="w-9 h-9 rounded-lg flex items-center justify-center transition"
+                            style={{
+                              color:
+                                member.notes || (member.tags && member.tags.length > 0)
+                                  ? 'var(--color-warning)'
+                                  : 'var(--text-muted)',
+                            }}
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+
+                          {inSession ? (
+                            <StatusPill tone="accent">Có mặt</StatusPill>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteFromRoster(member.id, member.name)
+                              }
+                              title="Xóa khỏi Sổ CLB"
+                              aria-label={`Xóa ${member.name} khỏi Sổ CLB`}
+                              className="w-9 h-9 rounded-lg flex items-center justify-center transition"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
+                    );
+                  })
+                )}
+              </div>
 
-                      {parsedPasteResults.warnings.length > 0 && (
-                        <div className="space-y-1 max-h-20 overflow-y-auto pt-1">
-                          {parsedPasteResults.warnings.map((warn, i) => (
-                            <div
-                              key={i}
-                              className="text-[11px] text-amber-300 bg-amber-950/40 p-1.5 rounded flex items-start gap-1"
-                            >
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                              <span>
-                                Dòng {warn.lineIndex}: {warn.warning}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+              <div className="pt-3 border-t ui-divider flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="ui-btn ui-btn-secondary px-4"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportRosterMembers}
+                  disabled={selectedRosterCount === 0}
+                  className="ui-btn ui-btn-primary px-5 rounded-full"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Đưa vào buổi ({selectedRosterCount})</span>
+                </button>
+              </div>
+            </div>
+          ) : addMode === 'SINGLE' ? (
+            <form onSubmit={handleAddSinglePlayer} className="space-y-4">
+              <div>
+                <label
+                  className="block text-[14px] font-semibold mb-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Tên người chơi *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Hoàng Tuấn"
+                  required
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="ui-input"
+                />
+              </div>
 
-                      {parsedPasteResults.errors.length > 0 && (
-                        <div className="space-y-1 max-h-28 overflow-y-auto pt-1">
-                          {parsedPasteResults.errors.map((err, i) => (
-                            <div
-                              key={i}
-                              className="text-[11px] text-rose-300 bg-rose-950/40 p-1.5 rounded flex items-start gap-1"
-                            >
-                              <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-                              <span>
-                                Dòng {err.lineIndex}: {err.error}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="pt-2 flex justify-end gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    className="block text-[14px] font-semibold mb-1.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Giới tính
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setShowAddModal(false)}
-                      className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 text-xs font-semibold"
+                      onClick={() => setNewSex('M')}
+                      className={`ui-btn ${
+                        newSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                      }`}
                     >
-                      Hủy
+                      <GenderDot sex="M" />
+                      <span>Nam</span>
                     </button>
                     <button
                       type="button"
-                      onClick={handleImportPaste}
-                      disabled={parsedPasteResults.valid.length === 0}
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-lg transition"
+                      onClick={() => setNewSex('F')}
+                      className={`ui-btn ${
+                        newSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                      }`}
                     >
-                      Nhập {parsedPasteResults.valid.length} người
+                      <GenderDot sex="F" />
+                      <span>Nữ</span>
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {/* MODAL CHỌN TRÌNH ĐỘ NHANH (12 RANKS - GRID 4x3 CHUẨN MOBILE) */}
-      {pickerPlayer && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 max-w-sm w-full shadow-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
-                  <span>Trình độ:</span>
-                  <span className="text-emerald-400">{pickerPlayer.name}</span>
-                </h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Giới tính: {pickerPlayer.sex === 'M' ? 'Nam' : 'Nữ'} (Bù Nam: +{maleBonus.toFixed(1)}đ)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPickerPlayer(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="grid grid-cols-4 gap-1.5">
-              {ORDERED_RANKS.map((r) => {
-                const meta = RANK_METADATA[r];
-                const isSelected = pickerPlayer.rank === r;
-                const eff = getEffectiveSkill(r, pickerPlayer.sex, maleBonus);
+                <div>
+                  <label
+                    className="block text-[14px] font-semibold mb-1.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Trình độ
+                  </label>
+                  <select
+                    value={newRank}
+                    onChange={(e) => setNewRank(e.target.value as BadmintonRank)}
+                    className="ui-select"
+                  >
+                    {ORDERED_RANKS.map((r) => (
+                      <option key={r} value={r}>
+                        {RANK_METADATA[r].code} ({RANK_METADATA[r].name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label
+                    className="block text-[14px] font-semibold mb-1.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Gán sân
+                  </label>
+                  <select
+                    value={newPool}
+                    onChange={(e) => setNewPool(e.target.value)}
+                    className="ui-select"
+                  >
+                    <option value="ALL">Tất cả sân (Chung)</option>
+                    {courts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="ui-tile min-h-[44px] px-3.5 flex items-center gap-2.5 cursor-pointer text-[14px] font-medium">
+                  <input
+                    type="checkbox"
+                    checked={newNoSingles}
+                    onChange={(e) => setNewNoSingles(e.target.checked)}
+                    className="ui-checkbox w-4 h-4 shrink-0"
+                  />
+                  <span>Không đánh đơn</span>
+                </label>
+              </div>
+
+              <div className="pt-3 border-t ui-divider flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="ui-btn ui-btn-secondary px-4"
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="ui-btn ui-btn-primary px-5 rounded-full">
+                  Thêm người
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-3.5">
+              <div>
+                <label
+                  className="block text-[14px] font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Dán danh sách (mỗi người 1 dòng)
+                </label>
+                <p
+                  className="text-[13px] mb-2"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Cú pháp: Tên - Nam/Nữ - Trình độ (ví dụ: &quot;Tuấn - Nam - tb&quot;)
+                </p>
+                <textarea
+                  rows={6}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={`Tuấn - Nam - tb\nLinh - Nữ - tb-\nHoàng - Nam - y+\nThảo - Nữ - tby`}
+                  className="ui-textarea font-mono-tabular"
+                />
+              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-[14px]">
+                <input
+                  type="checkbox"
+                  checked={allowZaloDefaults}
+                  onChange={(e) => setAllowZaloDefaults(e.target.checked)}
+                  className="ui-checkbox w-4 h-4 shrink-0"
+                />
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  Tự điền Nam &amp; TB- nếu thiếu (chuẩn tin nhắn Zalo)
+                </span>
+              </label>
+
+              {pasteText.trim() && (
+                <div className="ui-tile p-3.5 space-y-2 text-[14px]">
+                  <div className="flex items-center justify-between font-semibold">
+                    <span style={{ color: 'var(--color-accent)' }}>
+                      Hợp lệ: {parsedPasteResults.valid.length} người
+                    </span>
+                    {parsedPasteResults.errors.length > 0 && (
+                      <span style={{ color: 'var(--color-danger)' }}>
+                        Lỗi: {parsedPasteResults.errors.length} dòng
+                      </span>
+                    )}
+                  </div>
+
+                  {parsedPasteResults.warnings.length > 0 && (
+                    <div className="space-y-1.5 max-h-24 overflow-y-auto">
+                      {parsedPasteResults.warnings.map((warn, i) => (
+                        <div
+                          key={i}
+                          className="ui-banner-warning px-2.5 py-1.5 text-[13px] flex items-start gap-1.5"
+                        >
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>
+                            Dòng {warn.lineIndex}: {warn.warning}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {parsedPasteResults.errors.length > 0 && (
+                    <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                      {parsedPasteResults.errors.map((err, i) => (
+                        <div
+                          key={i}
+                          className="ui-banner-danger px-2.5 py-1.5 text-[13px] flex items-start gap-1.5"
+                        >
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>
+                            Dòng {err.lineIndex}: {err.error}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 border-t ui-divider flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="ui-btn ui-btn-secondary px-4"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportPaste}
+                  disabled={parsedPasteResults.valid.length === 0}
+                  className="ui-btn ui-btn-primary px-5 rounded-full"
+                >
+                  Nhập {parsedPasteResults.valid.length} người
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </UiModal>
+
+      {/* MODAL 2: QUICK 12-RANK PICKER */}
+      <UiModal
+        isOpen={!isViewer && Boolean(pickerPlayer)}
+        onClose={() => setPickerPlayer(null)}
+        maxWidthClass="max-w-sm"
+        title={pickerPlayer ? `Trình độ · ${pickerPlayer.name}` : 'Chọn trình độ'}
+        subtitle={
+          pickerPlayer
+            ? `${pickerPlayer.sex === 'M' ? 'Nam' : 'Nữ'} (Bù Nam +${maleBonus.toFixed(1)}đ)`
+            : undefined
+        }
+      >
+        {pickerPlayer && (
+          <div className="grid grid-cols-3 gap-2">
+            {ORDERED_RANKS.map((r) => {
+              const meta = RANK_METADATA[r];
+              const isSelected = pickerPlayer.rank === r;
+              const eff = getEffectiveSkill(r, pickerPlayer.sex, maleBonus);
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    vibrateSuccess();
+                    onEditRank(pickerPlayer.id, r);
+                    setPickerPlayer(null);
+                  }}
+                  className="min-h-[60px] p-2.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition tabular-nums"
+                  style={
+                    isSelected
+                      ? {
+                          backgroundColor: 'var(--color-accent-soft)',
+                          border: '1.5px solid var(--color-accent)',
+                          color: 'var(--color-accent)',
+                        }
+                      : {
+                          backgroundColor: 'var(--bg-surface-secondary)',
+                          border: '1px solid transparent',
+                          color: 'var(--text-primary)',
+                        }
+                  }
+                >
+                  <span className="text-[14px] font-bold">{meta.code}</span>
+                  <span
+                    className="text-[12px]"
+                    style={{
+                      color: isSelected
+                        ? 'var(--color-accent)'
+                        : 'var(--text-secondary)',
+                    }}
+                  >
+                    {eff.toFixed(1)}đ
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </UiModal>
+
+      {/* MODAL 3: PRIVATE CLUB MEMBER NOTES (Host only) */}
+      <UiModal
+        isOpen={!isViewer && Boolean(profileModalMember)}
+        onClose={() => setProfileModalMember(null)}
+        maxWidthClass="max-w-md"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Lock className="w-4 h-4 shrink-0" style={{ color: 'var(--color-warning)' }} />
+            <span className="truncate">
+              Ghi chú kín · {profileModalMember?.name}
+            </span>
+          </span>
+        }
+        subtitle="Chỉ lưu trên thiết bị này, thành viên khác không thể xem."
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setProfileModalMember(null)}
+              className="ui-btn ui-btn-secondary px-4"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveClubProfile}
+              className="ui-btn ui-btn-primary px-5 rounded-full"
+            >
+              <Check className="w-4 h-4" />
+              <span>Lưu ghi chú</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div
+              className="text-[14px] font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Thẻ nhanh
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {CLUB_MEMBER_PRESET_TAGS.map((tag) => {
+                const active = profileTagsInput.includes(tag);
                 return (
                   <button
-                    key={r}
+                    key={tag}
                     type="button"
-                    onClick={() => {
-                      vibrateSuccess();
-                      onEditRank(pickerPlayer.id, r);
-                      setPickerPlayer(null);
-                    }}
-                    className={`p-2 rounded-xl text-center border transition flex flex-col items-center justify-center active:scale-95 ${
-                      isSelected
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/50 bg-emerald-950/60'
-                        : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
+                    onClick={() =>
+                      setProfileTagsInput((prev) =>
+                        prev.includes(tag)
+                          ? prev.filter((t) => t !== tag)
+                          : [...prev, tag]
+                      )
+                    }
+                    className={`ui-btn min-h-[38px] px-3.5 rounded-full text-[13px] ${
+                      active ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
                     }`}
                   >
-                    <span className={`text-xs font-black px-1.5 py-0.5 rounded ${meta.badgeBg} ${meta.badgeText}`}>
-                      {meta.code}
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-1 font-mono">{eff.toFixed(1)}đ</span>
+                    {tag}
                   </button>
                 );
               })}
             </div>
           </div>
-        </div>
-      )}
-      {/* MODAL GHI CHÚ & THẺ KÍN THÀNH VIÊN CLB (CHỈ CHỦ SÂN) */}
-      {!isViewer && profileModalMember && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-700/50 rounded-3xl p-5 max-w-md w-full text-slate-100 shadow-2xl space-y-3.5 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h4 className="font-bold text-sm text-amber-300 flex items-center gap-1.5">
-                  <Lock className="w-4 h-4" />
-                  <span>Ghi chú kín thành viên CLB — {profileModalMember.name}</span>
-                </h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Chỉ lưu trên thiết bị này, thành viên khác không thể xem.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setProfileModalMember(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-1.5">
-              <div className="font-semibold text-slate-300">Thẻ nhanh:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {CLUB_MEMBER_PRESET_TAGS.map((tag) => {
-                  const active = profileTagsInput.includes(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() =>
-                        setProfileTagsInput((prev) =>
-                          prev.includes(tag)
-                            ? prev.filter((t) => t !== tag)
-                            : [...prev, tag]
-                        )
-                      }
-                      className={`px-2.5 py-1 rounded-lg font-bold border text-[11px] transition ${
-                        active
-                          ? 'bg-amber-500 text-slate-950 border-amber-400'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300 block">
-                Ghi chú riêng (thể lực, thói quen, trình độ thực tế...):
-              </label>
-              <textarea
-                rows={3}
-                value={profileNotesInput}
-                onChange={(e) => setProfileNotesInput(e.target.value)}
-                placeholder="VD: Trình khá cứng, hợp đánh công, hay xin về sớm..."
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setProfileModalMember(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveClubProfile}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow"
-              >
-                <Check className="w-4 h-4" />
-                <span>Lưu ghi chú</span>
-              </button>
-            </div>
+          <div className="space-y-1.5">
+            <label
+              className="block text-[14px] font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Ghi chú riêng
+            </label>
+            <textarea
+              rows={3}
+              value={profileNotesInput}
+              onChange={(e) => setProfileNotesInput(e.target.value)}
+              placeholder="VD: Trình khá cứng, hợp đánh công, hay xin về sớm..."
+              className="ui-textarea"
+            />
           </div>
         </div>
-      )}
+      </UiModal>
     </div>
   );
 };
