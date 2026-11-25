@@ -8,7 +8,6 @@ import {
   TrendingDown,
   Star,
   Check,
-  FastForward,
 } from 'lucide-react';
 import type {
   BetCategory,
@@ -26,6 +25,7 @@ import {
   type PlayerFeedbackTag,
   type PlayerMatchFeedback,
 } from '../engine/matchFeedbackStorage';
+import { validateBadmintonScore } from '../engine/scoreValidation';
 import { vibrateSuccess } from '../utils/vibrate';
 import { GenderDot, RankBadge, StatusPill, UiModal } from './ui/Primitives';
 
@@ -202,15 +202,13 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
     });
   };
 
+  const scoreValidation = validateBadmintonScore(score1, score2);
+
   const handleSave = () => {
-    let finalScore: MatchScore | null = null;
-    if (score1.trim() !== '' && score2.trim() !== '') {
-      const n1 = Math.max(0, Math.min(99, Math.round(Number(score1))));
-      const n2 = Math.max(0, Math.min(99, Math.round(Number(score2))));
-      if (Number.isFinite(n1) && Number.isFinite(n2)) {
-        finalScore = { team1: n1, team2: n2 };
-      }
+    if (scoreValidation.status === 'ERROR') {
+      return;
     }
+    const finalScore: MatchScore | null = scoreValidation.score ?? null;
 
     const finalBet: MatchBet | null =
       hasBet && betLabel.trim()
@@ -249,18 +247,6 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
           : 'Cập nhật tỉ số & nhận xét'
       }
       subtitle={`${team1Names} vs ${team2Names}`}
-      headerRight={
-        mode === 'POST_MATCH' ? (
-          <button
-            type="button"
-            onClick={onSkipOrClose}
-            className="ui-btn ui-btn-secondary min-h-[40px] px-3 rounded-full text-[13px]"
-          >
-            <FastForward className="w-3.5 h-3.5" />
-            <span>Bỏ qua</span>
-          </button>
-        ) : undefined
-      }
       footer={
         <>
           <button
@@ -272,8 +258,9 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
           </button>
           <button
             type="button"
+            disabled={scoreValidation.status === 'ERROR'}
             onClick={handleSave}
-            className="ui-btn ui-btn-primary px-5 rounded-full"
+            className="ui-btn ui-btn-primary px-5 rounded-full disabled:opacity-45"
           >
             <Check className="w-4 h-4" />
             <span>Lưu kết quả</span>
@@ -310,7 +297,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
               <input
                 type="number"
                 min={0}
-                max={99}
+                max={30}
                 inputMode="numeric"
                 placeholder="21"
                 value={score1}
@@ -355,6 +342,30 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
               />
             </div>
           </div>
+
+          {scoreValidation.status === 'ERROR' && scoreValidation.message && (
+            <div
+              className="text-[13px] font-medium px-3 py-2 rounded-xl"
+              style={{
+                backgroundColor: 'var(--color-danger-soft)',
+                color: 'var(--color-danger)',
+              }}
+            >
+              {scoreValidation.message}
+            </div>
+          )}
+
+          {scoreValidation.status === 'WARNING' && scoreValidation.message && (
+            <div
+              className="text-[13px] font-medium px-3 py-2 rounded-xl"
+              style={{
+                backgroundColor: 'var(--color-warning-soft)',
+                color: 'var(--color-warning)',
+              }}
+            >
+              {scoreValidation.message}
+            </div>
+          )}
         </div>
 
         {/* 2. Balance Rating */}
