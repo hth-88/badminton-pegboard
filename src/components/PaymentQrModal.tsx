@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   Copy,
   Check,
@@ -16,10 +17,14 @@ import {
 } from '../engine/settlement';
 import {
   buildPlayerTransferNote,
+  buildVietQrPayload,
   buildVietQrUrl,
   resolveBankOption,
 } from '../engine/vietqr';
-import { compressReceiptImage } from '../utils/imageCompress';
+import {
+  compressReceiptImage,
+  compressReceiptToDataUrl,
+} from '../utils/imageCompress';
 import { uploadPaymentReceipt } from '../services/supabaseSync';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 import { UiModal } from './ui/Primitives';
@@ -54,7 +59,7 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
 }) => {
   const [copiedStk, setCopiedStk] = useState(false);
   const [copiedNote, setCopiedNote] = useState(false);
-  const [showQrZoomHint, setShowQrZoomHint] = useState(false);
+  const [localQrDataUrl, setLocalQrDataUrl] = useState<string | null>(null);
 
   const [selectedBlob, setSelectedBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -80,7 +85,6 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
       setUploadError(null);
       setCompressing(false);
       setSubmitting(false);
-      setShowQrZoomHint(false);
     }
   }
 
@@ -114,6 +118,115 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
     ]
   );
 
+  const qrPayload = useMemo(
+    () =>
+      buildVietQrPayload({
+        bankCode: settings.bankCode,
+        bankName: settings.bankName,
+        bankAccount: settings.bankAccount,
+        amount,
+        addInfo: transferNote,
+      }),
+    [
+      settings.bankCode,
+      settings.bankName,
+      settings.bankAccount,
+      amount,
+      transferNote,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isOpen || !qrPayload || typeof document === 'undefined') {
+      setLocalQrDataUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const qrCanvas = document.createElement('canvas');
+        await QRCode.toCanvas(qrCanvas, qrPayload, {
+          width: 440,
+          margin: 2,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#0B1220', light: '#FFFFFF' },
+        });
+
+        const cardW = 520;
+        const cardH = 660;
+        const card = document.createElement('canvas');
+        card.width = cardW;
+        card.height = cardH;
+        const ctx = card.getContext('2d');
+        if (!ctx) {
+          if (!cancelled) setLocalQrDataUrl(qrCanvas.toDataURL('image/png'));
+          return;
+        }
+
+        // White rounded card background
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, cardW, cardH);
+
+        // Header title
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 26px system-ui, -apple-system, sans-serif';
+        ctx.fillText('VIETQR · NAPAS 247', cardW / 2, 48);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '600 18px system-ui, -apple-system, sans-serif';
+        ctx.fillText(
+          bankOption ? `${bankOption.shortName} (${bankOption.code})` : settings.bankName || 'Ngân hàng',
+          cardW / 2,
+          78
+        );
+
+        // QR code centered
+        const qrSize = 400;
+        ctx.drawImage(qrCanvas, (cardW - qrSize) / 2, 98, qrSize, qrSize);
+
+        // Footer account info
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+        if (settings.bankAccountHolder?.trim()) {
+          ctx.fillText(settings.bankAccountHolder.trim().toUpperCase(), cardW / 2, 534);
+        }
+
+        ctx.fillStyle = '#15803D';
+        ctx.font = 'bold 22px ui-monospace, SFMono-Regular, monospace';
+        ctx.fillText(settings.bankAccount.trim(), cardW / 2, 566);
+
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+        ctx.fillText(`Số tiền: ${formatVND(amount)}`, cardW / 2, 600);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '500 15px system-ui, -apple-system, sans-serif';
+        ctx.fillText(transferNote.slice(0, 48), cardW / 2, 632);
+
+        if (!cancelled) {
+          setLocalQrDataUrl(card.toDataURL('image/png'));
+        }
+      } catch {
+        if (!cancelled) setLocalQrDataUrl(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    qrPayload,
+    bankOption,
+    settings.bankName,
+    settings.bankAccountHolder,
+    settings.bankAccount,
+    amount,
+    transferNote,
+  ]);
+
   const handleCopyText = async (text: string, type: 'STK' | 'NOTE') => {
     if (!text) return;
     vibrateSuccess();
@@ -132,11 +245,12 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
   };
 
   const handleDownloadQr = async () => {
-    if (!qrUrl) return;
+    const src = localQrDataUrl || qrUrl;
+    if (!src) return;
     vibrateSuccess();
     const fileName = `VietQR_${playerName.replace(/\s+/g, '_')}.png`;
     try {
-      const response = await fetch(qrUrl, { mode: 'cors' });
+      const response = await fetch(src);
       if (!response.ok) throw new Error('Fetch failed');
       const blob = await response.blob();
       const file = new File([blob], fileName, { type: blob.type || 'image/png' });
@@ -166,7 +280,9 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
-      setShowQrZoomHint(true);
+      if (qrUrl) {
+        window.open(qrUrl, '_blank', 'noopener,noreferrer');
+      }
     }
   };
 
@@ -202,19 +318,34 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
     setSubmitting(true);
     try {
       if (!forceNoImage && selectedBlob) {
+        let receiptUrl = '';
+        let receiptPath: string | undefined;
+
         const upRes = await uploadPaymentReceipt(roomCode, playerId, selectedBlob);
-        if (upRes.error || !upRes.url) {
-          vibrateWarning();
-          const detail = upRes.error ? ` (${upRes.error})` : '';
-          setUploadError(
-            `Không thể tải ảnh biên lai lúc này${detail}. Bạn có thể bấm "Xác nhận không kèm ảnh" bên dưới.`
-          );
-          setSubmitting(false);
-          return;
+        if (!upRes.error && upRes.url) {
+          receiptUrl = upRes.url;
+          receiptPath = upRes.path || undefined;
+        } else {
+          // Fallback: nén siêu nhẹ lưu trực tiếp vào dữ liệu phòng nếu Storage chưa tạo bucket
+          try {
+            receiptUrl = await compressReceiptToDataUrl(selectedBlob);
+          } catch (fallbackErr: unknown) {
+            vibrateWarning();
+            const detail =
+              fallbackErr instanceof Error
+                ? fallbackErr.message
+                : upRes.error || 'Lỗi không xác định';
+            setUploadError(
+              `Không thể tải ảnh biên lai (${detail}). Bạn có thể bấm "Xác nhận không kèm ảnh" bên dưới.`
+            );
+            setSubmitting(false);
+            return;
+          }
         }
+
         const rep = await onReportPayment(playerId, {
-          receiptUrl: upRes.url,
-          receiptPath: upRes.path || undefined,
+          receiptUrl,
+          receiptPath,
         });
         if (rep.ok) {
           vibrateSuccess();
@@ -275,32 +406,20 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
         )}
 
         {/* VietQR Box */}
-        {qrUrl ? (
-          <div className="ui-tile p-4 space-y-3.5 text-center">
-            <div className="ui-qr-frame p-3 inline-block mx-auto border ui-divider">
+        {localQrDataUrl || qrUrl ? (
+          <div className="ui-tile p-4 space-y-3 text-center">
+            <div className="ui-qr-frame p-2.5 inline-block mx-auto border ui-divider select-auto">
               <img
-                src={qrUrl}
+                src={localQrDataUrl || qrUrl || ''}
                 alt={`VietQR cho ${playerName}`}
-                className={
-                  showQrZoomHint
-                    ? 'w-64 h-auto max-h-80 object-contain mx-auto'
-                    : 'w-52 h-auto max-h-64 object-contain mx-auto'
-                }
+                className="w-56 h-auto max-h-72 object-contain mx-auto select-auto"
+                style={{ WebkitTouchCallout: 'default', WebkitUserSelect: 'auto' }}
               />
             </div>
 
-            {showQrZoomHint && (
-              <div
-                className="text-[13px] font-medium px-3 py-2 rounded-xl border"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--color-accent)',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                Nhấn giữ vào ảnh QR bên trên để <strong>Lưu về máy</strong> (hoặc chụp màn hình).
-              </div>
-            )}
+            <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+              Có thể bấm <strong>Tải QR</strong>, nhấn giữ vào ảnh hoặc chụp màn hình.
+            </p>
 
             <div className="grid grid-cols-3 gap-2">
               <button

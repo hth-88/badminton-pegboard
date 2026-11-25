@@ -83,7 +83,9 @@ export function normalizeCloudSettlementData(raw: unknown): CloudSettlementData 
       }
       if (
         typeof rec.receiptUrl === 'string' &&
-        /^https?:\/\//i.test(rec.receiptUrl.trim())
+        (/^https?:\/\//i.test(rec.receiptUrl.trim()) ||
+          (/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(rec.receiptUrl.trim()) &&
+            rec.receiptUrl.trim().length <= 150000))
       ) {
         normalizedRec.receiptUrl = rec.receiptUrl.trim();
       }

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   VIETNAM_BANKS,
   buildPlayerTransferNote,
+  buildVietQrPayload,
   buildVietQrUrl,
+  computeEmvCrc16,
   resolveBankOption,
   sanitizeAccountNumber,
   sanitizeTransferNote,
@@ -81,5 +83,29 @@ describe('VietQR Engine (Nhóm 4)', () => {
     expect(
       buildVietQrUrl({ bankCode: 'MB', bankAccount: '123456', amount: -20000 })
     ).toBeNull();
+  });
+
+  it('buildVietQrPayload sinh chuỗi EMVCo NAPAS 247 hợp lệ kèm CRC-16', () => {
+    const payload = buildVietQrPayload({
+      bankCode: 'MB',
+      bankAccount: '012336688999',
+      amount: 65000,
+      addInfo: 'THANH chuyen tien cau buoi 25 11',
+    });
+
+    expect(payload).not.toBeNull();
+    expect(payload!.startsWith('000201010212')).toBe(true);
+    expect(payload!).toContain('A000000727');
+    expect(payload!).toContain('970422');
+    expect(payload!).toContain('012336688999');
+    expect(payload!).toContain('QRIBFTTA');
+    expect(payload!).toContain('5303704');
+    expect(payload!).toContain('540565000');
+    expect(payload!).toContain('5802VN');
+    expect(payload!).toContain('THANH chuyen tien cau buoi 25 11');
+
+    const bodyWithoutCrc = payload!.slice(0, -4);
+    const crc = payload!.slice(-4);
+    expect(crc).toBe(computeEmvCrc16(bodyWithoutCrc));
   });
 });

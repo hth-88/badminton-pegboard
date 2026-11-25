@@ -15,7 +15,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/vite": "^4.3.4",
+    "@types/qrcode": "^1.5.6",
     "lucide-react": "^1.67.0",
+    "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.4"

@@ -132,3 +132,67 @@ export function buildVietQrUrl(params: {
 
   return `https://img.vietqr.io/image/${bank.code}-${cleanAccount}-${template}.png?${query.toString()}`;
 }
+
+function tlv(id: string, value: string): string {
+  const len = String(value.length).padStart(2, '0');
+  return `${id}${len}${value}`;
+}
+
+/**
+ * CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) theo chuẩn EMVCo / VietQR
+ */
+export function computeEmvCrc16(payloadWithoutCrcValue: string): string {
+  let crc = 0xffff;
+  for (let i = 0; i < payloadWithoutCrcValue.length; i++) {
+    crc ^= payloadWithoutCrcValue.charCodeAt(i) << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+/**
+ * Sinh chuỗi QR chuẩn EMVCo / NAPAS 247 (VietQR) để vẽ trực tiếp bằng Canvas offline.
+ */
+export function buildVietQrPayload(params: {
+  bankCode?: string;
+  bankName?: string;
+  bankAccount?: string;
+  amount: number;
+  addInfo?: string;
+}): string | null {
+  const bank = resolveBankOption(params.bankCode, params.bankName);
+  if (!bank) return null;
+
+  const cleanAccount = sanitizeAccountNumber(params.bankAccount || '');
+  if (!cleanAccount) return null;
+
+  const cleanAmount = Math.round(params.amount);
+  if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) return null;
+
+  const beneficiaryInfo = tlv('00', bank.bin) + tlv('01', cleanAccount);
+  const merchantAccountInfo =
+    tlv('00', 'A000000727') +
+    tlv('01', beneficiaryInfo) +
+    tlv('02', 'QRIBFTTA');
+
+  const cleanAddInfo = params.addInfo ? sanitizeTransferNote(params.addInfo, 50) : '';
+  const additionalData = cleanAddInfo ? tlv('08', cleanAddInfo) : '';
+
+  const base =
+    tlv('00', '01') +
+    tlv('01', '12') +
+    tlv('38', merchantAccountInfo) +
+    tlv('53', '704') +
+    tlv('54', String(cleanAmount)) +
+    tlv('58', 'VN') +
+    (additionalData ? tlv('62', additionalData) : '') +
+    '6304';
+
+  return `${base}${computeEmvCrc16(base)}`;
+}

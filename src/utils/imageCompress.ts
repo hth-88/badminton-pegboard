@@ -117,3 +117,31 @@ export async function compressReceiptImage(
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+export const MAX_INLINE_RECEIPT_DATA_URL_LENGTH = 130_000;
+
+/**
+ * Nén ảnh biên lai thành DataURL JPEG siêu nhẹ (~35-55KB) để nhúng thẳng vào
+ * settlement_data khi Supabase Storage bucket chưa được cấu hình.
+ */
+export async function compressReceiptToDataUrl(file: Blob): Promise<string> {
+  const smallBlob = await compressReceiptImage(file, {
+    maxDimension: 720,
+    quality: 0.56,
+  });
+
+  const dataUrl = await readFileAsDataUrl(smallBlob);
+  if (dataUrl.length <= MAX_INLINE_RECEIPT_DATA_URL_LENGTH) {
+    return dataUrl;
+  }
+
+  const tinierBlob = await compressReceiptImage(file, {
+    maxDimension: 560,
+    quality: 0.42,
+  });
+  const tinierUrl = await readFileAsDataUrl(tinierBlob);
+  if (tinierUrl.length > MAX_INLINE_RECEIPT_DATA_URL_LENGTH) {
+    throw new Error('Ảnh biên lai quá lớn để lưu trực tiếp, vui lòng chọn ảnh nhẹ hơn.');
+  }
+  return tinierUrl;
+}
