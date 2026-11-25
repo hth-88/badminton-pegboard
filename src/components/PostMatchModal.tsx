@@ -41,8 +41,10 @@ export interface PostMatchModalProps {
     balanceRating: MatchBalanceRating | null;
     bet: MatchBet | null;
     betWinner: 1 | 2 | null;
+    playerFeedback?: Record<string, PlayerMatchFeedback>;
   }) => void;
   onSkipOrClose: () => void;
+  onCancel?: () => void;
 }
 
 const BET_PRESETS: Array<{ label: string; bet: MatchBet }> = [
@@ -100,6 +102,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
   isViewer = false,
   onSave,
   onSkipOrClose,
+  onCancel,
 }) => {
   const [score1, setScore1] = useState<string>('');
   const [score2, setScore2] = useState<string>('');
@@ -222,7 +225,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
           }
         : null;
 
-    if (!isViewer) {
+    if (!isViewer && mode === 'EDIT_HISTORY') {
       savePrivateMatchReview(match.id, playerFeedback);
     }
 
@@ -233,13 +236,14 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
       balanceRating,
       bet: finalBet,
       betWinner: finalBet ? betWinner : null,
+      playerFeedback: !isViewer ? playerFeedback : undefined,
     });
   };
 
   return (
     <UiModal
       isOpen={isOpen}
-      onClose={onSkipOrClose}
+      onClose={onCancel ?? onSkipOrClose}
       sheetOnMobile
       title={
         mode === 'POST_MATCH'

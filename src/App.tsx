@@ -14,6 +14,8 @@ import { HistoryTab } from './components/HistoryTab';
 import { SettlementTab } from './components/SettlementTab';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
+import { savePrivateMatchReview } from './engine/matchFeedbackStorage';
+import type { Lineup, MatchHistory } from './types/badminton';
 import { InfoToast, UndoToast } from './components/Toast';
 import { UiModal } from './components/ui/Primitives';
 import { Eye, KeyRound, Lock } from 'lucide-react';
@@ -121,6 +123,39 @@ export function App() {
     matchId: string;
     mode: 'POST_MATCH' | 'EDIT_HISTORY';
   } | null>(null);
+  const [pendingEndAction, setPendingEndAction] = useState<{
+    kind: 'END_ONLY' | 'END_AND_START';
+    courtId: string;
+    expectedMatchId?: string;
+    nextLineup?: Lineup;
+    previewMatch: MatchHistory;
+  } | null>(null);
+
+  const buildPreviewMatchFromCourt = (
+    courtId: string,
+    currentMatch: NonNullable<typeof courts[number]['currentMatch']>
+  ): MatchHistory => ({
+    id: currentMatch.id || `preview-${courtId}`,
+    courtId,
+    type: currentMatch.type,
+    team1: [...currentMatch.team1],
+    team2: [...currentMatch.team2],
+    slotSource: { ...currentMatch.slotSource },
+    startedAt: currentMatch.startedAt,
+    endedAt: Date.now(),
+    durationMinutes: Math.max(
+      1,
+      Math.round((Date.now() - currentMatch.startedAt) / 60000)
+    ),
+    bet: currentMatch.bet,
+  });
+
+  const executePendingEnd = (action: NonNullable<typeof pendingEndAction>): string | null => {
+    if (action.kind === 'END_AND_START' && action.nextLineup) {
+      return endAndStartMatch(action.courtId, action.nextLineup, action.expectedMatchId);
+    }
+    return endMatch(action.courtId, action.expectedMatchId);
+  };
 
   const {
     settlementData,
@@ -540,26 +575,45 @@ export function App() {
                       guardAction(() => {
                         const target = courts.find((c) => c.id === courtId);
                         const hadLiveBet = Boolean(target?.currentMatch?.bet);
-                        const endedId = endMatch(courtId, expectedMatchId);
                         if (
-                          endedId &&
+                          target?.currentMatch &&
                           (settings.promptPostMatchReview !== false || hadLiveBet)
                         ) {
-                          setPostMatchModalState({ matchId: endedId, mode: 'POST_MATCH' });
+                          setPendingEndAction({
+                            kind: 'END_ONLY',
+                            courtId,
+                            expectedMatchId,
+                            previewMatch: buildPreviewMatchFromCourt(
+                              courtId,
+                              target.currentMatch
+                            ),
+                          });
+                          return;
                         }
+                        endMatch(courtId, expectedMatchId);
                       })
                     }
                     onEndAndStartMatch={(courtId, nextLineup, expectedMatchId) =>
                       guardAction(() => {
                         const target = courts.find((c) => c.id === courtId);
                         const hadLiveBet = Boolean(target?.currentMatch?.bet);
-                        const endedId = endAndStartMatch(courtId, nextLineup, expectedMatchId);
                         if (
-                          endedId &&
+                          target?.currentMatch &&
                           (settings.promptPostMatchReview !== false || hadLiveBet)
                         ) {
-                          setPostMatchModalState({ matchId: endedId, mode: 'POST_MATCH' });
+                          setPendingEndAction({
+                            kind: 'END_AND_START',
+                            courtId,
+                            expectedMatchId,
+                            nextLineup,
+                            previewMatch: buildPreviewMatchFromCourt(
+                              courtId,
+                              target.currentMatch
+                            ),
+                          });
+                          return;
                         }
+                        endAndStartMatch(courtId, nextLineup, expectedMatchId);
                       })
                     }
                     onSuggestNextUp={(courtId) =>
@@ -768,20 +822,44 @@ export function App() {
 
       {/* 6. POST-MATCH QUICK REVIEW & BET MODAL (ẩn với VIEWER) */}
       <PostMatchModal
-        isOpen={role !== 'VIEWER' && Boolean(postMatchModalState)}
+        isOpen={role !== 'VIEWER' && Boolean(pendingEndAction || postMatchModalState)}
         match={
-          postMatchModalState
-            ? history.find((h) => h.id === postMatchModalState.matchId) ?? null
-            : null
+          pendingEndAction
+            ? pendingEndAction.previewMatch
+            : postMatchModalState
+              ? history.find((h) => h.id === postMatchModalState.matchId) ?? null
+              : null
         }
         players={players}
-        mode={postMatchModalState?.mode || 'POST_MATCH'}
+        mode={pendingEndAction ? 'POST_MATCH' : postMatchModalState?.mode || 'POST_MATCH'}
         isViewer={role === 'VIEWER'}
-        onSave={(result) => {
-          updateMatchResult(result);
+        onCancel={() => {
+          setPendingEndAction(null);
           setPostMatchModalState(null);
         }}
-        onSkipOrClose={() => setPostMatchModalState(null)}
+        onSave={(result) => {
+          if (pendingEndAction) {
+            const endedId = executePendingEnd(pendingEndAction);
+            if (endedId) {
+              updateMatchResult({ ...result, matchId: endedId });
+              if (result.playerFeedback) {
+                savePrivateMatchReview(endedId, result.playerFeedback);
+              }
+            }
+            setPendingEndAction(null);
+          } else {
+            updateMatchResult(result);
+            setPostMatchModalState(null);
+          }
+        }}
+        onSkipOrClose={() => {
+          if (pendingEndAction) {
+            executePendingEnd(pendingEndAction);
+            setPendingEndAction(null);
+          } else {
+            setPostMatchModalState(null);
+          }
+        }}
       />
     </div>
   );
