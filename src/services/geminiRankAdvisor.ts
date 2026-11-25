@@ -231,17 +231,44 @@ export async function requestGeminiRankAnalysis(params: {
   }
 
   const prompt = buildGeminiRankPrompt(params);
+  const candidateModels = [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-latest',
+  ];
+
   try {
-    let response = await callGeminiModel('gemini-2.5-flash', cleanKey, prompt);
-    if (response.status === 404) {
-      response = await callGeminiModel('gemini-2.0-flash', cleanKey, prompt);
+    let response: Response | null = null;
+    for (const modelName of candidateModels) {
+      response = await callGeminiModel(modelName, cleanKey, prompt);
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    if (!response) {
+      return { ok: false, error: 'Không tìm thấy model Gemini khả dụng.' };
     }
 
     if (!response.ok) {
+      let apiDetail = '';
+      try {
+        const errJson = await response.json();
+        if (typeof errJson?.error?.message === 'string') {
+          apiDetail = errJson.error.message.trim();
+        }
+      } catch {
+        // Bỏ qua lỗi parse JSON lỗi
+      }
+
       if (response.status === 400 || response.status === 401 || response.status === 403) {
         return {
           ok: false,
-          error: 'API Key Gemini không hợp lệ hoặc chưa được kích hoạt.',
+          error: apiDetail
+            ? `API Key Gemini không hợp lệ hoặc chưa được kích hoạt (${apiDetail}).`
+            : 'API Key Gemini không hợp lệ hoặc chưa được kích hoạt.',
         };
       }
       if (response.status === 429) {
@@ -252,7 +279,9 @@ export async function requestGeminiRankAnalysis(params: {
       }
       return {
         ok: false,
-        error: `Lỗi kết nối Gemini (HTTP ${response.status}).`,
+        error: apiDetail
+          ? `Lỗi kết nối Gemini (HTTP ${response.status}): ${apiDetail}`
+          : `Lỗi kết nối Gemini (HTTP ${response.status}).`,
       };
     }
 
