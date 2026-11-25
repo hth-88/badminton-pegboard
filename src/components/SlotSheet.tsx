@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  X,
   AlertTriangle,
   AlertOctagon,
   Check,
@@ -8,15 +7,11 @@ import {
   UserX,
   Search,
 } from 'lucide-react';
-import type {
-  BadmintonSessionState,
-  Lineup,
-  Player,
-} from '../types/badminton';
-import { RANK_METADATA } from '../engine/skillConfig';
+import type { BadmintonSessionState, Lineup, Player } from '../types/badminton';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
 import { validateLineup } from '../engine/validateLineup';
 import { getSlotCandidateStatus } from '../engine/nextUp';
+import { GenderDot, RankBadge, StatusPill, UiModal } from './ui/Primitives';
 
 interface SlotSheetProps {
   isOpen: boolean;
@@ -57,7 +52,6 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
   const effectiveSlotIndex =
     slotIndex !== undefined ? slotIndex : team === 1 ? index : 2 + index;
 
-  // Sắp xếp người chơi: ACTIVE rảnh ưu tiên trước, PAUSED phía sau
   const sortedCandidates = useMemo(() => {
     const active = sortPlayersByWaitPriority(
       state.players.filter((p) => p.status === 'ACTIVE')
@@ -76,7 +70,6 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
 
   if (!isOpen) return null;
 
-  // Tính toán thử nghiệm khi thay người vào slot này (cho CURRENT match)
   const previewIssuesForCurrent = (candidateId: string) => {
     if (!currentLineup) return [];
     const newTeam1 = [...currentLineup.team1];
@@ -117,7 +110,6 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
       return;
     }
 
-    // TARGET: CURRENT match
     const issues = previewIssuesForCurrent(player.id);
     const blockIssue = issues.find((i) => i.severity === 'BLOCK');
     if (blockIssue) {
@@ -159,46 +151,45 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end">
-      <div className="bg-slate-900 border-t border-slate-700 rounded-t-3xl max-h-[85vh] flex flex-col w-full max-w-lg mx-auto overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
-        {/* Header Sheet */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-base text-slate-100">
-              Chọn người thay vào {courtName}
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {target === 'NEXT_UP'
-                ? `Lượt sau • Vị trí ô số ${effectiveSlotIndex + 1}`
-                : `Đội ${team} • Vị trí ${index + 1} (Đang đánh)`}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="p-3 border-b border-slate-800/80 bg-slate-950/40">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm theo tên hoặc trình độ..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-800 text-slate-100 pl-9 pr-3 py-2 rounded-xl text-xs placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
+    <UiModal
+      isOpen={isOpen}
+      onClose={onClose}
+      sheetOnMobile
+      title={`Chọn người vào ${courtName}`}
+      subtitle={
+        target === 'NEXT_UP'
+          ? `Lượt kế tiếp · Ô số ${effectiveSlotIndex + 1}`
+          : `Đội ${team} · Vị trí ${index + 1} (Đang đánh)`
+      }
+    >
+      <div className="relative space-y-4">
+        {/* Search Input */}
+        <div className="relative">
+          <Search
+            className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ color: 'var(--text-muted)' }}
+          />
+          <input
+            type="text"
+            placeholder="Tìm theo tên hoặc trình độ..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="ui-input pl-10"
+          />
         </div>
 
         {/* Candidate List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="space-y-2">
+          {filteredCandidates.length === 0 && (
+            <p
+              className="py-8 text-center text-[14px]"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              Không tìm thấy người chơi phù hợp.
+            </p>
+          )}
+
           {filteredCandidates.map((player) => {
-            const rankMeta = RANK_METADATA[player.rank];
             const isPaused = player.status === 'PAUSED';
 
             if (target === 'NEXT_UP') {
@@ -214,82 +205,103 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
               return (
                 <div
                   key={player.id}
-                  className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
+                  className="ui-tile px-3.5 py-3 flex items-center justify-between gap-3"
+                  style={
                     isBlocked
-                      ? 'bg-rose-950/20 border-rose-900/40 opacity-60'
+                      ? {
+                          backgroundColor: 'var(--color-danger-soft)',
+                          opacity: 0.72,
+                        }
                       : hasWarnings
-                      ? 'bg-amber-950/20 border-amber-800/40'
-                      : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60'
-                  }`}
+                      ? {
+                          backgroundColor: 'var(--color-warning-soft)',
+                        }
+                      : undefined
+                  }
                 >
-                  {/* Player info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-semibold text-sm text-slate-100 truncate">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GenderDot sex={player.sex} />
+                      <span
+                        className="font-semibold text-[15px] truncate flex-1 min-w-0"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
                         {player.name}
                       </span>
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          player.sex === 'M' ? 'bg-sky-950 text-sky-300' : 'bg-pink-950 text-pink-300'
-                        }`}
-                      >
-                        {player.sex === 'M' ? 'Nam' : 'Nữ'}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-                      >
-                        {rankMeta.code}
-                      </span>
+                      <RankBadge rank={player.rank} surface="tile" />
                       {isPaused && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-600/40 flex items-center gap-1">
-                          <UserX className="w-3 h-3" /> Tạm nghỉ
-                        </span>
+                        <StatusPill tone="warning">
+                          <UserX className="w-3 h-3" />
+                          <span>Nghỉ</span>
+                        </StatusPill>
                       )}
                     </div>
 
-                    {/* Priority stats */}
-                    <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                      <span>Trận: {player.gamesPlayed} (+{player.virtualGamesOffset})</span>
-                      <span>•</span>
-                      <span className={player.waitStreak > 1 ? 'text-emerald-400 font-semibold' : ''}>
-                        Chờ: {player.waitStreak} lượt
+                    <div
+                      className="text-[13px] tabular-nums flex items-center gap-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>
+                        {player.gamesPlayed} trận
+                        {player.virtualGamesOffset > 0
+                          ? ` (+${player.virtualGamesOffset})`
+                          : ''}
+                      </span>
+                      <span>·</span>
+                      <span
+                        style={
+                          player.waitStreak > 1
+                            ? { color: 'var(--color-accent)', fontWeight: 600 }
+                            : undefined
+                        }
+                      >
+                        Chờ {player.waitStreak} lượt
                       </span>
                     </div>
 
-                    {/* Specific Block Label */}
                     {isBlocked && (
-                      <div className="mt-1.5 flex items-center gap-1 text-[11px] text-rose-300 font-medium">
-                        <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                        <span>{status.blockLabel || 'Không khả dụng'}</span>
+                      <div
+                        className="flex items-center gap-1.5 text-[13px] font-medium"
+                        style={{ color: 'var(--color-danger)' }}
+                      >
+                        <AlertOctagon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">
+                          {status.blockLabel || 'Không khả dụng'}
+                        </span>
                       </div>
                     )}
 
-                    {/* Non-blocking Warning Chips */}
                     {!isBlocked &&
                       status.warnings.map((w) => (
                         <div
                           key={w}
-                          className="mt-1 flex items-center gap-1 text-[11px] text-amber-300 font-medium"
+                          className="flex items-center gap-1.5 text-[13px] font-medium"
+                          style={{ color: 'var(--color-warning)' }}
                         >
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                           <span>{w}</span>
                         </div>
                       ))}
                   </div>
 
-                  {/* Choose button */}
                   <div className="shrink-0">
                     {isBlocked ? (
-                      <span className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-400 cursor-not-allowed">
-                        {status.blockLabel || 'Bận'}
+                      <span
+                        className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-xl text-[13px] font-semibold"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        Bận
                       </span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => handleChoose(player)}
-                        className="text-xs font-bold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition shadow flex items-center gap-1"
+                        className="ui-btn ui-btn-primary px-4 rounded-xl"
                       >
-                        <Check className="w-3.5 h-3.5" />
+                        <Check className="w-4 h-4" />
                         <span>Chọn</span>
                       </button>
                     )}
@@ -306,73 +318,97 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
             return (
               <div
                 key={player.id}
-                className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
+                className="ui-tile px-3.5 py-3 flex items-center justify-between gap-3"
+                style={
                   blockIssue
-                    ? 'bg-rose-950/20 border-rose-900/40 opacity-60'
+                    ? {
+                        backgroundColor: 'var(--color-danger-soft)',
+                        opacity: 0.72,
+                      }
                     : warnIssue || isPaused
-                    ? 'bg-amber-950/20 border-amber-800/40'
-                    : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60'
-                }`}
+                    ? {
+                        backgroundColor: 'var(--color-warning-soft)',
+                      }
+                    : undefined
+                }
               >
-                {/* Player info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-semibold text-sm text-slate-100 truncate">
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <GenderDot sex={player.sex} />
+                    <span
+                      className="font-semibold text-[15px] truncate flex-1 min-w-0"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
                       {player.name}
                     </span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        player.sex === 'M' ? 'bg-sky-950 text-sky-300' : 'bg-pink-950 text-pink-300'
-                      }`}
-                    >
-                      {player.sex === 'M' ? 'Nam' : 'Nữ'}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}
-                    >
-                      {rankMeta.code}
-                    </span>
+                    <RankBadge rank={player.rank} surface="tile" />
                     {isPaused && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-600/40 flex items-center gap-1">
-                        <UserX className="w-3 h-3" /> Tạm nghỉ
-                      </span>
+                      <StatusPill tone="warning">
+                        <UserX className="w-3 h-3" />
+                        <span>Nghỉ</span>
+                      </StatusPill>
                     )}
                   </div>
 
-                  <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                    <span>Trận: {player.gamesPlayed} (+{player.virtualGamesOffset})</span>
-                    <span>•</span>
-                    <span className={player.waitStreak > 1 ? 'text-emerald-400 font-semibold' : ''}>
-                      Chờ: {player.waitStreak} lượt
+                  <div
+                    className="text-[13px] tabular-nums flex items-center gap-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <span>
+                      {player.gamesPlayed} trận
+                      {player.virtualGamesOffset > 0
+                        ? ` (+${player.virtualGamesOffset})`
+                        : ''}
+                    </span>
+                    <span>·</span>
+                    <span
+                      style={
+                        player.waitStreak > 1
+                          ? { color: 'var(--color-accent)', fontWeight: 600 }
+                          : undefined
+                      }
+                    >
+                      Chờ {player.waitStreak} lượt
                     </span>
                   </div>
 
                   {blockIssue && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-rose-300 font-medium">
-                      <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <div
+                      className="flex items-center gap-1.5 text-[13px] font-medium"
+                      style={{ color: 'var(--color-danger)' }}
+                    >
+                      <AlertOctagon className="w-3.5 h-3.5 shrink-0" />
                       <span>{blockIssue.message}</span>
                     </div>
                   )}
 
                   {!blockIssue && warnIssue && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-amber-300 font-medium">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <div
+                      className="flex items-center gap-1.5 text-[13px] font-medium"
+                      style={{ color: 'var(--color-warning)' }}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                       <span>{warnIssue.message}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Choose button */}
                 <div className="shrink-0">
                   {blockIssue ? (
-                    <span className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-500 cursor-not-allowed">
+                    <span
+                      className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-xl text-[13px] font-semibold"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
                       Bận
                     </span>
                   ) : warnIssue || isPaused ? (
                     <button
                       type="button"
                       onClick={() => handleChoose(player)}
-                      className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 transition shadow"
+                      className="ui-btn ui-btn-warning-soft px-3.5 rounded-xl"
                     >
                       {isPaused ? 'Kích hoạt' : 'Vẫn chọn'}
                     </button>
@@ -380,9 +416,9 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                     <button
                       type="button"
                       onClick={() => handleChoose(player)}
-                      className="text-xs font-bold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition shadow flex items-center gap-1"
+                      className="ui-btn ui-btn-primary px-4 rounded-xl"
                     >
-                      <Check className="w-3.5 h-3.5" />
+                      <Check className="w-4 h-4" />
                       <span>Chọn</span>
                     </button>
                   )}
@@ -392,36 +428,60 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
           })}
         </div>
 
-        {/* Confirmation Dialog Overlay */}
+        {/* Inline Confirmation Overlay */}
         {confirmingPlayer && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm p-5 flex flex-col justify-center items-center text-center z-20 animate-in fade-in">
-            <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <h4 className="font-bold text-base text-slate-100 mb-2">Xác nhận đưa vào sân</h4>
-            <p className="text-xs text-slate-300 max-w-xs mb-5 leading-relaxed">
-              {confirmingPlayer.message}
-            </p>
-            <div className="flex gap-2 w-full max-w-xs">
-              <button
-                type="button"
-                onClick={() => setConfirmingPlayer(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+          <div
+            className="fixed inset-0 z-50 ui-modal-backdrop flex items-center justify-center p-4"
+            onClick={() => setConfirmingPlayer(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="ui-modal-panel p-6 max-w-sm w-full text-center space-y-4"
+            >
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto"
+                style={{
+                  backgroundColor: 'var(--color-warning-soft)',
+                  color: 'var(--color-warning)',
+                }}
               >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirm}
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center justify-center gap-1"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Đồng ý</span>
-              </button>
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1.5">
+                <h4
+                  className="font-bold text-[17px]"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Xác nhận đưa vào sân
+                </h4>
+                <p
+                  className="text-[14px] leading-relaxed"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {confirmingPlayer.message}
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingPlayer(null)}
+                  className="ui-btn ui-btn-secondary flex-1"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  className="ui-btn ui-btn-primary flex-1"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Đồng ý</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </UiModal>
   );
 };

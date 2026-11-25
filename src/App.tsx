@@ -398,23 +398,23 @@ export function App() {
       )}
 
       {/* 2. MAIN CONTENT TABS */}
-      <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto">
-        <div key={activeTab} className="vo-tab-enter">
+      <main className="relative z-10 flex-1 ui-container">
+        <div key={activeTab} className="ui-tab-enter">
           {/* TAB 1: SÂN (Màn hình điều khiển chính) */}
           {activeTab === 'courts' && (
-            <div className="p-3.5 md:p-6 pb-28">
-              {/* Lucian Sliding Glass Pill Court Switcher */}
+            <div className="px-4 md:px-6 pt-4 pb-28">
+              {/* Apple Minimalist Segmented Court Switcher */}
               {courts.length >= 2 && (
                 <div
                   ref={courtSegRef}
                   role="tablist"
                   aria-label="Lọc sân"
-                  className="vo-sliding-track relative flex items-center p-1 rounded-2xl mb-4 overflow-x-auto no-scrollbar max-w-xl"
+                  className="ui-segmented-track flex items-center mb-5 overflow-x-auto no-scrollbar max-w-xl"
                 >
                   {courtPill.ready && (
                     <div
                       aria-hidden="true"
-                      className="vo-sliding-thumb"
+                      className="ui-segmented-thumb"
                       style={{
                         width: `${courtPill.width}px`,
                         transform: `translate3d(${courtPill.left}px, 0, 0)`,
@@ -426,8 +426,10 @@ export function App() {
                       courtBtnRefs.current['ALL'] = el;
                     }}
                     type="button"
+                    role="tab"
+                    aria-selected={selectedCourtFilter === 'ALL'}
                     onClick={() => setSelectedCourtFilter('ALL')}
-                    className="relative z-10 flex-1 min-w-[76px] h-9 px-3 rounded-xl text-[13px] font-semibold tracking-[-0.015em] flex items-center justify-center gap-1.5 transition-colors active:scale-95 shrink-0"
+                    className="relative z-10 flex-1 min-w-[84px] min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0"
                     style={{
                       color:
                         selectedCourtFilter === 'ALL'
@@ -436,7 +438,7 @@ export function App() {
                     }}
                   >
                     <span>Tất cả</span>
-                    <span className="text-[11px] opacity-65 font-mono-tabular">
+                    <span className="text-[12px] tabular-nums opacity-70">
                       ({courts.length})
                     </span>
                   </button>
@@ -450,18 +452,21 @@ export function App() {
                           courtBtnRefs.current[c.id] = el;
                         }}
                         type="button"
+                        role="tab"
+                        aria-selected={active}
                         onClick={() => setSelectedCourtFilter(c.id)}
-                        className="relative z-10 flex-1 min-w-[76px] h-9 px-3 rounded-xl text-[13px] font-semibold tracking-[-0.015em] flex items-center justify-center gap-1.5 transition-colors active:scale-95 shrink-0"
+                        className="relative z-10 flex-1 min-w-[84px] min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0"
                         style={{
                           color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
                         }}
                       >
                         <span
-                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          className="w-2 h-2 rounded-full shrink-0"
                           style={{
-                            background: isPlaying ? 'var(--accent-lime)' : 'var(--text-muted)',
-                            opacity: isPlaying ? 1 : 0.45,
-                            boxShadow: isPlaying ? '0 0 8px var(--accent-lime)' : 'none',
+                            backgroundColor: isPlaying
+                              ? 'var(--color-accent)'
+                              : 'var(--text-muted)',
+                            opacity: isPlaying ? 1 : 0.4,
                           }}
                         />
                         <span className="truncate">{c.name}</span>
@@ -472,10 +477,10 @@ export function App() {
               )}
 
               <div
-                className={`grid gap-4 items-start ${
+                className={`grid gap-4 items-stretch ${
                   selectedCourtFilter === 'ALL'
                     ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-                    : 'grid-cols-1 max-w-xl mx-auto'
+                    : 'grid-cols-1 max-w-lg mx-auto'
                 }`}
               >
                 {(selectedCourtFilter === 'ALL'
