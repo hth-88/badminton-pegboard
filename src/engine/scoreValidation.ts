@@ -29,13 +29,11 @@ export function validateBadmintonScore(
     !Number.isInteger(n1) ||
     !Number.isInteger(n2) ||
     n1 < 0 ||
-    n2 < 0 ||
-    n1 > 30 ||
-    n2 > 30
+    n2 < 0
   ) {
     return {
       status: 'ERROR',
-      message: 'Điểm cầu lông hợp lệ phải là số nguyên từ 0 đến 30.',
+      message: 'Điểm phải là số nguyên không âm.',
     };
   }
 
@@ -50,17 +48,12 @@ export function validateBadmintonScore(
   const lo = Math.min(n1, n2);
   const diff = hi - lo;
 
-  const isStandardBwf21 =
-    (hi === 21 && lo <= 19) ||
-    (hi > 21 && hi < 30 && diff === 2) ||
-    (hi === 30 && (lo === 28 || lo === 29));
-
-  if (!isStandardBwf21) {
+  // Từ 30 điểm trở lên (tính chạm 30/31...): chấp nhận cách 1 quả. Dưới 30: phải cách ít nhất 2 quả.
+  if (hi < 30 && diff < 2) {
     return {
-      status: 'WARNING',
+      status: 'ERROR',
       message:
-        'Tỉ số không theo chuẩn set 21 BWF (VD đánh set ngắn) — vẫn có thể lưu nếu đúng thực tế.',
-      score: { team1: n1, team2: n2 },
+        'Điểm thắng phải cách điểm thua ít nhất 2 quả (chỉ chấp nhận cách 1 quả khi chạm từ 30 điểm trở lên).',
     };
   }
 

@@ -301,12 +301,11 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
               <input
                 type="number"
                 min={0}
-                max={30}
                 inputMode="numeric"
                 placeholder="21"
                 value={score1}
                 onChange={(e) => {
-                  const next = e.target.value;
+                  const next = e.target.value.replace(/^0+(?=\d)/, '');
                   setScore1(next);
                   syncBetWinnerFromScores(next, score2, hasBet);
                 }}
@@ -332,12 +331,11 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
               <input
                 type="number"
                 min={0}
-                max={99}
                 inputMode="numeric"
                 placeholder="15"
                 value={score2}
                 onChange={(e) => {
-                  const next = e.target.value;
+                  const next = e.target.value.replace(/^0+(?=\d)/, '');
                   setScore2(next);
                   syncBetWinnerFromScores(score1, next, hasBet);
                 }}
