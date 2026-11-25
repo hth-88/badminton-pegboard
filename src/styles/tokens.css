@@ -1,0 +1,170 @@
+/* ==========================================================================
+   DESIGN TOKENS — SINGLE SOURCE OF TRUTH
+   Apple-inspired Minimalism: Neutral Surfaces + Single Court-Green Accent
+   ========================================================================== */
+
+:root {
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Font Scale (14px floor for body/controls; 12px strictly for compact chips/captions) */
+  --text-xs: 0.75rem;      /* 12px — compact badges & micro captions */
+  --text-sm: 0.875rem;     /* 14px — minimum body, inputs, buttons, player names */
+  --text-base: 1rem;       /* 16px — primary body, court titles */
+  --text-lg: 1.125rem;     /* 18px — section headers */
+  --text-xl: 1.375rem;     /* 22px — page titles */
+  --text-hero: 2rem;       /* 32px — financial summary totals */
+
+  /* Radii (Soft, generous Apple-style corners) */
+  --radius-sm: 10px;
+  --radius-control: 12px;
+  --radius-tile: 14px;
+  --radius-card: 22px;
+  --radius-modal: 28px;
+  --radius-pill: 9999px;
+
+  /* Spacing Rhythm (4/8px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Layout & Touch Constraints */
+  --container-max: 1200px;
+  --touch-min: 44px;
+  --rank-badge-w: 58px;
+  --rank-badge-h: 24px;
+  --rank-stepper-w: 118px;
+  --slot-height: 62px;
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.32, 1.08, 0.54, 1);
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 300ms;
+
+  /* Universal Static Surface (QR codes always need crisp white quiet zone) */
+  --surface-qr: #FFFFFF;
+}
+
+/* --------------------------------------------------------------------------
+   DARK THEME (Default — calm indoor court low-glare obsidian neutrals)
+   -------------------------------------------------------------------------- */
+:root,
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Neutral Surfaces */
+  --bg-canvas: #0A0A0C;
+  --bg-surface: #161618;
+  --bg-surface-secondary: #212125;
+  --bg-surface-hover: #2A2A2F;
+  --bg-surface-elevated: #242429;
+  --bg-header: rgba(10, 10, 12, 0.84);
+  --bg-dock: rgba(22, 22, 24, 0.90);
+  --bg-scrim: rgba(0, 0, 0, 0.68);
+  --bg-input: #1E1E22;
+
+  /* Hairline Borders */
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Neutral Inks (All >= 4.5:1 on surfaces) */
+  --text-primary: #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-muted: #8E8E93;
+
+  /* Single Brand Accent — Court Green */
+  --color-accent: #32D74B;
+  --color-accent-hover: #47E05E;
+  --color-accent-soft: rgba(50, 215, 75, 0.14);
+  --color-accent-border: rgba(50, 215, 75, 0.30);
+  --text-on-accent: #051B08;
+
+  /* Restrained Semantic Signals */
+  --color-danger: #FF6961;
+  --color-danger-solid: #DC2626;
+  --color-danger-hover: #EF4444;
+  --color-danger-soft: rgba(255, 69, 58, 0.14);
+  --color-danger-border: rgba(255, 69, 58, 0.30);
+  --text-on-danger: #FFFFFF;
+
+  --color-warning: #FFB340;
+  --color-warning-solid: #D97706;
+  --color-warning-soft: rgba(255, 179, 64, 0.14);
+  --color-warning-border: rgba(255, 179, 64, 0.30);
+  --text-on-warning: #1A0F00;
+
+  /* Minimal Gender Dot Indicators Only */
+  --color-male: #4DA6FF;
+  --color-female: #FF6482;
+
+  /* Single-Layer Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.36);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.56);
+}
+
+/* --------------------------------------------------------------------------
+   LIGHT THEME (Crisp Apple Alabaster Daylight)
+   -------------------------------------------------------------------------- */
+.light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Neutral Surfaces */
+  --bg-canvas: #F5F5F7;
+  --bg-surface: #FFFFFF;
+  --bg-surface-secondary: #F2F2F7;
+  --bg-surface-hover: #E7E7EE;
+  --bg-surface-elevated: #FFFFFF;
+  --bg-header: rgba(245, 245, 247, 0.86);
+  --bg-dock: rgba(255, 255, 255, 0.92);
+  --bg-scrim: rgba(0, 0, 0, 0.40);
+  --bg-input: #F2F2F7;
+
+  /* Hairline Borders */
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+
+  /* Neutral Inks (All >= 4.5:1 on surfaces) */
+  --text-primary: #1D1D1F;
+  --text-secondary: #515154;
+  --text-muted: #6E6E73;
+
+  /* Single Brand Accent — Accessible Court Green (5.37:1 with white text) */
+  --color-accent: #1F7A35;
+  --color-accent-hover: #19652B;
+  --color-accent-soft: rgba(31, 122, 53, 0.10);
+  --color-accent-border: rgba(31, 122, 53, 0.24);
+  --text-on-accent: #FFFFFF;
+
+  /* Restrained Semantic Signals */
+  --color-danger: #C81E1E;
+  --color-danger-solid: #C81E1E;
+  --color-danger-hover: #A81717;
+  --color-danger-soft: rgba(200, 30, 30, 0.09);
+  --color-danger-border: rgba(200, 30, 30, 0.22);
+  --text-on-danger: #FFFFFF;
+
+  --color-warning: #A15200;
+  --color-warning-solid: #B45309;
+  --color-warning-soft: rgba(161, 82, 0, 0.10);
+  --color-warning-border: rgba(161, 82, 0, 0.24);
+  --text-on-warning: #FFFFFF;
+
+  /* Minimal Gender Dot Indicators Only */
+  --color-male: #0071E3;
+  --color-female: #D93860;
+
+  /* Single-Layer Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.16);
+}
