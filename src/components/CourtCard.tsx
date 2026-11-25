@@ -566,7 +566,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
           <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
             {player && <RankBadge rank={player.rank} surface="tile" />}
 
-            {isManual && !playingCourtName && (
+            {!isViewer && isManual && !playingCourtName && (
               <span
                 className="inline-flex items-center gap-0.5 text-[11px] font-semibold shrink-0"
                 style={{ color: 'var(--color-warning)' }}
@@ -1113,7 +1113,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                             type="button"
                             onClick={handleRotatePairings}
                             title="Xoay 3 thế đứng (Đảo cặp)"
-                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] min-w-0"
+                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] gap-1 min-w-0"
                           >
                             <Shuffle
                               className="w-3.5 h-3.5 shrink-0"
@@ -1125,7 +1125,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                             type="button"
                             onClick={handleAutoBalancePairings}
                             title="Tự động xếp cặp có chênh lệch trình độ nhỏ nhất"
-                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] min-w-0"
+                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] gap-1 min-w-0"
                           >
                             <Scale
                               className="w-3.5 h-3.5 shrink-0"
@@ -1141,7 +1141,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                           type="button"
                           onClick={openLiveBetEditor}
                           title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
-                          className={`ui-btn px-2.5 text-[13px] shrink-0 ${
+                          className={`ui-btn px-2.5 text-[13px] gap-1 shrink-0 ${
                             court.currentMatch.bet
                               ? 'ui-btn-warning-soft'
                               : 'ui-btn-secondary'
@@ -1167,14 +1167,14 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                             `Đã kết thúc trận trên ${court.name} (sân trống để thong thả xếp tiếp)`
                           );
                         }}
-                        title="Kết thúc trận hiện tại để người chơi ra nghỉ, giữ sân trống và KHÔNG tự đẩy lượt mới vào"
-                        className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] min-w-0"
+                        title="Chỉ kết thúc trận hiện tại, giữ sân trống và không tự đẩy lượt mới vào"
+                        className="ui-btn ui-btn-secondary px-2.5 text-[13px] gap-1 shrink-0"
                       >
                         <Square
                           className="w-3.5 h-3.5 shrink-0"
                           style={{ color: 'var(--text-secondary)' }}
                         />
-                        <span className="truncate">Chỉ dừng</span>
+                        <span>Dừng</span>
                       </button>
                     </div>
                   </>

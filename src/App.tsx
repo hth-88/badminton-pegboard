@@ -177,9 +177,9 @@ export function App() {
     onApplyCloudSettlement: handleApplyCloudSettlement,
   });
 
-  // Tự động rời khỏi tab Luật cặp nếu đang ở chế độ Chỉ xem (VIEWER)
+  // Tự động rời khỏi mọi tab không dành cho VIEWER (chỉ cho phép Sân & Hàng chờ)
   useEffect(() => {
-    if (role === 'VIEWER' && activeTab === 'rules') {
+    if (role === 'VIEWER' && activeTab !== 'courts' && activeTab !== 'queue') {
       setActiveTab('courts');
     }
   }, [role, activeTab]);
@@ -215,8 +215,8 @@ export function App() {
 
   return (
     <div className="ui-app-shell flex flex-col select-none antialiased">
-      {/* BANNER DỮ LIỆU HỎNG (Mục F) */}
-      {(corruptStatus === 'CORRUPT_BACKED_UP' || corruptStatus === 'CORRUPT_NO_BACKUP') && (
+      {/* BANNER DỮ LIỆU HỎNG (Mục F — ẩn với VIEWER) */}
+      {role !== 'VIEWER' && (corruptStatus === 'CORRUPT_BACKED_UP' || corruptStatus === 'CORRUPT_NO_BACKUP') && (
         <div
           className="px-4 py-2.5 border-b ui-divider sticky top-0 z-50"
           style={{
@@ -521,7 +521,7 @@ export function App() {
               )}
 
               <div
-                className={`grid gap-4 items-stretch ${
+                className={`grid gap-4 lg:gap-5 items-stretch ${
                   selectedCourtFilter === 'ALL'
                     ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
                     : 'grid-cols-1 max-w-lg mx-auto'
@@ -609,128 +609,114 @@ export function App() {
 
           {/* TAB 2: HÀNG CHỜ */}
           {activeTab === 'queue' && (
-            <div className="pb-28">
-              <QueueTab
-                players={players}
-                courts={courts}
-                maleBonus={settings.maleBonus}
-                isViewer={role === 'VIEWER'}
-                onAddPlayer={(data) => guardAction(() => addPlayer(data))}
-                onAddPlayers={(list) => guardAction(() => addPlayers(list))}
-                onPausePlayer={(id) => guardAction(() => pausePlayer(id))}
-                onPausePlayers={(ids) => guardAction(() => pausePlayers(ids))}
-                onResumePlayer={(id) => guardAction(() => resumePlayer(id))}
-                onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
-                onUpdatePlayer={(player) => guardAction(() => updatePlayer(player))}
-                onRemovePlayer={(id) => guardAction(() => removePlayer(id))}
-                onRemovePlayers={(ids) => guardAction(() => removePlayers(ids))}
-              />
-            </div>
+            <QueueTab
+              players={players}
+              courts={courts}
+              maleBonus={settings.maleBonus}
+              isViewer={role === 'VIEWER'}
+              onAddPlayer={(data) => guardAction(() => addPlayer(data))}
+              onAddPlayers={(list) => guardAction(() => addPlayers(list))}
+              onPausePlayer={(id) => guardAction(() => pausePlayer(id))}
+              onPausePlayers={(ids) => guardAction(() => pausePlayers(ids))}
+              onResumePlayer={(id) => guardAction(() => resumePlayer(id))}
+              onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
+              onUpdatePlayer={(player) => guardAction(() => updatePlayer(player))}
+              onRemovePlayer={(id) => guardAction(() => removePlayer(id))}
+              onRemovePlayers={(ids) => guardAction(() => removePlayers(ids))}
+            />
           )}
 
-          {/* TAB 3: LUẬT CẶP (Hiển thị đầy đủ cho Host / Co-Host, ẩn với VIEWER) */}
-          {activeTab === 'rules' && (
-            <div className="pb-28">
-              <PairRulesTab
-                pairRules={pairRules}
-                players={players}
-                ruleConflicts={ruleConflicts}
-                isViewer={role === 'VIEWER'}
-                onRequestUpgrade={() => setShowPinPrompt(true)}
-                onAddRule={(r) => guardAction(() => addPairRule(r))}
-                onRemoveRule={(id) => guardAction(() => removePairRule(id))}
-              />
-            </div>
+          {/* TAB 3: LUẬT CẶP (Ẩn hoàn toàn với VIEWER) */}
+          {activeTab === 'rules' && role !== 'VIEWER' && (
+            <PairRulesTab
+              pairRules={pairRules}
+              players={players}
+              ruleConflicts={ruleConflicts}
+              isViewer={false}
+              onRequestUpgrade={() => setShowPinPrompt(true)}
+              onAddRule={(r) => guardAction(() => addPairRule(r))}
+              onRemoveRule={(id) => guardAction(() => removePairRule(id))}
+            />
           )}
 
-          {/* TAB 4: LỊCH SỬ */}
-          {activeTab === 'history' && (
-            <div className="pb-28">
-              <HistoryTab
-                history={history}
-                players={players}
-                isViewer={role === 'VIEWER'}
-                onEditMatchResult={(m) =>
-                  guardAction(() =>
-                    setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
-                  )
-                }
-                onDeleteMatch={(id) => guardAction(() => deleteHistoryMatch(id))}
-              />
-            </div>
+          {/* TAB 4: LỊCH SỬ (Ẩn hoàn toàn với VIEWER) */}
+          {activeTab === 'history' && role !== 'VIEWER' && (
+            <HistoryTab
+              history={history}
+              players={players}
+              isViewer={false}
+              onEditMatchResult={(m) =>
+                guardAction(() =>
+                  setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
+                )
+              }
+              onDeleteMatch={(id) => guardAction(() => deleteHistoryMatch(id))}
+            />
           )}
 
-          {/* TAB 5: TÍNH TIỀN */}
-          {activeTab === 'settlement' && (
-            <div className="pb-28">
-              <SettlementTab
-                players={players}
-                history={history}
-                stats={stats}
-                currentState={state}
-                role={role}
-                roomCode={roomCode}
-                settlementData={settlementData}
-                onUpdateSettlementSettings={(updates) =>
-                  guardAction(() => updateSettlementSettings(updates))
-                }
-                onToggleApprovePayment={(playerId) =>
-                  guardAction(() => toggleApprovePayment(playerId))
-                }
-                onRejectPendingPayment={(playerId, reason) =>
-                  guardAction(() => {
-                    const receiptPath = settlementData.payments[playerId]?.receiptPath;
-                    if (receiptPath) {
-                      deleteReceiptFiles([receiptPath]).catch(() => {});
-                    }
-                    rejectPendingPayment(playerId, reason);
-                  })
-                }
-                onReportPlayerPayment={reportPlayerPayment}
-                onToggleBetPaid={(obligationId) =>
-                  guardAction(() => toggleBetPaid(obligationId))
-                }
-                onQuickEditMatchResult={(m) =>
-                  guardAction(() =>
-                    setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
-                  )
-                }
-                maleBonus={settings.maleBonus}
-                onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
-                onExportJson={exportSession}
-                onImportJson={(json) => {
-                  if (role === 'VIEWER') {
-                    guardAction(() => importSession(json));
-                    return { ok: false, error: 'Cần mã PIN Host để nhập dữ liệu!' };
+          {/* TAB 5: TÍNH TIỀN (Ẩn hoàn toàn với VIEWER) */}
+          {activeTab === 'settlement' && role !== 'VIEWER' && (
+            <SettlementTab
+              players={players}
+              history={history}
+              stats={stats}
+              currentState={state}
+              role={role}
+              roomCode={roomCode}
+              settlementData={settlementData}
+              onUpdateSettlementSettings={(updates) =>
+                guardAction(() => updateSettlementSettings(updates))
+              }
+              onToggleApprovePayment={(playerId) =>
+                guardAction(() => toggleApprovePayment(playerId))
+              }
+              onRejectPendingPayment={(playerId, reason) =>
+                guardAction(() => {
+                  const receiptPath = settlementData.payments[playerId]?.receiptPath;
+                  if (receiptPath) {
+                    deleteReceiptFiles([receiptPath]).catch(() => {});
                   }
-                  return importSession(json);
-                }}
-                onNewSessionKeepPlayers={(totalCost, settlementSnapshot) =>
-                  guardAction(() => {
-                    newSessionKeepPlayers(totalCost, settlementSnapshot);
-                    resetPaymentsForNewSession();
-                    if (roomCode) {
-                      deleteRoomReceipts(roomCode).catch(() => {});
-                    }
-                  })
-                }
-                onResetSession={() =>
-                  guardAction(() => {
-                    resetSession();
-                    resetPaymentsForNewSession();
-                    if (roomCode) {
-                      deleteRoomReceipts(roomCode).catch(() => {});
-                    }
-                  })
-                }
-              />
-            </div>
+                  rejectPendingPayment(playerId, reason);
+                })
+              }
+              onReportPlayerPayment={reportPlayerPayment}
+              onToggleBetPaid={(obligationId) =>
+                guardAction(() => toggleBetPaid(obligationId))
+              }
+              onQuickEditMatchResult={(m) =>
+                guardAction(() =>
+                  setPostMatchModalState({ matchId: m.id, mode: 'EDIT_HISTORY' })
+                )
+              }
+              maleBonus={settings.maleBonus}
+              onEditRank={(id, rank) => guardAction(() => editRank(id, rank))}
+              onExportJson={exportSession}
+              onImportJson={(json) => importSession(json)}
+              onNewSessionKeepPlayers={(totalCost, settlementSnapshot) =>
+                guardAction(() => {
+                  newSessionKeepPlayers(totalCost, settlementSnapshot);
+                  resetPaymentsForNewSession();
+                  if (roomCode) {
+                    deleteRoomReceipts(roomCode).catch(() => {});
+                  }
+                })
+              }
+              onResetSession={() =>
+                guardAction(() => {
+                  resetSession();
+                  resetPaymentsForNewSession();
+                  if (roomCode) {
+                    deleteRoomReceipts(roomCode).catch(() => {});
+                  }
+                })
+              }
+            />
           )}
         </div>
       </main>
 
-      {/* 3. TOAST HOÀN TÁC, THÔNG BÁO HỆ THỐNG & CẢNH BÁO */}
-      {undoToastMessage && (
+      {/* 3. TOAST HOÀN TÁC (ẩn với VIEWER), THÔNG BÁO HỆ THỐNG & CẢNH BÁO */}
+      {undoToastMessage && role !== 'VIEWER' && (
         <UndoToast
           message={undoToastMessage}
           onUndo={undo}
@@ -787,9 +773,9 @@ export function App() {
         onUpdateRoomPin={updateRoomPin}
       />
 
-      {/* 6. POST-MATCH QUICK REVIEW & BET MODAL */}
+      {/* 6. POST-MATCH QUICK REVIEW & BET MODAL (ẩn với VIEWER) */}
       <PostMatchModal
-        isOpen={Boolean(postMatchModalState)}
+        isOpen={role !== 'VIEWER' && Boolean(postMatchModalState)}
         match={
           postMatchModalState
             ? history.find((h) => h.id === postMatchModalState.matchId) ?? null
