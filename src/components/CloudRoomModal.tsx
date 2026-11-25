@@ -13,7 +13,8 @@ import {
 import type { BadmintonSessionState } from '../types/badminton';
 import {
   clearSupabaseConfig,
-  getSupabaseConfig,
+  getSavedCustomSupabaseConfig,
+  hasEnvSupabaseConfig,
   saveSupabaseConfig,
 } from '../services/supabaseSync';
 import type { RoomRole, SyncStatus } from '../hooks/useCloudRoom';
@@ -86,19 +87,20 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   const [changePinError, setChangePinError] = useState<string | null>(null);
   const [isSavingPin, setIsSavingPin] = useState(false);
 
+  const hasEnvConfig = hasEnvSupabaseConfig();
+  const hideConfigTab = isViewer || hasEnvConfig;
+
   const [prevIsOpen, setPrevIsOpen] = useState(false);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
     if (isOpen) {
-      const currentConfig = getSupabaseConfig();
-      if (currentConfig) {
-        setCustomUrl(currentConfig.url);
-        setCustomKey(currentConfig.anonKey);
-      }
+      const customConfig = getSavedCustomSupabaseConfig();
+      setCustomUrl(customConfig?.url ?? '');
+      setCustomKey(customConfig?.anonKey ?? '');
     }
   }
 
-  const effectiveTab = isViewer && activeTab === 'CONFIG' ? 'MANAGE' : activeTab;
+  const effectiveTab = hideConfigTab && activeTab === 'CONFIG' ? 'MANAGE' : activeTab;
 
   const baseUrl = useMemo(() => {
     if (typeof window !== 'undefined') {
@@ -225,6 +227,11 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
     ? [
         { id: 'MANAGE', label: roomCode ? 'Phòng hiện tại' : 'Phòng Online' },
         { id: 'JOIN', label: 'Đổi phòng' },
+      ]
+    : hideConfigTab
+    ? [
+        { id: 'MANAGE', label: roomCode ? 'Quản lý phòng' : 'Tạo phòng' },
+        { id: 'JOIN', label: 'Vào phòng' },
       ]
     : [
         { id: 'MANAGE', label: roomCode ? 'Quản lý phòng' : 'Tạo phòng' },

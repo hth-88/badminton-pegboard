@@ -27,9 +27,26 @@ export interface BadmintonRoomRecord {
 }
 
 /**
- * Đọc cấu hình Supabase từ localStorage hoặc biến môi trường .env
+ * Kiểm tra ứng dụng đã có cấu hình Supabase từ biến môi trường (.env) hay chưa
  */
-export function getSupabaseConfig(): SupabaseConfig | null {
+export function hasEnvSupabaseConfig(): boolean {
+  const envUrl =
+    (import.meta as any).env?.VITE_SUPABASE_URL ||
+    (import.meta as any).env?.SUPABASE_URL ||
+    (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_URL;
+
+  const envKey =
+    (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+    (import.meta as any).env?.SUPABASE_ANON_KEY ||
+    (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  return Boolean(envUrl && envKey);
+}
+
+/**
+ * Đọc cấu hình Supabase tùy chỉnh do người dùng lưu trong localStorage (không đọc .env)
+ */
+export function getSavedCustomSupabaseConfig(): SupabaseConfig | null {
   try {
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem(STORAGE_KEY_SUPABASE_CONFIG);
@@ -45,6 +62,17 @@ export function getSupabaseConfig(): SupabaseConfig | null {
     }
   } catch {
     // Bỏ qua lỗi parse
+  }
+  return null;
+}
+
+/**
+ * Đọc cấu hình Supabase từ localStorage hoặc biến môi trường .env
+ */
+export function getSupabaseConfig(): SupabaseConfig | null {
+  const custom = getSavedCustomSupabaseConfig();
+  if (custom) {
+    return custom;
   }
 
   // Fallback từ import.meta.env (hỗ trợ cả VITE_ và biến tự động từ Vercel Supabase Integration)

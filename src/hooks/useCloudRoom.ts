@@ -6,6 +6,7 @@ import {
   type CloudSettlementData,
   type PlayerPaymentRecord,
 } from '../engine/settlement';
+import { createInitialSessionState } from '../engine/sessionReducer';
 import type { BadmintonSessionSnapshot, BadmintonSessionState } from '../types/badminton';
 import {
   fetchRoom,
@@ -20,6 +21,7 @@ import {
 
 export type RoomRole = 'OFFLINE' | 'VIEWER' | 'CO_HOST';
 export type SyncStatus = 'OFFLINE' | 'IDLE' | 'SYNCING' | 'SYNCED' | 'ERROR';
+export const STORAGE_KEY_OFFLINE_BACKUP = 'badminton_offline_backup_v1';
 
 interface UseCloudRoomProps {
   currentState: BadmintonSessionState;
@@ -289,6 +291,23 @@ export function useCloudRoom({
       const roomData = res.data;
       const isCoHost = Boolean(cleanPin && cleanPin === roomData.pin_code);
       const assignedRole: RoomRole = isCoHost ? 'CO_HOST' : 'VIEWER';
+
+      // Sao lưu phiên offline cục bộ trước khi nạp dữ liệu phòng ở chế độ VIEWER
+      if (assignedRole === 'VIEWER' && roleRef.current === 'OFFLINE') {
+        try {
+          if (!localStorage.getItem(STORAGE_KEY_OFFLINE_BACKUP)) {
+            localStorage.setItem(
+              STORAGE_KEY_OFFLINE_BACKUP,
+              JSON.stringify({
+                sessionData: currentStateRef.current,
+                settlementData: currentSettlementRef.current ?? null,
+              })
+            );
+          }
+        } catch {
+          // Bỏ qua lỗi quota
+        }
+      }
 
       let shouldPreservePendingLocal = false;
       if (options?.isAutoReconnect && isCoHost) {
@@ -742,6 +761,7 @@ export function useCloudRoom({
       clearTimeout(settlementDebounceTimerRef.current);
       settlementDebounceTimerRef.current = null;
     }
+    const wasViewer = roleRef.current === 'VIEWER';
     hasPendingLocalChangeRef.current = false;
     hasPendingSettlementChangeRef.current = false;
     lastAppliedSettlementTsRef.current = 0;
@@ -757,6 +777,37 @@ export function useCloudRoom({
       localStorage.removeItem(pendingStorageKey);
     } catch {
       // Bỏ qua
+    }
+
+    // Cách ly dữ liệu phòng: khi VIEWER rời phòng, khôi phục phiên offline cũ (hoặc phiên trống)
+    if (wasViewer) {
+      let restoredSession: BadmintonSessionState | null = null;
+      let restoredSettlement: CloudSettlementData | null = null;
+      try {
+        const rawBackup = localStorage.getItem(STORAGE_KEY_OFFLINE_BACKUP);
+        if (rawBackup) {
+          const parsed = JSON.parse(rawBackup) as {
+            sessionData?: BadmintonSessionState;
+            settlementData?: CloudSettlementData | null;
+          };
+          if (parsed.sessionData) {
+            restoredSession = parsed.sessionData;
+          }
+          if (parsed.settlementData) {
+            restoredSettlement = normalizeCloudSettlementData(parsed.settlementData);
+          }
+        }
+        localStorage.removeItem(STORAGE_KEY_OFFLINE_BACKUP);
+      } catch {
+        // Bỏ qua lỗi parse
+      }
+
+      isApplyingRemoteRef.current = true;
+      onApplyRef.current(restoredSession ?? createInitialSessionState());
+      onApplySettlementRef.current?.(
+        restoredSettlement ?? createDefaultCloudSettlementData(0),
+        'OFFLINE'
+      );
     }
 
     // Xóa param ?room= khỏi URL mà không reload trang
