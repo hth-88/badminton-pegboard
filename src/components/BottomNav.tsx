@@ -41,40 +41,42 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         label: 'Sân',
         icon: LayoutDashboard,
         badge: 0,
-        badgeTone: 'lime' as const,
+        badgeTone: 'accent' as const,
       },
       {
         id: 'queue' as const,
         label: 'Hàng chờ',
         icon: Users,
         badge: waitingCount,
-        badgeTone: 'lime' as const,
+        badgeTone: 'accent' as const,
       },
       {
         id: 'rules' as const,
         label: 'Luật cặp',
         icon: Scale,
         badge: conflictCount,
-        badgeTone: 'rose' as const,
+        badgeTone: 'danger' as const,
       },
       {
         id: 'history' as const,
         label: 'Lịch sử',
         icon: History,
         badge: 0,
-        badgeTone: 'lime' as const,
+        badgeTone: 'accent' as const,
       },
       {
         id: 'settlement' as const,
         label: 'Tính tiền',
         icon: Calculator,
         badge: pendingPaymentsCount,
-        badgeTone: 'amber' as const,
+        badgeTone: 'warning' as const,
       },
     ];
 
-    // Ẩn hoàn toàn tab "Luật cặp" ở chế độ Chỉ xem (VIEWER) vì nội dung nhạy cảm
-    return isViewer ? allTabs.filter((t) => t.id !== 'rules') : allTabs;
+    // VIEWER chỉ thấy Sân và Hàng chờ (ẩn hoàn toàn Luật cặp, Lịch sử, Tính tiền)
+    return isViewer
+      ? allTabs.filter((t) => t.id === 'courts' || t.id === 'queue')
+      : allTabs;
   }, [waitingCount, conflictCount, pendingPaymentsCount, isViewer]);
 
   const measureActivePill = useCallback(() => {
@@ -107,19 +109,18 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <nav
       aria-label="Điều hướng chính"
-      className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none px-3 safe-area-bottom flex justify-center"
+      className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none px-4 safe-area-bottom flex justify-center"
     >
       <div
         ref={dockRef}
-        className={`pointer-events-auto relative w-full max-w-md grid p-1.5 rounded-[24px] vo-dock ${
-          isViewer ? 'grid-cols-4' : 'grid-cols-5'
+        className={`pointer-events-auto relative w-full ui-dock p-1.5 grid ${
+          isViewer ? 'max-w-xs grid-cols-2' : 'max-w-lg grid-cols-5'
         }`}
       >
-        {/* Lucian Spring Sliding Glass Pill */}
         {pillStyle.ready && (
           <div
             aria-hidden="true"
-            className="vo-dock-pill"
+            className="ui-dock-pill"
             style={{
               width: `${pillStyle.width}px`,
               transform: `translate3d(${pillStyle.left}px, 0, 0)`,
@@ -131,6 +132,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
 
+          const badgeStyle: React.CSSProperties =
+            tab.badgeTone === 'danger'
+              ? {
+                  backgroundColor: 'var(--color-danger-solid)',
+                  color: 'var(--text-on-danger)',
+                }
+              : tab.badgeTone === 'warning'
+              ? {
+                  backgroundColor: 'var(--color-warning-solid)',
+                  color: 'var(--text-on-warning)',
+                }
+              : {
+                  backgroundColor: 'var(--color-accent)',
+                  color: 'var(--text-on-accent)',
+                };
+
           return (
             <button
               key={tab.id}
@@ -138,37 +155,27 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 itemRefs.current[tab.id] = el;
               }}
               type="button"
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => onSelectTab(tab.id)}
-              className="relative z-10 flex flex-col items-center justify-center gap-0.5 h-[52px] rounded-[18px] select-none transition-transform active:scale-95"
+              className="relative z-10 flex flex-col items-center justify-center gap-1 h-[54px] rounded-[20px] select-none transition-colors"
               style={{
-                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                color: isActive ? 'var(--color-accent)' : 'var(--text-muted)',
               }}
             >
               <div className="relative">
-                <Icon
-                  className={`w-[19px] h-[19px] transition-transform duration-200 ${
-                    isActive ? '-translate-y-0.5' : ''
-                  }`}
-                  style={isActive ? { color: 'var(--accent-lime)' } : undefined}
-                />
+                <Icon className="w-5 h-5" />
                 {tab.badge > 0 && (
                   <span
-                    className={`absolute -top-1.5 -right-2.5 px-1 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-extrabold font-mono-tabular ${
-                      tab.badgeTone === 'rose'
-                        ? 'bg-rose-500 text-white animate-pulse'
-                        : tab.badgeTone === 'amber'
-                        ? 'bg-amber-400 text-slate-950'
-                        : 'vo-cta-lime'
-                    }`}
+                    className="absolute -top-1.5 -right-2.5 px-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold tabular-nums leading-none"
+                    style={badgeStyle}
                   >
                     {tab.badge}
                   </span>
                 )}
               </div>
               <span
-                className={`text-[10.5px] leading-none tracking-[-0.01em] ${
-                  isActive ? 'font-bold' : 'font-semibold'
-                }`}
+                className="text-[11px] leading-none truncate max-w-full px-0.5"
+                style={{ fontWeight: isActive ? 700 : 600 }}
               >
                 {tab.label}
               </span>

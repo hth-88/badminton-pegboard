@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X,
   Flame,
   Trophy,
   Lock,
@@ -27,8 +26,8 @@ import {
   type PlayerFeedbackTag,
   type PlayerMatchFeedback,
 } from '../engine/matchFeedbackStorage';
-import { RANK_METADATA } from '../engine/skillConfig';
 import { vibrateSuccess } from '../utils/vibrate';
+import { GenderDot, RankBadge, StatusPill, UiModal } from './ui/Primitives';
 
 export interface PostMatchModalProps {
   isOpen: boolean;
@@ -150,7 +149,6 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
     setPlayerFeedback(existingPrivate?.playerFeedback || {});
   }, [isOpen, match, isViewer]);
 
-  // Tự động gợi ý đội thắng kèo độ nếu nhập tỉ số khác nhau và chưa chọn đội thắng
   useEffect(() => {
     if (!hasBet) return;
     if (score1.trim() === '' || score2.trim() === '') return;
@@ -179,7 +177,6 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
       let nextTags = exists
         ? curr.tags.filter((t) => t !== tag)
         : [...curr.tags, tag];
-      // Không để cùng lúc Vượt trình và Hơi đuối
       if (!exists && tag === 'OVER_RANK') {
         nextTags = nextTags.filter((t) => t !== 'UNDER_RANK');
       } else if (!exists && tag === 'UNDER_RANK') {
@@ -239,156 +236,190 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg text-slate-100 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
-        {/* Header với nút Bỏ qua nổi bật */}
-        <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2 bg-slate-950/50">
-          <div className="min-w-0">
-            <h3 className="font-bold text-sm text-white truncate">
-              {mode === 'POST_MATCH'
-                ? 'Chốt nhanh trận vừa xong'
-                : 'Cập nhật tỉ số & nhận xét'}
-            </h3>
-            <p className="text-[11px] text-slate-400 truncate">
-              {team1Names} <span className="text-amber-400 font-bold">vs</span> {team2Names}
-            </p>
+    <UiModal
+      isOpen={isOpen}
+      onClose={onSkipOrClose}
+      sheetOnMobile
+      title={
+        mode === 'POST_MATCH'
+          ? 'Chốt nhanh trận vừa xong'
+          : 'Cập nhật tỉ số & nhận xét'
+      }
+      subtitle={`${team1Names} vs ${team2Names}`}
+      headerRight={
+        mode === 'POST_MATCH' ? (
+          <button
+            type="button"
+            onClick={onSkipOrClose}
+            className="ui-btn ui-btn-secondary min-h-[40px] px-3 rounded-full text-[13px]"
+          >
+            <FastForward className="w-3.5 h-3.5" />
+            <span>Bỏ qua</span>
+          </button>
+        ) : undefined
+      }
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onSkipOrClose}
+            className="ui-btn ui-btn-secondary px-4"
+          >
+            {mode === 'POST_MATCH' ? 'Bỏ qua' : 'Hủy'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="ui-btn ui-btn-primary px-5 rounded-full"
+          >
+            <Check className="w-4 h-4" />
+            <span>Lưu kết quả</span>
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        {/* 1. Match Score */}
+        <div className="ui-tile p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[14px] font-semibold"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Tỉ số trận (tùy chọn)
+            </span>
+            <span
+              className="text-[13px]"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              VD: 21 - 15
+            </span>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {mode === 'POST_MATCH' && (
-              <button
-                type="button"
-                onClick={onSkipOrClose}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs font-extrabold flex items-center gap-1 transition"
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <div className="space-y-1.5 text-center min-w-0">
+              <div
+                className="text-[13px] font-semibold truncate"
+                style={{ color: 'var(--text-secondary)' }}
               >
-                <FastForward className="w-3.5 h-3.5" />
-                <span>Bỏ qua (Mặc định đều)</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onSkipOrClose}
-              aria-label="Đóng"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                {team1Names}
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                inputMode="numeric"
+                placeholder="21"
+                value={score1}
+                onChange={(e) => setScore1(e.target.value)}
+                className="ui-input text-center font-bold text-[20px] tabular-nums"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
+              />
+            </div>
+
+            <span
+              className="font-bold text-[20px] pt-6"
+              style={{ color: 'var(--text-muted)' }}
             >
-              <X className="w-5 h-5" />
-            </button>
+              —
+            </span>
+
+            <div className="space-y-1.5 text-center min-w-0">
+              <div
+                className="text-[13px] font-semibold truncate"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {team2Names}
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                inputMode="numeric"
+                placeholder="15"
+                value={score2}
+                onChange={(e) => setScore2(e.target.value)}
+                className="ui-input text-center font-bold text-[20px] tabular-nums"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Body */}
-        <div className="p-4 overflow-y-auto space-y-4 text-xs">
-          {/* 1. Tỉ số trận (Tùy chọn) */}
-          <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-            <div className="font-bold text-slate-300 flex items-center justify-between">
-              <span>Tỉ số trận (Tùy chọn)</span>
-              <span className="text-[10px] font-normal text-slate-500">VD: 21 - 15</span>
-            </div>
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <div className="space-y-1 text-center">
-                <div className="text-[10px] font-bold text-sky-400 truncate">{team1Names}</div>
-                <input
-                  type="number"
-                  min={0}
-                  max={99}
-                  inputMode="numeric"
-                  placeholder="21"
-                  value={score1}
-                  onChange={(e) => setScore1(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl py-2 text-center font-black text-lg text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-              <span className="font-black text-slate-500 text-lg pt-4">-</span>
-              <div className="space-y-1 text-center">
-                <div className="text-[10px] font-bold text-pink-400 truncate">{team2Names}</div>
-                <input
-                  type="number"
-                  min={0}
-                  max={99}
-                  inputMode="numeric"
-                  placeholder="15"
-                  value={score2}
-                  onChange={(e) => setScore2(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl py-2 text-center font-black text-lg text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
+        {/* 2. Balance Rating */}
+        <div className="space-y-2">
+          <div
+            className="text-[14px] font-semibold flex items-center gap-1.5"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Scale
+              className="w-4 h-4"
+              style={{ color: 'var(--color-accent)' }}
+            />
+            <span>Đánh giá độ cân kèo</span>
           </div>
-
-          {/* 2. Độ cân kèo 1 chạm */}
-          <div className="space-y-1.5">
-            <div className="font-bold text-slate-300 flex items-center gap-1.5">
-              <Scale className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Đánh giá độ cân kèo</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                {
-                  val: 'BALANCED' as const,
-                  label: '⚖️ Cân hay',
-                  active: 'bg-emerald-600 text-white border-emerald-500',
-                },
-                {
-                  val: 'SLIGHT_GAP' as const,
-                  label: '↗️ Chênh nhẹ',
-                  active: 'bg-amber-600 text-white border-amber-500',
-                },
-                {
-                  val: 'LOPSIDED' as const,
-                  label: '⚠️ Chênh quá',
-                  active: 'bg-rose-600 text-white border-rose-500',
-                },
-              ].map((opt) => (
-                <button
-                  key={opt.val}
-                  type="button"
-                  onClick={() =>
-                    setBalanceRating(balanceRating === opt.val ? null : opt.val)
-                  }
-                  className={`py-2 px-2 rounded-xl border font-bold text-xs transition ${
-                    balanceRating === opt.val
-                      ? opt.active
-                      : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 3. Kèo Đánh Độ */}
-          <div className="p-3 rounded-2xl bg-slate-950/60 border border-amber-800/40 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-amber-300 flex items-center gap-1.5">
-                <Flame className="w-4 h-4 text-amber-400" />
-                <span>Kèo Đánh Độ</span>
-              </span>
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                { val: 'BALANCED', label: 'Cân hay', activeClass: 'ui-btn-primary' },
+                { val: 'SLIGHT_GAP', label: 'Chênh nhẹ', activeClass: 'ui-btn-warning-soft' },
+                { val: 'LOPSIDED', label: 'Chênh quá', activeClass: 'ui-btn-danger-soft' },
+              ] as const
+            ).map((opt) => (
               <button
+                key={opt.val}
                 type="button"
-                onClick={() => {
-                  if (hasBet) {
-                    setHasBet(false);
-                    setBetWinner(null);
-                  } else {
-                    setHasBet(true);
-                  }
-                }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
-                  hasBet
-                    ? 'bg-rose-950/60 border-rose-700 text-rose-300'
-                    : 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+                onClick={() =>
+                  setBalanceRating(balanceRating === opt.val ? null : opt.val)
+                }
+                className={`ui-btn px-2 ${
+                  balanceRating === opt.val ? opt.activeClass : 'ui-btn-secondary'
                 }`}
               >
-                {hasBet ? 'Bỏ kèo độ' : '+ Gắn kèo độ'}
+                {opt.label}
               </button>
-            </div>
+            ))}
+          </div>
+        </div>
 
-            {hasBet && (
-              <div className="space-y-3 pt-1">
-                {/* Preset chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {BET_PRESETS.map((p) => (
+        {/* 3. Match Bet */}
+        <div className="ui-tile p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="text-[14px] font-semibold flex items-center gap-1.5"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Flame
+                className="w-4 h-4"
+                style={{ color: 'var(--color-warning)' }}
+              />
+              <span>Kèo đánh độ</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (hasBet) {
+                  setHasBet(false);
+                  setBetWinner(null);
+                } else {
+                  setHasBet(true);
+                }
+              }}
+              className={`ui-btn min-h-[38px] px-3.5 text-[13px] ${
+                hasBet ? 'ui-btn-danger-soft' : 'ui-btn-warning-soft'
+              }`}
+            >
+              {hasBet ? 'Bỏ kèo độ' : '+ Gắn kèo độ'}
+            </button>
+          </div>
+
+          {hasBet && (
+            <div className="space-y-3 pt-1">
+              <div className="flex flex-wrap gap-1.5">
+                {BET_PRESETS.map((p) => {
+                  const selected =
+                    betLabel === p.bet.label && betAmountVnd === p.bet.amountVnd;
+                  return (
                     <button
                       key={p.label}
                       type="button"
@@ -400,214 +431,256 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
                         setBetAmountVnd(p.bet.amountVnd);
                         setBetPayoutMode(p.bet.payoutMode);
                       }}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
-                        betLabel === p.bet.label && betAmountVnd === p.bet.amountVnd
-                          ? 'bg-amber-500 text-slate-950 border-amber-400'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      className={`ui-btn min-h-[36px] px-3 rounded-full text-[13px] ${
+                        selected ? 'ui-btn-warning-soft' : 'ui-btn-secondary'
                       }`}
+                      style={
+                        !selected
+                          ? { backgroundColor: 'var(--bg-surface)' }
+                          : undefined
+                      }
                     >
                       {p.label}
                     </button>
-                  ))}
-                </div>
-
-                {/* Chi tiết kèo độ */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">
-                      Tên kèo (VD: 1 nước, 20k)
-                    </label>
-                    <input
-                      type="text"
-                      value={betLabel}
-                      onChange={(e) => setBetLabel(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">
-                      Số tiền VNĐ (0 = hiện vật)
-                    </label>
-                    <input
-                      type="number"
-                      step={5000}
-                      min={0}
-                      value={betAmountVnd}
-                      onChange={(e) => setBetAmountVnd(Number(e.target.value) || 0)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-bold text-amber-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">Tính theo</label>
-                    <select
-                      value={betUnit}
-                      onChange={(e) => setBetUnit(e.target.value as BetUnit)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2 py-1.5 text-xs text-slate-100"
-                    >
-                      <option value="PER_PLAYER">Mỗi người thua</option>
-                      <option value="PER_TEAM">Cả đội thua</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">Hướng trả độ</label>
-                    <select
-                      value={betPayoutMode}
-                      onChange={(e) => setBetPayoutMode(e.target.value as BetPayoutMode)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-2 py-1.5 text-xs text-slate-100"
-                    >
-                      <option value="TEAM_TO_TEAM">Thua trả Đội thắng</option>
-                      <option value="LOSER_TO_FUND">Thua góp Quỹ chung</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Chọn đội thắng */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-800">
-                  <div className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Chọn đội thắng độ:</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setBetWinner(betWinner === 1 ? null : 1)}
-                      className={`p-2 rounded-xl border text-left transition ${
-                        betWinner === 1
-                          ? 'bg-emerald-600/30 border-emerald-400 text-emerald-200'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="font-bold text-[11px]">🏆 Đội 1 thắng</div>
-                      <div className="text-[10px] opacity-80 truncate">{team1Names}</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBetWinner(betWinner === 2 ? null : 2)}
-                      className={`p-2 rounded-xl border text-left transition ${
-                        betWinner === 2
-                          ? 'bg-emerald-600/30 border-emerald-400 text-emerald-200'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="font-bold text-[11px]">🏆 Đội 2 thắng</div>
-                      <div className="text-[10px] opacity-80 truncate">{team2Names}</div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 4. Nhận xét kín từng người (CHỈ Chủ sân, ẩn với VIEWER) */}
-          {!isViewer && (
-            <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-bold text-slate-200 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Nhận xét riêng từng người (Tùy chọn)</span>
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-700/50">
-                  Riêng tư (chỉ bạn thấy)
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {matchPlayerIds.map((pid) => {
-                  const p = playerMap.get(pid);
-                  if (!p) return null;
-                  const fb = playerFeedback[pid] || { tags: [], note: '' };
-                  const meta = RANK_METADATA[p.rank];
-
-                  return (
-                    <div
-                      key={pid}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="font-bold text-slate-100 truncate">
-                            {p.name}
-                          </span>
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${meta.badgeBg} ${meta.badgeText}`}
-                          >
-                            {meta.code}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => toggleFeedbackTag(pid, 'OVER_RANK')}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-0.5 transition ${
-                              fb.tags.includes('OVER_RANK')
-                                ? 'bg-emerald-600 text-white border-emerald-500'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            <TrendingUp className="w-3 h-3" />
-                            <span>Vượt trình</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleFeedbackTag(pid, 'UNDER_RANK')}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-0.5 transition ${
-                              fb.tags.includes('UNDER_RANK')
-                                ? 'bg-rose-600 text-white border-rose-500'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            <TrendingDown className="w-3 h-3" />
-                            <span>Hơi đuối</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleFeedbackTag(pid, 'GREAT_PLAY')}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-0.5 transition ${
-                              fb.tags.includes('GREAT_PLAY')
-                                ? 'bg-amber-500 text-slate-950 border-amber-400'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            <Star className="w-3 h-3" />
-                            <span>Hay</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <input
-                        type="text"
-                        placeholder="Ghi chú kín ngắn (VD: phòng thủ chắc, hơi mệt)..."
-                        value={fb.note || ''}
-                        onChange={(e) => setFeedbackNote(pid, e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-slate-200 placeholder:text-slate-600"
-                      />
-                    </div>
                   );
                 })}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label
+                    className="block text-[13px] mb-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Tên kèo (VD: 1 nước, 20k)
+                  </label>
+                  <input
+                    type="text"
+                    value={betLabel}
+                    onChange={(e) => setBetLabel(e.target.value)}
+                    className="ui-input"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-[13px] mb-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Số tiền VNĐ (0 = hiện vật)
+                  </label>
+                  <input
+                    type="number"
+                    step={5000}
+                    min={0}
+                    value={betAmountVnd}
+                    onChange={(e) => setBetAmountVnd(Number(e.target.value) || 0)}
+                    className="ui-input font-semibold tabular-nums"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-[13px] mb-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Tính theo
+                  </label>
+                  <select
+                    value={betUnit}
+                    onChange={(e) => setBetUnit(e.target.value as BetUnit)}
+                    className="ui-select"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  >
+                    <option value="PER_PLAYER">Mỗi người thua</option>
+                    <option value="PER_TEAM">Cả đội thua</option>
+                  </select>
+                </div>
+                <div>
+                  <label
+                    className="block text-[13px] mb-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Hướng trả độ
+                  </label>
+                  <select
+                    value={betPayoutMode}
+                    onChange={(e) => setBetPayoutMode(e.target.value as BetPayoutMode)}
+                    className="ui-select"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  >
+                    <option value="TEAM_TO_TEAM">Thua trả Đội thắng</option>
+                    <option value="LOSER_TO_FUND">Thua góp Quỹ chung</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t ui-divider">
+                <div
+                  className="text-[14px] font-semibold flex items-center gap-1.5"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <Trophy
+                    className="w-4 h-4"
+                    style={{ color: 'var(--color-warning)' }}
+                  />
+                  <span>Chọn đội thắng độ</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { team: 1 as const, label: 'Đội 1 thắng', names: team1Names },
+                    { team: 2 as const, label: 'Đội 2 thắng', names: team2Names },
+                  ].map((item) => {
+                    const active = betWinner === item.team;
+                    return (
+                      <button
+                        key={item.team}
+                        type="button"
+                        onClick={() =>
+                          setBetWinner(betWinner === item.team ? null : item.team)
+                        }
+                        className="min-h-[56px] p-3 rounded-xl text-left transition"
+                        style={
+                          active
+                            ? {
+                                backgroundColor: 'var(--color-accent-soft)',
+                                border: '1px solid var(--color-accent)',
+                                color: 'var(--color-accent)',
+                              }
+                            : {
+                                backgroundColor: 'var(--bg-surface)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-primary)',
+                              }
+                        }
+                      >
+                        <div className="font-bold text-[14px]">{item.label}</div>
+                        <div
+                          className="text-[12px] truncate mt-0.5"
+                          style={{
+                            color: active
+                              ? 'var(--color-accent)'
+                              : 'var(--text-secondary)',
+                          }}
+                        >
+                          {item.names}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-end gap-2 bg-slate-950/60">
-          <button
-            type="button"
-            onClick={onSkipOrClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
-          >
-            {mode === 'POST_MATCH' ? 'Bỏ qua' : 'Hủy'}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-lg flex items-center gap-1.5 transition"
-          >
-            <Check className="w-4 h-4" />
-            <span>Lưu kết quả</span>
-          </button>
-        </div>
+        {/* 4. Private Player Feedback (Host only) */}
+        {!isViewer && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span
+                className="text-[14px] font-semibold flex items-center gap-1.5"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                <Lock
+                  className="w-4 h-4"
+                  style={{ color: 'var(--color-warning)' }}
+                />
+                <span>Nhận xét riêng từng người</span>
+              </span>
+              <StatusPill tone="warning">Riêng tư</StatusPill>
+            </div>
+
+            <div className="space-y-2.5">
+              {matchPlayerIds.map((pid) => {
+                const p = playerMap.get(pid);
+                if (!p) return null;
+                const fb = playerFeedback[pid] || { tags: [], note: '' };
+
+                return (
+                  <div key={pid} className="ui-tile p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GenderDot sex={p.sex} />
+                        <span
+                          className="font-semibold text-[14px] truncate"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {p.name}
+                        </span>
+                        <RankBadge rank={p.rank} surface="tile" />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => toggleFeedbackTag(pid, 'OVER_RANK')}
+                          className={`ui-btn min-h-[36px] px-2.5 text-[12px] ${
+                            fb.tags.includes('OVER_RANK')
+                              ? 'ui-btn-accent-soft'
+                              : 'ui-btn-secondary'
+                          }`}
+                          style={
+                            !fb.tags.includes('OVER_RANK')
+                              ? { backgroundColor: 'var(--bg-surface)' }
+                              : undefined
+                          }
+                        >
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          <span>Vượt trình</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleFeedbackTag(pid, 'UNDER_RANK')}
+                          className={`ui-btn min-h-[36px] px-2.5 text-[12px] ${
+                            fb.tags.includes('UNDER_RANK')
+                              ? 'ui-btn-danger-soft'
+                              : 'ui-btn-secondary'
+                          }`}
+                          style={
+                            !fb.tags.includes('UNDER_RANK')
+                              ? { backgroundColor: 'var(--bg-surface)' }
+                              : undefined
+                          }
+                        >
+                          <TrendingDown className="w-3.5 h-3.5" />
+                          <span>Hơi đuối</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleFeedbackTag(pid, 'GREAT_PLAY')}
+                          className={`ui-btn min-h-[36px] px-2.5 text-[12px] ${
+                            fb.tags.includes('GREAT_PLAY')
+                              ? 'ui-btn-warning-soft'
+                              : 'ui-btn-secondary'
+                          }`}
+                          style={
+                            !fb.tags.includes('GREAT_PLAY')
+                              ? { backgroundColor: 'var(--bg-surface)' }
+                              : undefined
+                          }
+                        >
+                          <Star className="w-3.5 h-3.5" />
+                          <span>Hay</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Ghi chú kín ngắn (VD: phòng thủ chắc, hơi mệt)..."
+                      value={fb.note || ''}
+                      onChange={(e) => setFeedbackNote(pid, e.target.value)}
+                      className="ui-input"
+                      style={{ backgroundColor: 'var(--bg-surface)' }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </UiModal>
   );
 };

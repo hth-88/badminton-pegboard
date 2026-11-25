@@ -17,6 +17,7 @@ import type {
 import { RANK_METADATA } from '../engine/skillConfig';
 import { getOpponentCount, getPartnerCount } from '../engine/statsManager';
 import { RankAdvisorPanel } from './RankAdvisorPanel';
+import { GenderDot, RankBadge, StatusPill } from './ui/Primitives';
 
 interface EquityTableProps {
   players: Player[];
@@ -43,12 +44,10 @@ export const EquityTable: React.FC<EquityTableProps> = ({
   const [sortBy, setSortBy] = useState<'GAMES' | 'WAIT' | 'NAME'>('GAMES');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
-  // Active and paused players
   const activePlayers = useMemo(() => {
     return players.filter((p) => p.status === 'ACTIVE');
   }, [players]);
 
-  // Max, Min, Gap
   const summary = useMemo(() => {
     if (activePlayers.length === 0) {
       return { maxGames: 0, minGames: 0, gap: 0, avgGames: 0 };
@@ -61,7 +60,6 @@ export const EquityTable: React.FC<EquityTableProps> = ({
     return { maxGames, minGames, gap: maxGames - minGames, avgGames };
   }, [activePlayers]);
 
-  // Sắp xếp danh sách
   const sortedPlayers = useMemo(() => {
     return [...players].sort((a, b) => {
       if (sortBy === 'GAMES') {
@@ -72,13 +70,14 @@ export const EquityTable: React.FC<EquityTableProps> = ({
         const diff = a.waitStreak - b.waitStreak;
         return sortAsc ? diff : -diff;
       }
-      return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      return sortAsc
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name);
     });
   }, [players, sortBy, sortAsc]);
 
   const selectedPlayer = players.find((p) => p.id === selectedPlayerId);
 
-  // Ma trận đối đầu / bắt cặp của người được chọn
   const playerRelationships = useMemo(() => {
     if (!selectedPlayerId) return { partners: [], opponents: [] };
 
@@ -102,155 +101,198 @@ export const EquityTable: React.FC<EquityTableProps> = ({
   }, [players, stats, selectedPlayerId]);
 
   return (
-    <div className="space-y-5 text-slate-100">
-      {/* 1. OVERVIEW SUMMARY CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-            <Award className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Nhiều trận nhất</span>
-          </div>
-          <p className="text-xl font-black text-emerald-400">
-            {summary.maxGames} <span className="text-xs font-normal text-slate-400">trận</span>
-          </p>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-            <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-            <span>Ít trận nhất</span>
-          </div>
-          <p className="text-xl font-black text-amber-400">
-            {summary.minGames} <span className="text-xs font-normal text-slate-400">trận</span>
-          </p>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-            <BarChart3 className="w-3.5 h-3.5 text-sky-400" />
-            <span>Độ lệch (Max - Min)</span>
-          </div>
-          <p className={`text-xl font-black ${summary.gap <= 1 ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {summary.gap} <span className="text-xs font-normal text-slate-400">trận</span>
-          </p>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-            <Users className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Trung bình</span>
-          </div>
-          <p className="text-xl font-black text-indigo-400">
-            {summary.avgGames} <span className="text-xs font-normal text-slate-400">trận/người</span>
-          </p>
-        </div>
+    <div className="space-y-5">
+      {/* 1. SUMMARY METRICS */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          {
+            label: 'Nhiều nhất',
+            value: summary.maxGames,
+            unit: 'trận',
+            icon: Award,
+            tone: 'var(--color-accent)',
+          },
+          {
+            label: 'Ít nhất',
+            value: summary.minGames,
+            unit: 'trận',
+            icon: TrendingUp,
+            tone: 'var(--text-primary)',
+          },
+          {
+            label: 'Độ lệch',
+            value: summary.gap,
+            unit: 'trận',
+            icon: BarChart3,
+            tone: summary.gap <= 1 ? 'var(--color-accent)' : 'var(--color-warning)',
+          },
+          {
+            label: 'Trung bình',
+            value: summary.avgGames,
+            unit: 'trận',
+            icon: Users,
+            tone: 'var(--text-primary)',
+          },
+        ].map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <div key={metric.label} className="ui-card p-4 space-y-1.5">
+              <div
+                className="flex items-center gap-1.5 text-[13px] font-medium"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Icon className="w-4 h-4 shrink-0" style={{ color: metric.tone }} />
+                <span className="truncate">{metric.label}</span>
+              </div>
+              <p
+                className="text-[22px] font-bold tabular-nums leading-tight"
+                style={{ color: metric.tone }}
+              >
+                {metric.value}{' '}
+                <span
+                  className="text-[13px] font-medium"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {metric.unit}
+                </span>
+              </p>
+            </div>
+          );
+        })}
       </div>
 
-      {/* 2. BẢNG TỔNG KẾT NGƯỜI CHƠI */}
-      <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
+      {/* 2. EQUITY TABLE */}
+      <div className="ui-card p-4 sm:p-5 space-y-3.5">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-emerald-400" />
-            <span>Bảng thống kê số trận</span>
+          <h3
+            className="font-bold text-[16px] flex items-center gap-2"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <BarChart3
+              className="w-4 h-4"
+              style={{ color: 'var(--color-accent)' }}
+            />
+            <span>Thống kê số trận</span>
           </h3>
 
-          <div className="flex items-center gap-1 text-xs">
-            <button
-              onClick={() => {
-                if (sortBy === 'GAMES') setSortAsc(!sortAsc);
-                else {
-                  setSortBy('GAMES');
-                  setSortAsc(false);
-                }
-              }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                sortBy === 'GAMES'
-                  ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>Số trận</span>
-              <ArrowUpDown className="w-3 h-3" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (sortBy === 'GAMES') setSortAsc(!sortAsc);
+              else {
+                setSortBy('GAMES');
+                setSortAsc(false);
+              }
+            }}
+            className="ui-btn ui-btn-secondary min-h-[38px] px-3 text-[13px]"
+          >
+            <span>Số trận</span>
+            <ArrowUpDown className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="overflow-x-auto no-scrollbar">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-[14px] text-left">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400">
-                <th className="py-2 px-2 font-semibold">Người chơi</th>
-                <th className="py-2 px-2 font-semibold text-center">Trình</th>
-                <th className="py-2 px-2 font-semibold text-center">Thực tế</th>
-                <th className="py-2 px-2 font-semibold text-center">Bù ảo</th>
-                <th className="py-2 px-2 font-semibold text-center">Hiệu dụng</th>
-                <th className="py-2 px-2 font-semibold text-center">Đôi / Đơn</th>
+              <tr
+                className="border-b ui-divider text-[13px]"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <th className="py-2.5 px-2 font-semibold">Người chơi</th>
+                <th className="py-2.5 px-2 font-semibold text-center">Trình</th>
+                <th className="py-2.5 px-2 font-semibold text-center">Thực tế</th>
+                <th className="py-2.5 px-2 font-semibold text-center">Bù ảo</th>
+                <th className="py-2.5 px-2 font-semibold text-center">Hiệu dụng</th>
+                <th className="py-2.5 px-2 font-semibold text-center">Đôi / Đơn</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y ui-divider">
               {sortedPlayers.map((player) => {
-                const rankMeta = RANK_METADATA[player.rank];
                 const effectiveGames = player.gamesPlayed + player.virtualGamesOffset;
-                const doublesCount = Math.max(0, player.gamesPlayed - (player.singlesCount || 0));
+                const doublesCount = Math.max(
+                  0,
+                  player.gamesPlayed - (player.singlesCount || 0)
+                );
 
-                const isMax = player.gamesPlayed === summary.maxGames && summary.maxGames > 0;
-                const isMin = player.gamesPlayed === summary.minGames && summary.maxGames > summary.minGames;
+                const isMax =
+                  player.gamesPlayed === summary.maxGames && summary.maxGames > 0;
+                const isMin =
+                  player.gamesPlayed === summary.minGames &&
+                  summary.maxGames > summary.minGames;
+                const isSelected = selectedPlayerId === player.id;
 
                 return (
                   <tr
                     key={player.id}
                     onClick={() => setSelectedPlayerId(player.id)}
-                    className={`hover:bg-slate-850 cursor-pointer transition ${
-                      selectedPlayerId === player.id ? 'bg-slate-800/70 font-semibold' : ''
-                    }`}
+                    className="cursor-pointer transition"
+                    style={
+                      isSelected
+                        ? { backgroundColor: 'var(--bg-surface-secondary)' }
+                        : undefined
+                    }
                   >
-                    <td className="py-2.5 px-2">
-                      <div className="flex items-center gap-1.5 truncate max-w-[130px]">
+                    <td className="py-3 px-2">
+                      <div className="flex items-center gap-2 max-w-[140px]">
+                        <GenderDot sex={player.sex} />
                         <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${
-                            player.sex === 'M' ? 'bg-sky-400' : 'bg-pink-400'
-                          }`}
-                        />
-                        <span className="truncate">{player.name}</span>
+                          className="font-semibold truncate"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {player.name}
+                        </span>
                       </div>
                     </td>
 
-                    <td className="py-2.5 px-2 text-center">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${rankMeta.badgeBg} ${rankMeta.badgeText}`}>
-                        {rankMeta.code}
-                      </span>
+                    <td className="py-3 px-2 text-center">
+                      <RankBadge rank={player.rank} surface="card" />
                     </td>
 
-                    <td className="py-2.5 px-2 text-center font-bold">
-                      <span
-                        className={`px-2 py-0.5 rounded-full inline-block ${
-                          isMax
-                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
-                            : isMin
-                            ? 'bg-amber-950 text-amber-400 border border-amber-800/60'
-                            : 'text-slate-200'
-                        }`}
-                      >
-                        {player.gamesPlayed}
-                      </span>
+                    <td className="py-3 px-2 text-center tabular-nums">
+                      {isMax ? (
+                        <StatusPill tone="accent">{player.gamesPlayed}</StatusPill>
+                      ) : isMin ? (
+                        <StatusPill tone="warning">{player.gamesPlayed}</StatusPill>
+                      ) : (
+                        <span
+                          className="font-semibold"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {player.gamesPlayed}
+                        </span>
+                      )}
                     </td>
 
-                    <td className="py-2.5 px-2 text-center text-slate-400">
+                    <td
+                      className="py-3 px-2 text-center tabular-nums"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       {player.virtualGamesOffset > 0 ? (
-                        <span className="text-amber-400 font-semibold">+{player.virtualGamesOffset}</span>
+                        <span
+                          className="font-semibold"
+                          style={{ color: 'var(--color-warning)' }}
+                        >
+                          +{player.virtualGamesOffset}
+                        </span>
                       ) : (
                         '0'
                       )}
                     </td>
 
-                    <td className="py-2.5 px-2 text-center font-bold text-slate-100">
+                    <td
+                      className="py-3 px-2 text-center font-bold tabular-nums"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
                       {effectiveGames}
                     </td>
 
-                    <td className="py-2.5 px-2 text-center text-slate-400">
+                    <td
+                      className="py-3 px-2 text-center text-[13px] tabular-nums"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       <span>{doublesCount} đôi</span>
                       {player.singlesCount > 0 && (
-                        <span className="text-indigo-400 font-medium"> / {player.singlesCount} đơn</span>
+                        <span> / {player.singlesCount} đơn</span>
                       )}
                     </td>
                   </tr>
@@ -261,23 +303,32 @@ export const EquityTable: React.FC<EquityTableProps> = ({
         </div>
       </div>
 
-      {/* 3. MA TRẬN BẮT CẶP & ĐỐI ĐẦU (PARTNER / OPPONENT MATRIX) */}
-      <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+      {/* 3. PARTNER / OPPONENT MATRIX */}
+      <div className="ui-card p-4 sm:p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-              <HeartHandshake className="w-4 h-4 text-emerald-400" />
-              <span>Ma trận bắt cặp & đối đầu</span>
+            <h3
+              className="font-bold text-[16px] flex items-center gap-2"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <HeartHandshake
+                className="w-4 h-4"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span>Ma trận bắt cặp &amp; đối đầu</span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Chọn một người để xem lịch sử bắt cặp cùng đội và đối đầu
+            <p
+              className="text-[13px] mt-0.5"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Chọn một người để xem lịch sử ghép cặp và đối đầu
             </p>
           </div>
 
           <select
             value={selectedPlayerId}
             onChange={(e) => setSelectedPlayerId(e.target.value)}
-            className="bg-slate-800 text-slate-100 border border-slate-700 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="ui-select w-auto min-w-[168px]"
           >
             {players.map((p) => (
               <option key={p.id} value={p.id}>
@@ -288,38 +339,56 @@ export const EquityTable: React.FC<EquityTableProps> = ({
         </div>
 
         {selectedPlayer && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            {/* Cùng đội (Partners) */}
-            <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-              <div className="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800 pb-2">
-                <span className="flex items-center gap-1.5 text-emerald-400">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Partners */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-2 border-b ui-divider">
+                <span
+                  className="text-[13px] font-bold flex items-center gap-1.5"
+                  style={{ color: 'var(--color-accent)' }}
+                >
                   <HeartHandshake className="w-4 h-4" />
-                  <span>ĐÃ BẮT CẶP CÙNG ĐỘI</span>
+                  <span>CÙNG ĐỘI</span>
                 </span>
-                <span className="text-[11px] text-slate-500">Số lần</span>
+                <span
+                  className="text-[12px]"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Số lần
+                </span>
               </div>
 
-              <div className="space-y-1.5 max-h-56 overflow-y-auto no-scrollbar pt-1">
+              <div className="space-y-1.5 max-h-60 overflow-y-auto no-scrollbar">
                 {playerRelationships.partners.length === 0 ? (
-                  <p className="text-slate-500 text-center py-4">Chưa bắt cặp với ai</p>
+                  <p
+                    className="text-[14px] text-center py-6"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Chưa bắt cặp với ai
+                  </p>
                 ) : (
                   playerRelationships.partners.map(({ player, count }) => (
                     <div
                       key={player.id}
-                      className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/60 border border-slate-800/40"
+                      className="ui-tile px-3 py-2 flex items-center justify-between gap-2"
                     >
-                      <div className="flex items-center gap-1.5 truncate">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GenderDot sex={player.sex} />
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            player.sex === 'M' ? 'bg-sky-400' : 'bg-pink-400'
-                          }`}
-                        />
-                        <span className="truncate">{player.name}</span>
-                        <span className="text-[10px] text-slate-500">
-                          ({RANK_METADATA[player.rank].code})
+                          className="text-[14px] font-medium truncate"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {player.name}
                         </span>
+                        <RankBadge rank={player.rank} surface="tile" />
                       </div>
-                      <span className={`font-bold font-mono px-2 py-0.5 rounded ${count > 0 ? 'bg-emerald-950 text-emerald-300' : 'text-slate-600'}`}>
+                      <span
+                        className="text-[13px] font-semibold tabular-nums shrink-0"
+                        style={{
+                          color:
+                            count > 0 ? 'var(--color-accent)' : 'var(--text-muted)',
+                        }}
+                      >
                         {count} lần
                       </span>
                     </div>
@@ -328,37 +397,55 @@ export const EquityTable: React.FC<EquityTableProps> = ({
               </div>
             </div>
 
-            {/* Đối đầu (Opponents) */}
-            <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-              <div className="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800 pb-2">
-                <span className="flex items-center gap-1.5 text-rose-400">
+            {/* Opponents */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-2 border-b ui-divider">
+                <span
+                  className="text-[13px] font-bold flex items-center gap-1.5"
+                  style={{ color: 'var(--text-primary)' }}
+                >
                   <Swords className="w-4 h-4" />
-                  <span>ĐÃ ĐỐI ĐẦU KHÁC ĐỘI</span>
+                  <span>ĐỐI ĐẦU</span>
                 </span>
-                <span className="text-[11px] text-slate-500">Số lần</span>
+                <span
+                  className="text-[12px]"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Số lần
+                </span>
               </div>
 
-              <div className="space-y-1.5 max-h-56 overflow-y-auto no-scrollbar pt-1">
+              <div className="space-y-1.5 max-h-60 overflow-y-auto no-scrollbar">
                 {playerRelationships.opponents.length === 0 ? (
-                  <p className="text-slate-500 text-center py-4">Chưa đối đầu với ai</p>
+                  <p
+                    className="text-[14px] text-center py-6"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Chưa đối đầu với ai
+                  </p>
                 ) : (
                   playerRelationships.opponents.map(({ player, count }) => (
                     <div
                       key={player.id}
-                      className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/60 border border-slate-800/40"
+                      className="ui-tile px-3 py-2 flex items-center justify-between gap-2"
                     >
-                      <div className="flex items-center gap-1.5 truncate">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GenderDot sex={player.sex} />
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            player.sex === 'M' ? 'bg-sky-400' : 'bg-pink-400'
-                          }`}
-                        />
-                        <span className="truncate">{player.name}</span>
-                        <span className="text-[10px] text-slate-500">
-                          ({RANK_METADATA[player.rank].code})
+                          className="text-[14px] font-medium truncate"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {player.name}
                         </span>
+                        <RankBadge rank={player.rank} surface="tile" />
                       </div>
-                      <span className={`font-bold font-mono px-2 py-0.5 rounded ${count > 0 ? 'bg-rose-950 text-rose-300' : 'text-slate-600'}`}>
+                      <span
+                        className="text-[13px] font-semibold tabular-nums shrink-0"
+                        style={{
+                          color:
+                            count > 0 ? 'var(--color-danger)' : 'var(--text-muted)',
+                        }}
+                      >
                         {count} lần
                       </span>
                     </div>
@@ -370,7 +457,7 @@ export const EquityTable: React.FC<EquityTableProps> = ({
         )}
       </div>
 
-      {/* 4. PHÂN TÍCH TRÌNH ĐỘ & AI GEMINI (CHỈ CHỦ SÂN, ẨN TUYỆT ĐỐI VỚI VIEWER) */}
+      {/* 4. Rank Advisor (Host only) */}
       {!hideRankAdvisor && !isViewer && onApplyRank && history && (
         <RankAdvisorPanel
           players={players}

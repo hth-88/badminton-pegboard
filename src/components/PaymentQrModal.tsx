@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X,
-  QrCode,
   Copy,
   Check,
   Download,
@@ -24,6 +22,7 @@ import {
 import { compressReceiptImage } from '../utils/imageCompress';
 import { uploadPaymentReceipt } from '../services/supabaseSync';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
+import { UiModal } from './ui/Primitives';
 
 export interface PaymentQrModalProps {
   isOpen: boolean;
@@ -113,8 +112,6 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
     ]
   );
 
-  if (!isOpen) return null;
-
   const handleCopyText = async (text: string, type: 'STK' | 'NOTE') => {
     if (!text) return;
     vibrateSuccess();
@@ -163,9 +160,10 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
       setSelectedBlob(compressed);
       setPreviewUrl(URL.createObjectURL(compressed));
       vibrateSuccess();
-    } catch (err: any) {
+    } catch (err: unknown) {
       vibrateWarning();
-      setUploadError(err?.message || 'Không thể xử lý ảnh này.');
+      const msg = err instanceof Error ? err.message : 'Không thể xử lý ảnh này.';
+      setUploadError(msg);
     } finally {
       setCompressing(false);
     }
@@ -215,231 +213,255 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
   const canUploadReceipt = Boolean(roomCode) && paymentRecord?.status !== 'PAID';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md text-slate-100 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-              <QrCode className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-bold text-sm text-white truncate">
-                Chuyển khoản — {playerName}
-              </h3>
-              <p className="text-[11px] text-emerald-400 font-bold">
-                Số tiền: {formatVND(amount)}
-              </p>
+    <UiModal
+      isOpen={isOpen}
+      onClose={onClose}
+      sheetOnMobile
+      maxWidthClass="max-w-md"
+      title={`Chuyển khoản · ${playerName}`}
+      subtitle={
+        <span
+          className="font-bold tabular-nums"
+          style={{ color: 'var(--color-accent)' }}
+        >
+          Số tiền: {formatVND(amount)}
+        </span>
+      }
+    >
+      <div className="space-y-4">
+        {/* Rejection Banner */}
+        {paymentRecord?.status === 'REJECTED' && (
+          <div className="ui-banner-danger p-3.5 flex items-start gap-2.5 text-[14px]">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold">
+                Chủ sân đã từ chối lần báo trước
+              </div>
+              {paymentRecord.rejectionReason && (
+                <p className="text-[13px] mt-0.5">
+                  Lý do: <strong>{paymentRecord.rejectionReason}</strong>
+                </p>
+              )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        )}
 
-        {/* Body */}
-        <div className="p-4 overflow-y-auto space-y-4 text-xs">
-          {/* Rejection Banner */}
-          {paymentRecord?.status === 'REJECTED' && (
-            <div className="p-3 rounded-2xl bg-rose-950/60 border border-rose-700/70 text-rose-200 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div>
-                <div className="font-bold text-rose-300">Chủ sân đã từ chối lần báo trước</div>
-                {paymentRecord.rejectionReason && (
-                  <p className="text-[11px] text-rose-200 mt-0.5">
-                    Lý do: <strong>{paymentRecord.rejectionReason}</strong>
-                  </p>
+        {/* VietQR Box */}
+        {qrUrl ? (
+          <div className="ui-tile p-4 space-y-3.5 text-center">
+            <div className="ui-qr-frame p-3 inline-block mx-auto border ui-divider">
+              <img
+                src={qrUrl}
+                alt={`VietQR cho ${playerName}`}
+                className="w-52 h-auto max-h-64 object-contain mx-auto"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyText(settings.bankAccount, 'STK')}
+                className="ui-btn ui-btn-secondary px-2 text-[13px]"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
+              >
+                {copiedStk ? (
+                  <Check
+                    className="w-4 h-4 shrink-0"
+                    style={{ color: 'var(--color-accent)' }}
+                  />
+                ) : (
+                  <Copy className="w-4 h-4 shrink-0" />
+                )}
+                <span className="truncate">{copiedStk ? 'Đã chép' : 'STK'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyText(transferNote, 'NOTE')}
+                className="ui-btn ui-btn-secondary px-2 text-[13px]"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
+              >
+                {copiedNote ? (
+                  <Check
+                    className="w-4 h-4 shrink-0"
+                    style={{ color: 'var(--color-accent)' }}
+                  />
+                ) : (
+                  <Copy className="w-4 h-4 shrink-0" />
+                )}
+                <span className="truncate">{copiedNote ? 'Đã chép' : 'Nội dung'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadQr}
+                className="ui-btn ui-btn-accent-soft px-2 text-[13px]"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="truncate">Tải QR</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="ui-tile p-5 text-center space-y-3 text-[14px]">
+            <p style={{ color: 'var(--text-secondary)' }}>
+              {isViewer
+                ? 'Chủ sân chưa chọn ngân hàng chuẩn VietQR hoặc chưa điền số tài khoản.'
+                : 'Hãy chọn ngân hàng chuẩn VietQR và nhập Số tài khoản ở Mục 4 để tạo mã QR tự động.'}
+            </p>
+            {settings.bankAccount && (
+              <button
+                type="button"
+                onClick={() => handleCopyText(settings.bankAccount, 'STK')}
+                className="ui-btn ui-btn-accent-soft px-4 rounded-full"
+              >
+                {copiedStk ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>
+                  {copiedStk ? 'Đã chép STK!' : `Sao chép STK: ${settings.bankAccount}`}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Bank Account Details */}
+        {(bankOption || settings.bankName || settings.bankAccount) && (
+          <div className="ui-tile p-4 space-y-2 text-[14px]">
+            <div className="flex justify-between gap-2">
+              <span style={{ color: 'var(--text-secondary)' }}>Ngân hàng</span>
+              <span
+                className="font-semibold text-right"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                {bankOption?.shortName || settings.bankName || '-'}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span style={{ color: 'var(--text-secondary)' }}>Số tài khoản</span>
+              <span
+                className="font-mono-tabular font-bold text-right"
+                style={{ color: 'var(--color-accent)' }}
+              >
+                {settings.bankAccount || '-'}
+              </span>
+            </div>
+            {settings.bankAccountHolder && (
+              <div className="flex justify-between gap-2">
+                <span style={{ color: 'var(--text-secondary)' }}>Chủ TK</span>
+                <span
+                  className="font-semibold uppercase text-right"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {settings.bankAccountHolder}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between gap-2">
+              <span style={{ color: 'var(--text-secondary)' }}>Nội dung CK</span>
+              <span
+                className="font-semibold text-right"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                {transferNote}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Receipt Upload & Report */}
+        {canUploadReceipt && (
+          <div className="ui-tile p-4 space-y-3">
+            <div
+              className="font-bold text-[14px] flex items-center gap-2"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <ImageIcon
+                className="w-4 h-4"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span>Xác nhận chuyển khoản</span>
+            </div>
+
+            <label className="block cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                disabled={compressing || submitting}
+                className="hidden"
+              />
+              <div className="ui-tile-dashed min-h-[48px] px-4 py-2.5 text-[14px] font-medium flex items-center justify-center gap-2">
+                {compressing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Đang xử lý ảnh...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-4 h-4" />
+                    <span>
+                      {selectedBlob
+                        ? 'Đổi ảnh biên lai khác'
+                        : 'Đính kèm ảnh biên lai (tùy chọn)'}
+                    </span>
+                  </>
                 )}
               </div>
-            </div>
-          )}
+            </label>
 
-          {/* VietQR Box */}
-          {qrUrl ? (
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 text-center">
-              <div className="bg-white rounded-2xl p-3 inline-block mx-auto shadow-lg">
+            {previewUrl && selectedBlob && (
+              <div className="space-y-2 text-center">
                 <img
-                  src={qrUrl}
-                  alt={`VietQR cho ${playerName}`}
-                  className="w-52 h-auto max-h-64 object-contain mx-auto"
+                  src={previewUrl}
+                  alt="Xem trước biên lai"
+                  className="max-h-44 rounded-xl mx-auto border ui-divider object-contain"
                 />
+                <div
+                  className="text-[13px] font-semibold"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  Đã chọn ảnh biên lai
+                </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-3 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(settings.bankAccount, 'STK')}
-                  className="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center justify-center gap-1 transition"
-                >
-                  {copiedStk ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedStk ? 'Đã chép STK' : 'Chép STK'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(transferNote, 'NOTE')}
-                  className="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center justify-center gap-1 transition"
-                >
-                  {copiedNote ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedNote ? 'Đã chép ND' : 'Chép nội dung'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadQr}
-                  className="py-2 px-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-600/40 font-semibold flex items-center justify-center gap-1 transition"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Tải ảnh QR</span>
-                </button>
+            {uploadError && (
+              <div className="ui-banner-danger p-3 text-[13px] space-y-2">
+                <p>{uploadError}</p>
+                {selectedBlob && (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => handleSubmitWithOptionalReceipt(true)}
+                    className="ui-btn ui-btn-warning-soft w-full"
+                  >
+                    Xác nhận không kèm ảnh
+                  </button>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-2">
-              <p className="text-slate-400">
-                {isViewer
-                  ? 'Chủ sân chưa chọn ngân hàng chuẩn VietQR hoặc chưa điền số tài khoản.'
-                  : 'Hãy chọn ngân hàng chuẩn VietQR và nhập Số tài khoản ở Mục 4 để tự động tạo mã QR.'}
-              </p>
-              {settings.bankAccount && (
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(settings.bankAccount, 'STK')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold"
-                >
-                  {copiedStk ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedStk ? 'Đã chép STK!' : `Sao chép STK: ${settings.bankAccount}`}</span>
-                </button>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Chi tiết TK rút gọn */}
-          {(bankOption || settings.bankName || settings.bankAccount) && (
-            <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-1 text-[11px]">
-              <div className="flex justify-between gap-2">
-                <span className="text-slate-400">Ngân hàng:</span>
-                <span className="font-bold text-slate-200">
-                  {bankOption?.shortName || settings.bankName || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-slate-400">Số tài khoản:</span>
-                <span className="font-mono font-bold text-emerald-300">
-                  {settings.bankAccount || '-'}
-                </span>
-              </div>
-              {settings.bankAccountHolder && (
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-400">Chủ TK:</span>
-                  <span className="font-bold text-slate-200 uppercase">
-                    {settings.bankAccountHolder}
+            <button
+              type="button"
+              disabled={submitting || compressing}
+              onClick={() => handleSubmitWithOptionalReceipt(false)}
+              className="ui-btn ui-btn-primary w-full rounded-full"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Đang gửi xác nhận...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  <span>
+                    {selectedBlob ? 'Gửi biên lai & Xác nhận' : 'Xác nhận đã chuyển'}
                   </span>
-                </div>
+                </>
               )}
-              <div className="flex justify-between gap-2">
-                <span className="text-slate-400">Nội dung CK:</span>
-                <span className="font-semibold text-amber-300">{transferNote}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Xác nhận chuyển khoản & đính kèm biên lai */}
-          {canUploadReceipt && (
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-sky-800/50 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-sky-300 flex items-center gap-1.5">
-                  <ImageIcon className="w-4 h-4" />
-                  <span>Xác nhận chuyển khoản</span>
-                </span>
-              </div>
-
-              <label className="block cursor-pointer">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  disabled={compressing || submitting}
-                  className="hidden"
-                />
-                <div className="w-full py-2.5 px-3 rounded-xl border border-dashed border-sky-700/70 bg-sky-950/30 hover:bg-sky-950/50 text-sky-200 text-center font-semibold flex items-center justify-center gap-2 transition">
-                  {compressing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Đang xử lý ảnh...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="w-4 h-4" />
-                      <span>
-                        {selectedBlob
-                          ? 'Đổi ảnh biên lai khác'
-                          : 'Đính kèm ảnh biên lai (tùy chọn)'}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </label>
-
-              {previewUrl && selectedBlob && (
-                <div className="space-y-1.5 text-center">
-                  <img
-                    src={previewUrl}
-                    alt="Xem trước biên lai"
-                    className="max-h-44 rounded-xl mx-auto border border-slate-700 object-contain"
-                  />
-                  <div className="text-[11px] text-emerald-400 font-semibold">
-                    Đã chọn ảnh biên lai
-                  </div>
-                </div>
-              )}
-
-              {uploadError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-700/60 text-rose-200 text-[11px] space-y-2">
-                  <p>{uploadError}</p>
-                  {selectedBlob && (
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => handleSubmitWithOptionalReceipt(true)}
-                      className="w-full py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition"
-                    >
-                      Xác nhận không kèm ảnh
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  disabled={submitting || compressing}
-                  onClick={() => handleSubmitWithOptionalReceipt(false)}
-                  className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold shadow flex items-center justify-center gap-2 transition"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Đang gửi xác nhận...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>
-                        {selectedBlob
-                          ? 'Gửi biên lai & Xác nhận'
-                          : 'Xác nhận đã chuyển'}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+    </UiModal>
   );
 };

@@ -14,11 +14,11 @@ import {
   Eye,
   Minus,
   Plus,
-  X,
 } from 'lucide-react';
 import type { AutoSinglesMode, CourtMode, SessionSettings } from '../types/badminton';
 import type { ThemeMode } from '../hooks/useTheme';
 import type { RoomRole, SyncStatus } from '../hooks/useCloudRoom';
+import { UiModal } from './ui/Primitives';
 
 interface HeaderProps {
   activeCourtsCount: number;
@@ -45,7 +45,6 @@ interface HeaderProps {
   updateSettings: (settings: Partial<SessionSettings>) => void;
   promptPostMatchReview?: boolean;
   onTogglePromptPostMatchReview?: (enabled: boolean) => void;
-  // Cloud Room props
   roomCode?: string | null;
   pinCode?: string | null;
   role?: RoomRole;
@@ -85,6 +84,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempMaleBonus, setTempMaleBonus] = useState(maleBonus);
 
+  const isViewer = role === 'VIEWER';
+
   const isCurrentlyDark =
     theme === 'dark' ||
     (theme === 'system' &&
@@ -95,7 +96,6 @@ export const Header: React.FC<HeaderProps> = ({
     onSelectTheme(isCurrentlyDark ? 'light' : 'dark');
   };
 
-  // Preset matchMix
   const getMixPreset = () => {
     if (matchMix.doubles === 1 && matchMix.singles === 0) return '100_0';
     if (matchMix.doubles === 0.7 && matchMix.singles === 0.3) return '70_30';
@@ -105,43 +105,50 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 vo-header">
-      {/* Banner cảnh báo lỗi bộ nhớ */}
-      {storageError && (
-        <div className="bg-amber-500/15 border-b border-amber-500/35 px-3 py-2 text-xs md:text-sm text-amber-200 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 font-medium">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Bộ nhớ trình duyệt đầy, dữ liệu có thể không được lưu!</span>
+    <header className="sticky top-0 z-30 ui-header">
+      {/* Storage Warning Banner */}
+      {storageError && !isViewer && (
+        <div
+          className="px-4 py-2 border-b ui-divider"
+          style={{
+            backgroundColor: 'var(--color-warning-soft)',
+            color: 'var(--color-warning)',
+          }}
+        >
+          <div className="ui-container flex items-center justify-between gap-3 text-[14px]">
+            <div className="flex items-center gap-2 font-medium min-w-0">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                Bộ nhớ trình duyệt đầy, dữ liệu có thể không được lưu!
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onExportJson}
+              className="ui-btn ui-btn-primary min-h-[36px] px-3 rounded-full text-[13px] shrink-0"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Xuất JSON</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onExportJson}
-            className="flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg text-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Xuất JSON</span>
-          </button>
         </div>
       )}
 
-      {/* Compact Main Top Bar */}
-      <div className="max-w-7xl mx-auto px-3.5 md:px-6 py-2.5 flex items-center justify-between gap-2">
-        {/* Brand & Sân Active */}
+      {/* Main Top Bar */}
+      <div className="ui-container px-4 md:px-6 py-2.5 flex items-center justify-between gap-2">
+        {/* Brand & Court Count */}
         <div className="flex items-center gap-2.5 min-w-0">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
             style={{
-              background:
-                'linear-gradient(145deg, rgba(196, 242, 89, 0.20) 0%, rgba(196, 242, 89, 0.05) 100%)',
-              border: '1px solid var(--accent-lime-border)',
-              color: 'var(--accent-lime)',
-              boxShadow: 'inset 0 1px 0 var(--specular-lime)',
+              backgroundColor: 'var(--color-accent-soft)',
+              color: 'var(--color-accent)',
             }}
             aria-hidden="true"
           >
             <svg
-              width="18"
-              height="18"
+              width="20"
+              height="20"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -157,77 +164,70 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="min-w-0">
             <h1
-              className="font-bold text-[15px] tracking-[-0.025em] leading-tight truncate"
+              className="font-bold text-[16px] tracking-[-0.02em] leading-tight truncate"
               style={{ color: 'var(--text-primary)' }}
             >
               Badminton
             </h1>
             <div
-              className="flex items-center gap-1.5 mt-0.5 text-[11px] font-semibold"
+              className="flex items-center gap-1.5 mt-0.5 text-[12px] font-medium"
               style={{ color: 'var(--text-secondary)' }}
             >
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                style={{
-                  background: 'var(--accent-lime)',
-                  boxShadow: '0 0 8px var(--accent-lime)',
-                }}
+                style={{ backgroundColor: 'var(--color-accent)' }}
               />
-              <span className="truncate font-mono-tabular">
+              <span className="truncate tabular-nums">
                 {activeCourtsCount}/{totalCourtsCount} sân
               </span>
-              <span className="hidden sm:inline opacity-45">•</span>
-              <span className="hidden sm:inline truncate">
-                {courtMode === 'SHARED_POOL' ? 'Chung bể' : 'Tách sân'} • Bù +{maleBonus.toFixed(1)}
-              </span>
+              {!isViewer && (
+                <>
+                  <span className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline truncate tabular-nums">
+                    {courtMode === 'SHARED_POOL' ? 'Chung bể' : 'Tách sân'} · Bù +
+                    {maleBonus.toFixed(1)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Quick Actions (Cloud Room, Undo, Redo, Theme, Wake, Settings) */}
+        {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Nút Trạng Thái Phòng Cloud Realtime */}
+          {/* Cloud Room Status Button */}
           {roomCode && role !== 'OFFLINE' ? (
             <button
               type="button"
               onClick={onOpenCloudModal}
-              title={`Phòng ${roomCode} - ${role === 'CO_HOST' ? 'Co-Host (Toàn quyền)' : 'Chỉ xem'} (${syncStatus})`}
-              className="flex items-center gap-1.5 px-2.5 h-9 rounded-xl font-bold text-xs transition shrink-0"
-              style={
-                role === 'CO_HOST'
-                  ? {
-                      background: 'var(--accent-lime-soft)',
-                      border: '1px solid var(--accent-lime-border)',
-                      color: 'var(--accent-lime)',
-                    }
-                  : {
-                      background: 'rgba(99, 102, 241, 0.14)',
-                      border: '1px solid rgba(129, 140, 248, 0.35)',
-                      color: '#A5B4FC',
-                    }
-              }
+              title={`Phòng ${roomCode} — ${role === 'CO_HOST' ? 'Quản trị' : 'Chỉ xem'} (${syncStatus})`}
+              className={`ui-btn px-3 rounded-full shrink-0 ${
+                role === 'CO_HOST' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+              }`}
             >
               {role === 'CO_HOST' ? (
                 <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    syncStatus === 'SYNCING'
-                      ? 'bg-amber-400 animate-ping'
-                      : syncStatus === 'ERROR'
-                      ? 'bg-rose-500'
-                      : 'animate-pulse'
-                  }`}
-                  style={
-                    syncStatus !== 'SYNCING' && syncStatus !== 'ERROR'
-                      ? { background: 'var(--accent-lime)' }
-                      : undefined
-                  }
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{
+                    backgroundColor:
+                      syncStatus === 'SYNCING'
+                        ? 'var(--color-warning)'
+                        : syncStatus === 'ERROR'
+                        ? 'var(--color-danger)'
+                        : 'var(--color-accent)',
+                  }}
                 />
               ) : (
-                <Eye className="w-3.5 h-3.5 shrink-0" />
+                <Eye
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: 'var(--text-secondary)' }}
+                />
               )}
-              <span className="font-mono-tabular">{roomCode}</span>
-              <span className="hidden md:inline text-[10px] font-medium opacity-80">
-                ({role === 'CO_HOST' ? 'Host' : 'Xem'})
+              <span className="font-mono-tabular text-[13px] font-bold">
+                {roomCode}
+              </span>
+              <span className="hidden md:inline text-[12px] font-medium opacity-80">
+                {role === 'CO_HOST' ? 'Host' : 'Xem'}
               </span>
             </button>
           ) : (
@@ -235,43 +235,51 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenCloudModal}
               title="Phòng Online Realtime (Đồng bộ nhiều điện thoại)"
-              className="vo-btn-subtle flex items-center gap-1.5 px-2.5 h-9 rounded-xl font-semibold text-xs shrink-0"
+              aria-label="Phòng Online"
+              className="ui-btn ui-btn-secondary px-3 rounded-full shrink-0"
             >
-              <Cloud className="w-4 h-4 shrink-0" style={{ color: 'var(--accent-lime)' }} />
-              <span className="hidden sm:inline">Phòng Online</span>
+              <Cloud
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span className="hidden sm:inline text-[13px]">Phòng Online</span>
             </button>
           )}
 
-          {/* Undo / Redo */}
-          <button
-            type="button"
-            onClick={onUndo}
-            disabled={!canUndo}
-            title="Hoàn tác (Undo)"
-            aria-label="Hoàn tác (Undo)"
-            className="vo-btn-subtle w-9 h-9 rounded-xl disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+          {/* Undo / Redo (Host only) */}
+          {!isViewer && (
+            <>
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title="Hoàn tác (Undo)"
+                aria-label="Hoàn tác (Undo)"
+                className="ui-icon-btn w-11 h-11"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
 
-          <button
-            type="button"
-            onClick={onRedo}
-            disabled={!canRedo}
-            title="Làm lại (Redo)"
-            aria-label="Làm lại (Redo)"
-            className="hidden sm:flex vo-btn-subtle w-9 h-9 rounded-xl disabled:opacity-30 disabled:pointer-events-none items-center justify-center"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
+              <button
+                type="button"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title="Làm lại (Redo)"
+                aria-label="Làm lại (Redo)"
+                className="hidden sm:inline-flex ui-icon-btn w-11 h-11"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            </>
+          )}
 
-          {/* Quick Theme Toggle (Dark <-> Light) */}
+          {/* Quick Light / Dark Toggle */}
           <button
             type="button"
             onClick={handleQuickToggleTheme}
             title={isCurrentlyDark ? 'Chuyển sang chế độ Sáng' : 'Chuyển sang chế độ Tối'}
             aria-label={isCurrentlyDark ? 'Chuyển sang chế độ Sáng' : 'Chuyển sang chế độ Tối'}
-            className="vo-btn-subtle w-9 h-9 rounded-xl flex items-center justify-center"
+            className="ui-icon-btn w-11 h-11"
           >
             {isCurrentlyDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -283,13 +291,12 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onToggleWakeLock}
               title={wakeLockActive ? 'Màn hình luôn sáng: BẬT' : 'Màn hình luôn sáng: TẮT'}
               aria-label={wakeLockActive ? 'Màn hình luôn sáng: BẬT' : 'Màn hình luôn sáng: TẮT'}
-              className="w-9 h-9 rounded-xl flex items-center justify-center transition vo-btn-subtle"
+              className="ui-icon-btn w-11 h-11"
               style={
                 wakeLockActive
                   ? {
-                      background: 'var(--amber-soft)',
-                      borderColor: 'var(--amber-border)',
-                      color: 'var(--amber)',
+                      backgroundColor: 'var(--color-warning-soft)',
+                      color: 'var(--color-warning)',
                     }
                   : undefined
               }
@@ -298,297 +305,285 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Settings Sheet Button (Contains Quick Settings + Rules + Theme) */}
-          <button
-            type="button"
-            onClick={() => {
-              setTempMaleBonus(maleBonus);
-              setShowSettingsModal(true);
-            }}
-            title="Cài đặt xếp sân, tỷ lệ & giao diện"
-            aria-label="Cài đặt xếp sân, tỷ lệ & giao diện"
-            className="relative vo-btn-subtle w-9 h-9 rounded-xl flex items-center justify-center"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            <span
-              className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full"
-              style={{ background: 'var(--accent-lime)' }}
-            />
-          </button>
+          {/* Host Settings Sheet Trigger (Host only) */}
+          {!isViewer && (
+            <button
+              type="button"
+              onClick={() => {
+                setTempMaleBonus(maleBonus);
+                setShowSettingsModal(true);
+              }}
+              title="Cài đặt xếp sân, tỷ lệ & giao diện"
+              aria-label="Cài đặt xếp sân, tỷ lệ & giao diện"
+              className="ui-icon-btn w-11 h-11"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Settings Bottom Sheet / Modal (Includes Quick Settings moved cleanly out of top ribbon) */}
-      {showSettingsModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setShowSettingsModal(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="vo-glass-card rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 max-h-[88vh] overflow-y-auto shadow-2xl"
-            style={{ background: 'var(--bg-card-solid)' }}
-          >
-            <div className="sm:hidden w-10 h-1 rounded-full mx-auto mb-3 opacity-30 bg-current" />
-            <div className="flex items-center justify-between mb-4">
-              <h3
-                className="text-base font-bold flex items-center gap-2 tracking-[-0.02em]"
-                style={{ color: 'var(--text-primary)' }}
-              >
-                <SlidersHorizontal className="w-4 h-4" style={{ color: 'var(--accent-lime)' }} />
-                <span>Cài đặt xếp sân &amp; buổi chơi</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(false)}
-                className="vo-btn-subtle w-8 h-8 rounded-lg flex items-center justify-center"
-                aria-label="Đóng"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3.5 text-sm">
-              {/* 1. Chế độ bể + Tỷ lệ Đôi/Đơn + Auto Singles */}
-              <div className="vo-stage rounded-2xl p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="font-semibold text-xs" style={{ color: 'var(--text-primary)' }}>
-                      Chế độ bể người chơi
-                    </div>
-                    <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                      Chung bể cho cả 3 sân hoặc tách riêng từng sân
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onToggleCourtMode}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition"
-                    style={{
-                      background: 'var(--accent-lime-soft)',
-                      border: '1px solid var(--accent-lime-border)',
-                      color: 'var(--accent-lime)',
-                    }}
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>{courtMode === 'SHARED_POOL' ? 'Chung bể' : 'Tách sân'}</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
-                  <div>
-                    <label
-                      className="block text-[11px] font-medium mb-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      Tỷ lệ Đôi / Đơn
-                    </label>
-                    <select
-                      value={getMixPreset()}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '100_0') onUpdateMatchMix(1, 0);
-                        else if (val === '70_30') onUpdateMatchMix(0.7, 0.3);
-                        else if (val === '50_50') onUpdateMatchMix(0.5, 0.5);
-                        else if (val === '0_100') onUpdateMatchMix(0, 1);
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-2.5 py-2 text-xs font-semibold focus:outline-none"
-                    >
-                      <option value="100_0">100% Đôi</option>
-                      <option value="70_30">70% Đôi - 30% Đơn</option>
-                      <option value="50_50">50% Đôi - 50% Đơn</option>
-                      <option value="0_100">100% Đơn</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label
-                      className="block text-[11px] font-medium mb-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      Đơn khi ít người
-                    </label>
-                    <select
-                      value={autoSingles}
-                      onChange={(e) => onUpdateAutoSingles(e.target.value as AutoSinglesMode)}
-                      className="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-2.5 py-2 text-xs font-semibold focus:outline-none"
-                    >
-                      <option value="OFF">Tắt</option>
-                      <option value="ASK">Hỏi trước (ASK)</option>
-                      <option value="AUTO">Tự động (AUTO)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Bù trừ điểm Nam/Nữ */}
-              <div className="vo-stage rounded-2xl p-3 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label
-                      className="block font-semibold text-xs"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      Điểm bù Nam vs Nữ (maleBonus)
-                    </label>
-                    <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                      Mặc định +1.5 (Nam TB- ngang Nữ TB)
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTempMaleBonus(Math.max(0, Number((tempMaleBonus - 0.5).toFixed(1))))
-                      }
-                      className="vo-btn-subtle w-7 h-7 rounded-lg flex items-center justify-center"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span
-                      className="font-bold text-sm font-mono-tabular w-11 text-center"
-                      style={{ color: 'var(--accent-lime)' }}
-                    >
-                      +{tempMaleBonus.toFixed(1)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTempMaleBonus(Math.min(5, Number((tempMaleBonus + 0.5).toFixed(1))))
-                      }
-                      className="vo-btn-subtle w-7 h-7 rounded-lg flex items-center justify-center"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="5"
-                  step="0.5"
-                  value={tempMaleBonus}
-                  onChange={(e) => setTempMaleBonus(parseFloat(e.target.value))}
-                  className="w-full accent-lime-400"
-                />
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {[0, 1.0, 1.5, 2.0, 2.5, 3.0].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setTempMaleBonus(preset)}
-                      className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono-tabular transition"
-                      style={
-                        Math.abs(tempMaleBonus - preset) < 0.01
-                          ? {
-                              background: 'var(--accent-cta)',
-                              color: 'var(--text-on-accent)',
-                            }
-                          : {
-                              background: 'var(--bg-tile)',
-                              border: '1px solid var(--border-subtle)',
-                              color: 'var(--text-secondary)',
-                            }
-                      }
-                    >
-                      +{preset}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 3. Giao diện sáng / tối */}
+      {/* Host Settings Modal */}
+      <UiModal
+        isOpen={!isViewer && showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        sheetOnMobile
+        maxWidthClass="max-w-md"
+        title="Cài đặt xếp sân & buổi chơi"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowSettingsModal(false)}
+              className="ui-btn ui-btn-secondary px-4"
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onUpdateMaleBonus(tempMaleBonus);
+                setShowSettingsModal(false);
+              }}
+              className="ui-btn ui-btn-primary px-5 rounded-full"
+            >
+              Lưu cài đặt
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* 1. Pool mode & Match mix */}
+          <div className="ui-tile p-4 space-y-3.5">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <label
-                  className="block font-semibold text-xs mb-2"
+                <div
+                  className="text-[14px] font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Chế độ bể người chơi
+                </div>
+                <div
+                  className="text-[13px] mt-0.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
-                  Giao diện (Theme)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      { id: 'dark', label: 'Tối (Sân)', icon: Moon },
-                      { id: 'light', label: 'Sáng', icon: Sun },
-                      { id: 'system', label: 'Hệ thống', icon: Laptop },
-                    ] as const
-                  ).map((item) => {
-                    const Icon = item.icon;
-                    const active = theme === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onSelectTheme(item.id)}
-                        className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition"
-                        style={
-                          active
-                            ? {
-                                background: 'var(--accent-lime-soft)',
-                                border: '1px solid var(--accent-lime-border)',
-                                color: 'var(--accent-lime)',
-                              }
-                            : {
-                                background: 'var(--bg-tile)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-secondary)',
-                              }
-                        }
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
+                  Chung bể cho cả 3 sân hoặc tách riêng từng sân
                 </div>
               </div>
-
-              {/* 4. Hỏi nhanh tỉ số & nhận xét sau trận */}
-              {onTogglePromptPostMatchReview && (
-                <label className="vo-stage p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <div
-                      className="font-semibold text-xs"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      Hỏi nhanh tỉ số &amp; nhận xét sau khi kết thúc trận
-                    </div>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      Dữ liệu này nuôi mục AI Nhận xét trình trong tab Tính tiền. Trận có kèo độ luôn nhắc chốt đội thắng.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={promptPostMatchReview}
-                    onChange={(e) => onTogglePromptPostMatchReview(e.target.checked)}
-                    className="w-4 h-4 rounded accent-lime-400 cursor-pointer shrink-0"
-                  />
-                </label>
-              )}
+              <button
+                type="button"
+                onClick={onToggleCourtMode}
+                className="ui-btn ui-btn-accent-soft px-3.5 shrink-0"
+              >
+                <Users className="w-4 h-4" />
+                <span>{courtMode === 'SHARED_POOL' ? 'Chung bể' : 'Tách sân'}</span>
+              </button>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(false)}
-                className="vo-btn-subtle px-4 py-2.5 rounded-xl text-xs font-semibold"
-              >
-                Đóng
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onUpdateMaleBonus(tempMaleBonus);
-                  setShowSettingsModal(false);
-                }}
-                className="vo-cta-lime px-5 py-2.5 rounded-xl text-xs font-extrabold"
-              >
-                Lưu cài đặt
-              </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t ui-divider">
+              <div>
+                <label
+                  className="block text-[13px] font-semibold mb-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Tỷ lệ Đôi / Đơn
+                </label>
+                <select
+                  value={getMixPreset()}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '100_0') onUpdateMatchMix(1, 0);
+                    else if (val === '70_30') onUpdateMatchMix(0.7, 0.3);
+                    else if (val === '50_50') onUpdateMatchMix(0.5, 0.5);
+                    else if (val === '0_100') onUpdateMatchMix(0, 1);
+                  }}
+                  className="ui-select"
+                >
+                  <option value="100_0">100% Đôi</option>
+                  <option value="70_30">70% Đôi - 30% Đơn</option>
+                  <option value="50_50">50% Đôi - 50% Đơn</option>
+                  <option value="0_100">100% Đơn</option>
+                </select>
+              </div>
+
+              <div>
+                <label
+                  className="block text-[13px] font-semibold mb-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Đơn khi ít người
+                </label>
+                <select
+                  value={autoSingles}
+                  onChange={(e) => onUpdateAutoSingles(e.target.value as AutoSinglesMode)}
+                  className="ui-select"
+                >
+                  <option value="OFF">Tắt</option>
+                  <option value="ASK">Hỏi trước (ASK)</option>
+                  <option value="AUTO">Tự động (AUTO)</option>
+                </select>
+              </div>
             </div>
           </div>
+
+          {/* 2. Male Bonus */}
+          <div className="ui-tile p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <label
+                  className="block text-[14px] font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Điểm bù Nam vs Nữ
+                </label>
+                <p
+                  className="text-[13px] mt-0.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Mặc định +1.5 (Nam TB- ngang Nữ TB)
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTempMaleBonus(Math.max(0, Number((tempMaleBonus - 0.5).toFixed(1))))
+                  }
+                  aria-label="Giảm điểm bù Nam"
+                  className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                  style={{ backgroundColor: 'var(--bg-surface)' }}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <span
+                  className="font-bold text-[15px] tabular-nums w-12 text-center"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  +{tempMaleBonus.toFixed(1)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTempMaleBonus(Math.min(5, Number((tempMaleBonus + 0.5).toFixed(1))))
+                  }
+                  aria-label="Tăng điểm bù Nam"
+                  className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                  style={{ backgroundColor: 'var(--bg-surface)' }}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min="0"
+              max="5"
+              step="0.5"
+              value={tempMaleBonus}
+              onChange={(e) => setTempMaleBonus(parseFloat(e.target.value))}
+              className="ui-range w-full"
+            />
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[0, 1.0, 1.5, 2.0, 2.5, 3.0].map((preset) => {
+                const active = Math.abs(tempMaleBonus - preset) < 0.01;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTempMaleBonus(preset)}
+                    className={`min-h-[36px] px-3 rounded-xl text-[13px] font-semibold tabular-nums transition ${
+                      active ? 'ui-btn-primary' : ''
+                    }`}
+                    style={
+                      !active
+                        ? {
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-secondary)',
+                          }
+                        : undefined
+                    }
+                  >
+                    +{preset}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. Theme */}
+          <div className="space-y-2">
+            <label
+              className="block text-[14px] font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Giao diện
+            </label>
+            <div className="ui-segmented-track grid grid-cols-3 gap-1">
+              {(
+                [
+                  { id: 'dark', label: 'Tối', icon: Moon },
+                  { id: 'light', label: 'Sáng', icon: Sun },
+                  { id: 'system', label: 'Hệ thống', icon: Laptop },
+                ] as const
+              ).map((item) => {
+                const Icon = item.icon;
+                const active = theme === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectTheme(item.id)}
+                    className="min-h-[44px] px-2 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition"
+                    style={
+                      active
+                        ? {
+                            backgroundColor: 'var(--bg-surface-elevated)',
+                            color: 'var(--text-primary)',
+                            boxShadow: 'var(--shadow-sm)',
+                          }
+                        : { color: 'var(--text-secondary)' }
+                    }
+                  >
+                    <Icon
+                      className="w-4 h-4 shrink-0"
+                      style={active ? { color: 'var(--color-accent)' } : undefined}
+                    />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. Post-match review prompt toggle */}
+          {onTogglePromptPostMatchReview && (
+            <label className="ui-tile p-4 flex items-center justify-between gap-3 cursor-pointer">
+              <div>
+                <div
+                  className="text-[14px] font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Hỏi nhanh tỉ số &amp; nhận xét sau trận
+                </div>
+                <p
+                  className="text-[13px] mt-0.5 leading-snug"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Nuôi dữ liệu phân tích trình độ. Trận có kèo độ luôn nhắc chốt đội thắng.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={promptPostMatchReview}
+                onChange={(e) => onTogglePromptPostMatchReview(e.target.checked)}
+                className="ui-checkbox w-5 h-5 shrink-0 cursor-pointer"
+              />
+            </label>
+          )}
         </div>
-      )}
+      </UiModal>
     </header>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, RotateCcw, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RotateCcw, X } from 'lucide-react';
 
 interface ToastProps {
   message: string;
@@ -26,25 +26,53 @@ export const InfoToast: React.FC<InfoToastProps> = ({
     return () => clearTimeout(timer);
   }, [durationMs, onClose]);
 
+  const accentColor =
+    type === 'error'
+      ? 'var(--color-danger)'
+      : type === 'warning'
+      ? 'var(--color-warning)'
+      : 'var(--color-accent)';
+
+  const borderColor =
+    type === 'error'
+      ? 'var(--color-danger-border)'
+      : type === 'warning'
+      ? 'var(--color-warning-border)'
+      : 'var(--border-subtle)';
+
   return (
-    <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+    <div
+      role="status"
+      className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50"
+    >
       <div
-        className={`vo-glass-card rounded-2xl shadow-2xl p-3.5 flex items-center justify-between gap-3 ${
-          type === 'warning'
-            ? 'border-amber-500/70 text-amber-100'
-            : type === 'error'
-              ? 'border-rose-500/70 text-rose-100'
-              : ''
-        }`}
+        className="ui-toast px-4 py-3 flex items-center justify-between gap-3"
+        style={{ borderColor }}
       >
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
-          <p className="text-xs font-semibold leading-relaxed">{message}</p>
+          {type === 'info' ? (
+            <CheckCircle2
+              className="w-5 h-5 shrink-0"
+              style={{ color: accentColor }}
+            />
+          ) : (
+            <AlertCircle
+              className="w-5 h-5 shrink-0"
+              style={{ color: accentColor }}
+            />
+          )}
+          <p
+            className="text-[14px] font-medium leading-snug"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {message}
+          </p>
         </div>
         <button
+          type="button"
           onClick={onClose}
           aria-label="Đóng thông báo"
-          className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition shrink-0"
+          className="ui-icon-btn w-10 h-10 min-w-0 min-h-0 shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
@@ -77,43 +105,63 @@ export const UndoToast: React.FC<ToastProps> = ({
   }, [durationMs, onClose]);
 
   return (
-    <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-      <div className="vo-glass-card rounded-2xl shadow-2xl overflow-hidden p-3.5 flex items-center justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{message}</p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Bấm Hoàn tác trong {Math.ceil((progress / 100) * (durationMs / 1000))}s
-          </p>
+    <div
+      role="status"
+      className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50"
+    >
+      <div className="ui-toast overflow-hidden">
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p
+              className="text-[14px] font-semibold truncate"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {message}
+            </p>
+            <p
+              className="text-[12px] mt-0.5 tabular-nums"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              Hoàn tác trong {Math.ceil((progress / 100) * (durationMs / 1000))}s
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onUndo();
+                onClose();
+              }}
+              className="ui-btn ui-btn-primary min-h-[40px] px-3.5 rounded-full text-[13px]"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Hoàn tác</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Đóng thông báo"
+              className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={() => {
-              onUndo();
-              onClose();
-            }}
-            className="vo-cta-lime flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Hoàn tác</span>
-          </button>
-          <button
-            onClick={onClose}
-            aria-label="Đóng thông báo"
-            className="vo-btn-subtle p-1.5 rounded-lg"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-      {/* Progress bar */}
-      <div className="h-1 bg-slate-800/80 rounded-b-2xl overflow-hidden -mt-1 mx-2">
         <div
-          className="h-full transition-all duration-75"
-          style={{ width: `${progress}%`, background: 'var(--accent-cta)' }}
-        />
+          className="h-1 w-full"
+          style={{ backgroundColor: 'var(--bg-surface-secondary)' }}
+        >
+          <div
+            className="h-full transition-all duration-75"
+            style={{
+              width: `${progress}%`,
+              backgroundColor: 'var(--color-accent)',
+            }}
+          />
+        </div>
       </div>
     </div>
   );
 };
-

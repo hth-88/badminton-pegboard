@@ -7,7 +7,6 @@ import {
   Database,
   LogOut,
   RefreshCw,
-  X,
   Lock,
   Eye,
 } from 'lucide-react';
@@ -19,6 +18,7 @@ import {
 } from '../services/supabaseSync';
 import type { RoomRole, SyncStatus } from '../hooks/useCloudRoom';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
+import { StatusPill, UiModal } from './ui/Primitives';
 
 interface CloudRoomModalProps {
   isOpen: boolean;
@@ -58,40 +58,34 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   onUpgradeToCoHost,
   onUpdateRoomPin,
 }) => {
+  const isViewer = role === 'VIEWER';
   const [activeTab, setActiveTab] = useState<'MANAGE' | 'JOIN' | 'CONFIG'>('MANAGE');
 
-  // Form tạo phòng
   const [newRoomCode, setNewRoomCode] = useState(() => {
     const num = Math.floor(10 + Math.random() * 90);
     return `SAN-${num}`;
   });
   const [newPinCode, setNewPinCode] = useState('1234');
 
-  // Form vào phòng
   const [joinCode, setJoinCode] = useState('');
   const [joinPin, setJoinPin] = useState('');
 
-  // Form cấu hình Supabase
   const [customUrl, setCustomUrl] = useState('');
   const [customKey, setCustomKey] = useState('');
   const [configSaved, setConfigSaved] = useState(false);
 
-  // Copy state
   const [copiedViewerLink, setCopiedViewerLink] = useState(false);
   const [copiedHostLink, setCopiedHostLink] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
 
-  // Upgrade PIN prompt
   const [upgradePinInput, setUpgradePinInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Đổi PIN phòng (CO_HOST)
   const [showChangePinForm, setShowChangePinForm] = useState(false);
   const [changePinInput, setChangePinInput] = useState('');
   const [changePinError, setChangePinError] = useState<string | null>(null);
   const [isSavingPin, setIsSavingPin] = useState(false);
 
-  // Load config hiện tại khi mở modal
   useEffect(() => {
     if (isOpen) {
       const currentConfig = getSupabaseConfig();
@@ -99,8 +93,11 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
         setCustomUrl(currentConfig.url);
         setCustomKey(currentConfig.anonKey);
       }
+      if (isViewer && activeTab === 'CONFIG') {
+        setActiveTab('MANAGE');
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, isViewer, activeTab]);
 
   const baseUrl = useMemo(() => {
     if (typeof window !== 'undefined') {
@@ -192,8 +189,6 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   const sqlSetupCode = `-- Tạo bảng lưu phòng cầu lông + Storage ảnh biên lai
 create table if not exists public.badminton_rooms (
   room_code text primary key,
@@ -225,449 +220,558 @@ create policy "Public update receipts" on storage.objects for update using (buck
 drop policy if exists "Public delete receipts" on storage.objects;
 create policy "Public delete receipts" on storage.objects for delete using (bucket_id = 'payment-receipts');`;
 
+  const tabs: Array<{ id: 'MANAGE' | 'JOIN' | 'CONFIG'; label: string }> = isViewer
+    ? [
+        { id: 'MANAGE', label: roomCode ? 'Phòng hiện tại' : 'Phòng Online' },
+        { id: 'JOIN', label: 'Đổi phòng' },
+      ]
+    : [
+        { id: 'MANAGE', label: roomCode ? 'Quản lý phòng' : 'Tạo phòng' },
+        { id: 'JOIN', label: 'Vào phòng' },
+        { id: 'CONFIG', label: 'Cấu hình' },
+      ];
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg text-slate-100 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header Modal */}
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
-              <Cloud className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base">Phòng Online Đồng Bộ</h3>
-              <p className="text-[11px] text-slate-400">
-                Đồng bộ trực tiếp giữa Ban điều hành và thành viên trên sân
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <UiModal
+      isOpen={isOpen}
+      onClose={onClose}
+      sheetOnMobile
+      title="Phòng Online Đồng Bộ"
+      subtitle="Đồng bộ trực tiếp giữa Ban điều hành và người xem trên sân"
+    >
+      <div className="space-y-4">
+        {/* Segmented Tab Switcher */}
+        <div
+          className={`ui-segmented-track grid gap-1 ${
+            tabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+          }`}
+        >
+          {tabs.map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className="min-h-[44px] px-2 rounded-xl text-[14px] font-semibold transition"
+                style={
+                  active
+                    ? {
+                        backgroundColor: 'var(--bg-surface-elevated)',
+                        color: 'var(--text-primary)',
+                        boxShadow: 'var(--shadow-sm)',
+                      }
+                    : { color: 'var(--text-secondary)' }
+                }
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Tab Switcher */}
-        <div className="px-5 pt-3 border-b border-slate-800 bg-slate-950/40">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab('MANAGE')}
-              className={`pb-2.5 text-xs font-bold transition border-b-2 ${
-                activeTab === 'MANAGE'
-                  ? 'border-sky-500 text-sky-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {roomCode ? 'Quản lý phòng' : 'Tạo phòng mới'}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('JOIN')}
-              className={`pb-2.5 text-xs font-bold transition border-b-2 ${
-                activeTab === 'JOIN'
-                  ? 'border-sky-500 text-sky-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Vào phòng có sẵn
-            </button>
-
-            <button
-              onClick={() => setActiveTab('CONFIG')}
-              className={`pb-2.5 text-xs font-bold transition border-b-2 ${
-                activeTab === 'CONFIG'
-                  ? 'border-sky-500 text-sky-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Cấu hình Supabase
-            </button>
-          </div>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
-          {/* Status Banner nếu đang kết nối */}
-          {roomCode && (
-            <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+        {/* Connected Room Status Bar */}
+        {roomCode && (
+          <div className="ui-tile p-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{
+                  backgroundColor:
                     syncStatus === 'SYNCING'
-                      ? 'bg-amber-400 animate-ping'
+                      ? 'var(--color-warning)'
                       : syncStatus === 'ERROR'
-                      ? 'bg-rose-500'
-                      : 'bg-emerald-400'
-                  }`}
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-slate-100">
-                      Phòng: {roomCode}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        role === 'CO_HOST'
-                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                          : 'bg-indigo-950 text-indigo-300 border border-indigo-800'
-                      }`}
+                      ? 'var(--color-danger)'
+                      : 'var(--color-accent)',
+                }}
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className="font-bold text-[15px] font-mono-tabular"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {roomCode}
+                  </span>
+                  <StatusPill tone={role === 'CO_HOST' ? 'accent' : 'neutral'}>
+                    {role === 'CO_HOST' ? 'Quản trị (Co-Host)' : 'Chỉ xem'}
+                  </StatusPill>
+                </div>
+                <p
+                  className="text-[13px] mt-0.5 truncate"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {syncStatus === 'SYNCING'
+                    ? 'Đang đồng bộ...'
+                    : syncStatus === 'ERROR'
+                    ? `Lỗi: ${errorMessage}`
+                    : 'Đang kết nối Realtime'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onLeaveRoom}
+              className="ui-btn ui-btn-danger-soft px-3 shrink-0"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Rời phòng</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB 1: MANAGE / CREATE */}
+        {activeTab === 'MANAGE' && (
+          <div className="space-y-4">
+            {roomCode ? (
+              <>
+                {/* QR Code Panel */}
+                <div className="ui-tile p-4 text-center space-y-3">
+                  <p
+                    className="text-[14px] font-medium"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Quét mã QR để mở phòng trên điện thoại
+                  </p>
+                  {qrImageUrl && (
+                    <div
+                      className="ui-qr-frame w-48 h-48 p-3 mx-auto flex items-center justify-center border ui-divider"
                     >
-                      {role === 'CO_HOST' ? 'Quản trị (Co-Host)' : 'Chỉ xem'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {syncStatus === 'SYNCING'
-                      ? 'Đang đồng bộ...'
-                      : syncStatus === 'ERROR'
-                      ? `Lỗi: ${errorMessage}`
-                      : 'Đang kết nối Realtime'}
+                      <img
+                        src={qrImageUrl}
+                        alt="Room QR Code"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
+                  <p
+                    className="text-[13px]"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {role === 'CO_HOST'
+                      ? 'Mã QR truy cập nhanh cho Ban điều hành (kèm mã PIN)'
+                      : 'Quét mã để mở trang theo dõi sân (Chỉ xem)'}
                   </p>
                 </div>
-              </div>
 
-              <button
-                onClick={onLeaveRoom}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700 text-slate-300 text-[11px] font-semibold transition"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Rời phòng</span>
-              </button>
-            </div>
-          )}
-
-          {/* TAB 1: TẠO / QUẢN LÝ PHÒNG */}
-          {activeTab === 'MANAGE' && (
-            <div className="space-y-4">
-              {roomCode ? (
-                /* ĐÃ TRONG PHÒNG -> HIỆN LINK & MÃ QR */
-                <div className="space-y-4">
-                  <div className="text-center p-3 rounded-2xl bg-slate-950 border border-slate-800">
-                    <p className="text-slate-400 mb-2 font-medium">
-                      Quét mã QR để mở phòng trực tiếp trên điện thoại:
-                    </p>
-                    {qrImageUrl && (
-                      <div className="w-44 h-44 bg-white p-2.5 rounded-2xl mx-auto shadow-lg flex items-center justify-center">
-                        <img
-                          src={qrImageUrl}
-                          alt="Room QR Code"
-                          className="w-full h-full object-contain"
-                        />
-                      </div>
-                    )}
-                    <p className="text-[11px] text-slate-500 mt-2">
-                      {role === 'CO_HOST'
-                        ? 'Mã QR truy cập nhanh cho Ban điều hành (kèm mã PIN)'
-                        : 'Quét mã để mở trang theo dõi sân (Chỉ xem)'}
-                    </p>
-                  </div>
-
-                  {/* Nút Copy Links */}
-                  <div className="space-y-2">
-                    {/* Link Co-Host — CHỈ hiển thị cho quyền quản trị (CO_HOST) */}
-                    {role === 'CO_HOST' && (
-                      <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/80 space-y-1.5">
-                        <div className="flex items-center justify-between text-slate-300 font-semibold gap-2">
-                          <span className="flex items-center gap-1.5 text-emerald-400">
-                            <KeyRound className="w-4 h-4" />
-                            <span>Link điều hành (Co-Host)</span>
-                          </span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-[11px] font-mono text-slate-400">
-                              PIN: {pinCode || '••••'}
-                            </span>
-                            {onUpdateRoomPin && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setChangePinInput(pinCode || '');
-                                  setChangePinError(null);
-                                  setShowChangePinForm((prev) => !prev);
-                                }}
-                                className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-amber-300 text-[10px] font-bold transition"
-                              >
-                                {showChangePinForm ? 'Đóng' : 'Đổi PIN'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {onUpdateRoomPin && showChangePinForm && (
-                          <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                maxLength={6}
-                                value={changePinInput}
-                                onChange={(e) => {
-                                  setChangePinInput(e.target.value);
-                                  setChangePinError(null);
-                                }}
-                                placeholder="PIN mới (4–6 ký tự)..."
-                                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono font-bold text-xs text-white"
-                              />
-                              <button
-                                type="button"
-                                disabled={isSavingPin}
-                                onClick={async () => {
-                                  setChangePinError(null);
-                                  setIsSavingPin(true);
-                                  const res = await onUpdateRoomPin(changePinInput);
-                                  setIsSavingPin(false);
-                                  if (res.ok) {
-                                    vibrateSuccess();
-                                    setShowChangePinForm(false);
-                                  } else {
-                                    vibrateWarning();
-                                    setChangePinError(res.error || 'Không thể đổi PIN');
-                                  }
-                                }}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition"
-                              >
-                                {isSavingPin ? 'Đang lưu...' : 'Lưu PIN'}
-                              </button>
-                            </div>
-                            {changePinError && (
-                              <p className="text-[11px] text-rose-400 font-medium">{changePinError}</p>
-                            )}
-                          </div>
-                        )}
-                        <p className="text-[11px] text-slate-400">
-                          Dành cho người phụ trách điều phối sân: có quyền xếp lượt, chốt trận và quản lý thu tiền.
-                        </p>
-                        <button
-                          onClick={() => handleCopy(coHostUrl, 'HOST')}
-                          className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-2"
-                        >
-                          {copiedHostLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                          <span>{copiedHostLink ? 'Đã sao chép link điều hành' : 'Sao chép link điều hành'}</span>
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Link Viewer */}
-                    <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-1.5">
-                      <div className="flex items-center justify-between text-slate-300 font-semibold">
-                        <span className="flex items-center gap-1.5 text-sky-400">
-                          <Eye className="w-4 h-4" />
-                          <span>Link thành viên (Chỉ xem)</span>
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        Gửi vào nhóm để thành viên theo dõi lượt đánh, tỉ số và bảng thu tiền.
-                      </p>
-                      <button
-                        onClick={() => handleCopy(viewerUrl, 'VIEWER')}
-                        className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition flex items-center justify-center gap-2 border border-slate-700"
+                {/* Co-Host Link & PIN Management (CO_HOST only) */}
+                {role === 'CO_HOST' && (
+                  <div className="ui-tile p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span
+                        className="inline-flex items-center gap-1.5 text-[14px] font-bold"
+                        style={{ color: 'var(--color-accent)' }}
                       >
-                        {copiedViewerLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedViewerLink ? 'Đã sao chép link chỉ xem' : 'Sao chép link chỉ xem'}</span>
+                        <KeyRound className="w-4 h-4" />
+                        <span>Link điều hành (Co-Host)</span>
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className="text-[13px] font-mono-tabular font-semibold"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          PIN: {pinCode || '••••'}
+                        </span>
+                        {onUpdateRoomPin && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChangePinInput(pinCode || '');
+                              setChangePinError(null);
+                              setShowChangePinForm((prev) => !prev);
+                            }}
+                            className="min-h-[36px] px-3 rounded-lg text-[13px] font-semibold transition"
+                            style={{
+                              backgroundColor: 'var(--bg-surface)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {showChangePinForm ? 'Đóng' : 'Đổi PIN'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {onUpdateRoomPin && showChangePinForm && (
+                      <div
+                        className="p-3 rounded-xl space-y-2"
+                        style={{ backgroundColor: 'var(--bg-surface)' }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={changePinInput}
+                            onChange={(e) => {
+                              setChangePinInput(e.target.value);
+                              setChangePinError(null);
+                            }}
+                            placeholder="PIN mới (4–6 ký tự)..."
+                            className="ui-input font-mono-tabular font-bold"
+                          />
+                          <button
+                            type="button"
+                            disabled={isSavingPin}
+                            onClick={async () => {
+                              setChangePinError(null);
+                              setIsSavingPin(true);
+                              const res = await onUpdateRoomPin(changePinInput);
+                              setIsSavingPin(false);
+                              if (res.ok) {
+                                vibrateSuccess();
+                                setShowChangePinForm(false);
+                              } else {
+                                vibrateWarning();
+                                setChangePinError(res.error || 'Không thể đổi PIN');
+                              }
+                            }}
+                            className="ui-btn ui-btn-primary px-4 shrink-0"
+                          >
+                            {isSavingPin ? 'Đang lưu...' : 'Lưu'}
+                          </button>
+                        </div>
+                        {changePinError && (
+                          <p
+                            className="text-[13px] font-medium"
+                            style={{ color: 'var(--color-danger)' }}
+                          >
+                            {changePinError}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <p
+                      className="text-[13px] leading-relaxed"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Dành cho người điều phối sân: có quyền xếp lượt, chốt trận và quản lý thu tiền.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(coHostUrl, 'HOST')}
+                      className="ui-btn ui-btn-primary w-full rounded-full"
+                    >
+                      {copiedHostLink ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                      <span>
+                        {copiedHostLink
+                          ? 'Đã sao chép link điều hành'
+                          : 'Sao chép link điều hành'}
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Viewer Share Link */}
+                <div className="ui-tile p-4 space-y-3">
+                  <div
+                    className="inline-flex items-center gap-1.5 text-[14px] font-bold"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    <Eye
+                      className="w-4 h-4"
+                      style={{ color: 'var(--color-accent)' }}
+                    />
+                    <span>Link thành viên (Chỉ xem)</span>
+                  </div>
+                  <p
+                    className="text-[13px] leading-relaxed"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Gửi vào nhóm để thành viên theo dõi các sân đang đánh, lượt kế tiếp và hàng chờ.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(viewerUrl, 'VIEWER')}
+                    className="ui-btn ui-btn-secondary w-full rounded-full"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  >
+                    {copiedViewerLink ? (
+                      <Check
+                        className="w-4 h-4"
+                        style={{ color: 'var(--color-accent)' }}
+                      />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    <span>
+                      {copiedViewerLink
+                        ? 'Đã sao chép link chỉ xem'
+                        : 'Sao chép link chỉ xem'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Upgrade to Co-Host (VIEWER only) */}
+                {role === 'VIEWER' && (
+                  <div className="ui-tile p-4 space-y-3">
+                    <p
+                      className="text-[14px] font-bold flex items-center gap-1.5"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Lock
+                        className="w-4 h-4"
+                        style={{ color: 'var(--color-accent)' }}
+                      />
+                      <span>Mở khóa quyền quản trị (Co-Host)</span>
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        maxLength={6}
+                        placeholder="Nhập mã PIN..."
+                        value={upgradePinInput}
+                        onChange={(e) => setUpgradePinInput(e.target.value)}
+                        className="ui-input text-center font-mono-tabular font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!upgradePinInput.trim()) return;
+                          const res = await onUpgradeToCoHost(upgradePinInput);
+                          if (!res.ok) alert(res.error);
+                          else setUpgradePinInput('');
+                        }}
+                        className="ui-btn ui-btn-primary px-5 shrink-0"
+                      >
+                        Mở khóa
                       </button>
                     </div>
                   </div>
-
-                  {/* Nâng cấp Co-Host nếu đang là Viewer */}
-                  {role === 'VIEWER' && (
-                    <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-800/60 space-y-2">
-                      <p className="font-bold text-amber-300 flex items-center gap-1.5">
-                        <Lock className="w-4 h-4" />
-                        <span>Mở khóa quyền quản trị (Co-Host)</span>
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          maxLength={6}
-                          placeholder="Nhập mã PIN quản trị..."
-                          value={upgradePinInput}
-                          onChange={(e) => setUpgradePinInput(e.target.value)}
-                          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-center font-mono font-bold text-sm"
-                        />
-                        <button
-                          onClick={async () => {
-                            if (!upgradePinInput.trim()) return;
-                            const res = await onUpgradeToCoHost(upgradePinInput);
-                            if (!res.ok) alert(res.error);
-                            else setUpgradePinInput('');
-                          }}
-                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white rounded-xl shadow"
-                        >
-                          Mở khóa
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* CHƯA CÓ PHÒNG -> FORM TẠO MỚI */
-                <form onSubmit={handleCreateRoomSubmit} className="space-y-3">
-                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                    <div>
-                      <label className="block text-slate-300 font-semibold mb-1">
-                        Mã phòng (Gợi ý hoặc tự đặt)
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newRoomCode}
-                        onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())}
-                        placeholder="SAN-68, CLB-88..."
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 font-mono font-bold text-sm text-emerald-400 uppercase tracking-wider"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-300 font-semibold mb-1">
-                        Mã PIN quản trị (4–6 ký tự)
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        minLength={4}
-                        maxLength={6}
-                        value={newPinCode}
-                        onChange={(e) => setNewPinCode(e.target.value)}
-                        placeholder="1234"
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 font-mono font-bold text-sm text-slate-100"
-                      />
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Dùng để cấp quyền điều phối sân và xác nhận thu tiền (có thể đổi lại bất kỳ lúc nào).
-                      </p>
-                    </div>
+                )}
+              </>
+            ) : (
+              /* CREATE NEW ROOM FORM */
+              <form onSubmit={handleCreateRoomSubmit} className="space-y-4">
+                <div className="space-y-3.5">
+                  <div>
+                    <label
+                      className="block text-[14px] font-semibold mb-1.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Mã phòng (gợi ý hoặc tự đặt)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newRoomCode}
+                      onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())}
+                      placeholder="SAN-68, CLB-88..."
+                      className="ui-input font-mono-tabular font-bold uppercase tracking-wider"
+                    />
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"
-                  >
-                    <Cloud className="w-4 h-4" />
-                    <span>{isSubmitting ? 'ĐANG MỞ PHÒNG...' : 'MỞ PHÒNG ONLINE & ĐỒNG BỘ NGAY'}</span>
-                  </button>
-                </form>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: VÀO PHÒNG CÓ SẴN */}
-          {activeTab === 'JOIN' && (
-            <form onSubmit={handleJoinRoomSubmit} className="space-y-3">
-              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">
-                    Nhập Mã phòng
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    placeholder="Ví dụ: SAN-68"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 font-mono font-bold text-sm text-emerald-400 uppercase tracking-wider"
-                  />
+                  <div>
+                    <label
+                      className="block text-[14px] font-semibold mb-1.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Mã PIN quản trị (4–6 ký tự)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      minLength={4}
+                      maxLength={6}
+                      value={newPinCode}
+                      onChange={(e) => setNewPinCode(e.target.value)}
+                      placeholder="1234"
+                      className="ui-input font-mono-tabular font-bold"
+                    />
+                    <p
+                      className="text-[13px] mt-1.5"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Dùng để cấp quyền điều phối sân và quản lý thu tiền.
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">
-                    Mã PIN Co-Host (Bỏ trống nếu chỉ muốn xem)
-                  </label>
-                  <input
-                    type="password"
-                    maxLength={6}
-                    value={joinPin}
-                    onChange={(e) => setJoinPin(e.target.value)}
-                    placeholder="Nhập 4 số PIN nếu muốn Host hộ..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 font-mono font-bold text-sm text-slate-100"
-                  />
-                </div>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="ui-btn ui-btn-primary w-full rounded-full"
+                >
+                  <Cloud className="w-4 h-4" />
+                  <span>
+                    {isSubmitting ? 'Đang mở phòng...' : 'Mở phòng Online & Đồng bộ'}
+                  </span>
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: JOIN EXISTING ROOM */}
+        {activeTab === 'JOIN' && (
+          <form onSubmit={handleJoinRoomSubmit} className="space-y-4">
+            <div className="space-y-3.5">
+              <div>
+                <label
+                  className="block text-[14px] font-semibold mb-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Nhập mã phòng
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="Ví dụ: SAN-68"
+                  className="ui-input font-mono-tabular font-bold uppercase tracking-wider"
+                />
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3 px-4 bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2"
+              <div>
+                <label
+                  className="block text-[14px] font-semibold mb-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Mã PIN Co-Host (bỏ trống nếu chỉ xem)
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={joinPin}
+                  onChange={(e) => setJoinPin(e.target.value)}
+                  placeholder="Nhập 4 số PIN nếu muốn Host hộ..."
+                  className="ui-input font-mono-tabular font-bold"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="ui-btn ui-btn-primary w-full rounded-full"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>
+                {isSubmitting ? 'Đang kết nối...' : 'Kết nối vào phòng'}
+              </span>
+            </button>
+          </form>
+        )}
+
+        {/* TAB 3: SUPABASE CONFIG (Host / Offline only — hidden from VIEWER) */}
+        {activeTab === 'CONFIG' && !isViewer && (
+          <div className="space-y-4">
+            <div className="ui-tile p-4 space-y-3">
+              <h4
+                className="font-bold text-[15px] flex items-center gap-2"
+                style={{ color: 'var(--text-primary)' }}
               >
-                <RefreshCw className="w-4 h-4" />
-                <span>{isSubmitting ? 'ĐANG KẾT NỐI...' : 'KẾT NỐI VÀ TẢI DỮ LIỆU PHÒNG'}</span>
-              </button>
-            </form>
-          )}
+                <Database
+                  className="w-4 h-4"
+                  style={{ color: 'var(--color-accent)' }}
+                />
+                <span>Khóa kết nối Supabase</span>
+              </h4>
+              <p
+                className="text-[13px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Lưu trực tiếp vào thiết bị này mà không cần build lại ứng dụng.
+              </p>
 
-          {/* TAB 3: CẤU HÌNH SUPABASE */}
-          {activeTab === 'CONFIG' && (
-            <div className="space-y-3">
-              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
-                <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
-                  <Database className="w-4 h-4 text-emerald-400" />
-                  <span>Khóa kết nối Supabase Project</span>
-                </h4>
-                <p className="text-[11px] text-slate-400">
-                  Lưu trực tiếp vào thiết bị này mà không cần build lại mã nguồn.
-                </p>
-
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Project URL</label>
-                  <input
-                    type="text"
-                    value={customUrl}
-                    onChange={(e) => setCustomUrl(e.target.value)}
-                    placeholder="https://xyzcompany.supabase.co"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 font-mono text-xs text-slate-200"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Anon Public Key</label>
-                  <input
-                    type="password"
-                    value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 font-mono text-xs text-slate-200"
-                  />
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleSaveConfig}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow transition"
-                  >
-                    {configSaved ? 'Đã lưu!' : 'Lưu cấu hình'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetConfig}
-                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition"
-                  >
-                    Xóa
-                  </button>
-                </div>
+              <div>
+                <label
+                  className="block text-[13px] font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Project URL
+                </label>
+                <input
+                  type="text"
+                  value={customUrl}
+                  onChange={(e) => setCustomUrl(e.target.value)}
+                  placeholder="https://xyzcompany.supabase.co"
+                  className="ui-input font-mono-tabular"
+                />
               </div>
 
-              {/* Hướng dẫn SQL 1-chạm */}
-              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-300">Script SQL tạo bảng tự động</span>
-                  <button
-                    onClick={() => handleCopy(sqlSetupCode, 'SQL')}
-                    className="flex items-center gap-1 text-[11px] text-emerald-400 font-bold hover:underline"
-                  >
-                    {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedSql ? 'Đã chép SQL!' : 'Sao chép SQL'}</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Vào Supabase Dashboard -&gt; SQL Editor -&gt; Dán script này vào và bấm Run.
-                </p>
-                <pre className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[10px] text-slate-300 overflow-x-auto max-h-24">
-                  {sqlSetupCode}
-                </pre>
+              <div>
+                <label
+                  className="block text-[13px] font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Anon Public Key
+                </label>
+                <input
+                  type="password"
+                  value={customKey}
+                  onChange={(e) => setCustomKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                  className="ui-input font-mono-tabular"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveConfig}
+                  className="ui-btn ui-btn-primary flex-1 rounded-full"
+                >
+                  {configSaved ? 'Đã lưu!' : 'Lưu cấu hình'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetConfig}
+                  className="ui-btn ui-btn-secondary px-4"
+                  style={{ backgroundColor: 'var(--bg-surface)' }}
+                >
+                  Xóa
+                </button>
               </div>
             </div>
-          )}
-        </div>
+
+            <div className="ui-tile p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className="font-semibold text-[14px]"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Script SQL khởi tạo bảng
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(sqlSetupCode, 'SQL')}
+                  className="ui-btn ui-btn-accent-soft min-h-[36px] px-3 text-[13px]"
+                >
+                  {copiedSql ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedSql ? 'Đã chép' : 'Chép SQL'}</span>
+                </button>
+              </div>
+              <p
+                className="text-[13px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Vào Supabase Dashboard → SQL Editor → Dán script này và bấm Run.
+              </p>
+              <pre
+                className="p-3 rounded-xl font-mono-tabular text-[11px] overflow-x-auto max-h-28"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {sqlSetupCode}
+              </pre>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </UiModal>
   );
 };

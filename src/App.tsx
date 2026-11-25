@@ -15,6 +15,7 @@ import { SettlementTab } from './components/SettlementTab';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
 import { InfoToast, UndoToast } from './components/Toast';
+import { UiModal } from './components/ui/Primitives';
 import { Eye, KeyRound, Lock } from 'lucide-react';
 import {
   deleteReceiptFiles,
@@ -213,45 +214,51 @@ export function App() {
   }, [settlementData.payments]);
 
   return (
-    <div className="vo-app-shell flex flex-col select-none antialiased">
+    <div className="ui-app-shell flex flex-col select-none antialiased">
       {/* BANNER DỮ LIỆU HỎNG (Mục F) */}
       {(corruptStatus === 'CORRUPT_BACKED_UP' || corruptStatus === 'CORRUPT_NO_BACKUP') && (
-        <div className="bg-rose-900 border-b border-rose-700 text-rose-100 px-4 py-2 text-xs flex items-center justify-between gap-3 sticky top-0 z-50 shadow-md">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="truncate">
+        <div
+          className="px-4 py-2.5 border-b ui-divider sticky top-0 z-50"
+          style={{
+            backgroundColor: 'var(--color-danger-soft)',
+            color: 'var(--color-danger)',
+          }}
+        >
+          <div className="ui-container flex items-center justify-between gap-3 text-[14px]">
+            <span className="truncate font-medium">
               {corruptStatus === 'CORRUPT_BACKED_UP'
                 ? 'Phát hiện dữ liệu cũ bị hỏng, đã sao lưu. Bấm để xuất bản sao'
                 : 'Phát hiện dữ liệu cũ bị hỏng, không thể tạo bản sao lưu.'}
             </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {corruptStatus === 'CORRUPT_BACKED_UP' && (
+            <div className="flex items-center gap-2 shrink-0">
+              {corruptStatus === 'CORRUPT_BACKED_UP' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const backup = getLatestCorruptBackup();
+                    if (backup) {
+                      const blob = new Blob([backup.raw], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${backup.key}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }
+                  }}
+                  className="ui-btn ui-btn-danger min-h-[36px] px-3 text-[13px] rounded-full"
+                >
+                  Xuất bản sao
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  const backup = getLatestCorruptBackup();
-                  if (backup) {
-                    const blob = new Blob([backup.raw], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${backup.key}.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }
-                }}
-                className="px-2.5 py-1 bg-white text-rose-900 font-bold rounded-lg hover:bg-rose-50 transition"
+                onClick={() => setCorruptStatus('OK')}
+                className="ui-btn ui-btn-secondary min-h-[36px] px-3 text-[13px] rounded-full"
               >
-                Xuất bản sao
+                Bỏ qua
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setCorruptStatus('OK')}
-              className="px-2 py-1 bg-rose-950/80 hover:bg-rose-950 text-rose-300 rounded-lg font-semibold transition"
-            >
-              Bỏ qua
-            </button>
+            </div>
           </div>
         </div>
       )}
@@ -309,93 +316,130 @@ export function App() {
 
       {/* VIEWER NOTICE BANNER */}
       {role === 'VIEWER' && roomCode && (
-        <div className="bg-indigo-950/85 border-b border-indigo-800/50 px-4 py-2 text-xs text-indigo-200 flex items-center justify-between gap-3 sticky top-[57px] z-20 backdrop-blur-md">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Eye className="w-4 h-4 text-indigo-400 shrink-0" />
-            <span className="truncate">
-              Chế độ <strong className="text-white">Chỉ Xem</strong> phòng <strong className="text-white">{roomCode}</strong>.
-            </span>
+        <div
+          className="border-b ui-divider px-4 py-2 sticky top-[61px] z-20 ui-header"
+        >
+          <div className="ui-container flex items-center justify-between gap-3 text-[13px]">
+            <div
+              className="flex items-center gap-2 flex-1 min-w-0"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Eye
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span className="truncate">
+                Chế độ <strong style={{ color: 'var(--text-primary)' }}>Chỉ xem</strong> · Phòng{' '}
+                <strong
+                  className="font-mono-tabular"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {roomCode}
+                </strong>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPinPrompt(true)}
+              className="ui-btn ui-btn-secondary min-h-[36px] px-3 rounded-full text-[13px] shrink-0"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Nhập PIN Host</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPinPrompt(true)}
-            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition shrink-0 flex items-center gap-1 shadow-sm"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            <span>Nhập PIN Host</span>
-          </button>
         </div>
       )}
 
       {/* QUICK PIN PROMPT MODAL FOR VIEWER ACTION GUARD */}
-      {showPinPrompt && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="vo-glass-card rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center gap-2.5 text-amber-400">
-              <Lock className="w-5 h-5 shrink-0" />
-              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-                Mở khóa quyền Co-Host
-              </h3>
-            </div>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Bạn đang ở chế độ <strong>Chỉ Xem</strong> phòng <strong>{roomCode}</strong>. Vui lòng nhập mã PIN do chủ phòng cung cấp để thực hiện thao tác này.
-            </p>
+      <UiModal
+        isOpen={showPinPrompt}
+        onClose={() => {
+          setShowPinPrompt(false);
+          setUpgradePinInput('');
+          setPinError(null);
+        }}
+        maxWidthClass="max-w-sm"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Lock
+              className="w-4 h-4 shrink-0"
+              style={{ color: 'var(--color-accent)' }}
+            />
+            <span>Mở khóa quyền Co-Host</span>
+          </span>
+        }
+      >
+        <div className="space-y-4">
+          <p
+            className="text-[14px] leading-relaxed"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Bạn đang ở chế độ <strong style={{ color: 'var(--text-primary)' }}>Chỉ xem</strong> phòng{' '}
+            <strong className="font-mono-tabular" style={{ color: 'var(--text-primary)' }}>
+              {roomCode}
+            </strong>
+            . Nhập mã PIN từ chủ phòng để mở quyền điều hành.
+          </p>
 
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!upgradePinInput.trim()) return;
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!upgradePinInput.trim()) return;
+              setPinError(null);
+              const res = await upgradeToCoHost(upgradePinInput);
+              if (!res.ok) {
+                setPinError(res.error || 'Mã PIN không đúng');
+              } else {
+                setUpgradePinInput('');
+                setShowPinPrompt(false);
+              }
+            }}
+            className="space-y-3"
+          >
+            <input
+              type="password"
+              maxLength={6}
+              autoFocus
+              placeholder="Nhập mã PIN..."
+              value={upgradePinInput}
+              onChange={(e) => {
+                setUpgradePinInput(e.target.value);
                 setPinError(null);
-                const res = await upgradeToCoHost(upgradePinInput);
-                if (!res.ok) {
-                  setPinError(res.error || 'Mã PIN không đúng');
-                } else {
-                  setUpgradePinInput('');
-                  setShowPinPrompt(false);
-                }
               }}
-              className="space-y-3"
-            >
-              <input
-                type="password"
-                maxLength={6}
-                autoFocus
-                placeholder="Nhập mã PIN..."
-                value={upgradePinInput}
-                onChange={(e) => {
-                  setUpgradePinInput(e.target.value);
+              className="ui-input text-center font-mono-tabular font-bold text-[18px] tracking-widest"
+            />
+
+            {pinError && (
+              <p
+                className="text-[13px] font-medium text-center"
+                style={{ color: 'var(--color-danger)' }}
+              >
+                {pinError}
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPinPrompt(false);
+                  setUpgradePinInput('');
                   setPinError(null);
                 }}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-center font-mono-tabular font-bold text-lg text-white tracking-widest focus:outline-none focus:border-lime-400"
-              />
-
-              {pinError && (
-                <p className="text-xs text-rose-400 font-medium text-center">{pinError}</p>
-              )}
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPinPrompt(false);
-                    setUpgradePinInput('');
-                    setPinError(null);
-                  }}
-                  className="flex-1 py-2.5 vo-btn-subtle rounded-xl text-xs font-semibold"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 vo-cta-lime rounded-xl text-xs font-extrabold"
-                >
-                  Mở khóa
-                </button>
-              </div>
-            </form>
-          </div>
+                className="ui-btn ui-btn-secondary flex-1"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="ui-btn ui-btn-primary flex-1 rounded-full"
+              >
+                Mở khóa
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </UiModal>
 
       {/* 2. MAIN CONTENT TABS */}
       <main className="relative z-10 flex-1 ui-container">

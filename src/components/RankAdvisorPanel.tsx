@@ -21,6 +21,7 @@ import {
   saveGeminiApiKey,
 } from '../services/geminiRankAdvisor';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
+import { StatusPill } from './ui/Primitives';
 
 interface RankAdvisorPanelProps {
   players: Player[];
@@ -98,79 +99,104 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
     return (
       <div
         key={`${s.source}_${s.playerId}`}
-        className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2"
+        className="ui-tile p-3.5 space-y-2.5"
       >
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             {s.direction === 'UP' ? (
-              <TrendingUp className="w-4 h-4 text-emerald-400 shrink-0" />
+              <TrendingUp
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-accent)' }}
+              />
             ) : (
-              <TrendingDown className="w-4 h-4 text-rose-400 shrink-0" />
+              <TrendingDown
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-danger)' }}
+              />
             )}
-            <span className="font-bold text-slate-100 text-xs truncate">{s.playerName}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
-              {curMeta.code} → {nextMeta.code}
-            </span>
             <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                s.confidence === 'HIGH'
-                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
-                  : 'bg-amber-950 text-amber-300 border border-amber-700/50'
-              }`}
+              className="font-semibold text-[15px] truncate"
+              style={{ color: 'var(--text-primary)' }}
             >
-              {s.confidence === 'HIGH' ? 'Rõ rệt' : 'Gợi ý'}
+              {s.playerName}
             </span>
+            <StatusPill tone="neutral" className="tabular-nums">
+              {curMeta.code} → {nextMeta.code}
+            </StatusPill>
+            <StatusPill tone={s.confidence === 'HIGH' ? 'accent' : 'warning'}>
+              {s.confidence === 'HIGH' ? 'Rõ rệt' : 'Gợi ý'}
+            </StatusPill>
           </div>
 
           <button
             type="button"
             disabled={isApplied}
             onClick={() => handleApplySuggestion(s)}
-            className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 transition ${
-              isApplied
-                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow'
+            className={`ui-btn min-h-[40px] px-3.5 text-[13px] ${
+              isApplied ? 'ui-btn-accent-soft' : 'ui-btn-primary rounded-full'
             }`}
           >
-            {isApplied && <Check className="w-3 h-3" />}
+            {isApplied && <Check className="w-3.5 h-3.5" />}
             <span>
-              {isApplied ? 'Đã áp dụng ✓' : `Áp dụng (${curMeta.code} → ${nextMeta.code})`}
+              {isApplied
+                ? 'Đã áp dụng'
+                : `Áp dụng (${curMeta.code} → ${nextMeta.code})`}
             </span>
           </button>
         </div>
 
-        <p className="text-[11px] text-slate-300 leading-relaxed">{s.reason}</p>
+        <p
+          className="text-[14px] leading-relaxed"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {s.reason}
+        </p>
       </div>
     );
   };
 
   return (
-    <div className="p-4 rounded-3xl bg-slate-900 border border-indigo-800/50 space-y-3.5 text-xs">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+    <div className="ui-card p-4 sm:p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h3 className="font-bold text-sm text-indigo-300 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-400" />
-            <span>Phân tích trình độ &amp; Trợ lý AI Gemini</span>
+          <h3
+            className="font-bold text-[16px] flex items-center gap-2"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Sparkles
+              className="w-4 h-4"
+              style={{ color: 'var(--color-accent)' }}
+            />
+            <span>Phân tích trình độ &amp; Trợ lý AI</span>
           </h3>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Tổng hợp tỉ số, nhận xét riêng và ghi chú Sổ CLB để Chủ sân tham khảo chỉnh trình
+          <p
+            className="text-[13px] mt-0.5"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Tổng hợp tỉ số, nhận xét riêng và ghi chú Sổ CLB cho Ban điều hành
           </p>
         </div>
 
-        <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-950/70 text-amber-300 border border-amber-700/60 flex items-center gap-1">
+        <StatusPill tone="warning">
           <Lock className="w-3 h-3" />
-          <span>Chỉ hiển thị với quản trị</span>
-        </span>
+          <span>Chỉ quản trị</span>
+        </StatusPill>
       </div>
 
-      {/* Tầng 1: Gợi ý cục bộ Offline */}
-      <div className="space-y-2">
-        <div className="font-bold text-slate-300 text-[11px]">
-          📊 Đề xuất cục bộ (Chạy sẵn không cần mạng):
+      {/* Local Offline Analysis */}
+      <div className="space-y-2.5">
+        <div
+          className="text-[13px] font-semibold"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          Đề xuất cục bộ (không cần mạng)
         </div>
         {localAnalysis.suggestions.length === 0 ? (
-          <div className="p-3 rounded-2xl bg-slate-950/50 border border-slate-800/80 text-slate-400 text-[11px]">
-            Chưa có người chơi nào lệch trình rõ rệt theo tỉ số &amp; thẻ nhận xét hiện tại.
+          <div
+            className="ui-tile p-4 text-[14px]"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Chưa có người chơi nào lệch trình rõ rệt theo tỉ số &amp; nhận xét hiện tại.
           </div>
         ) : (
           <div className="space-y-2">
@@ -179,24 +205,24 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
         )}
       </div>
 
-      {/* Tầng 2: AI Gemini phân tích sâu */}
-      <div className="pt-2 border-t border-slate-800 space-y-2.5">
+      {/* Gemini AI Analysis */}
+      <div className="pt-3 border-t ui-divider space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <button
             type="button"
             disabled={loadingAi || history.length === 0}
             onClick={handleRunGemini}
-            className="flex-1 min-w-[200px] py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 transition"
+            className="ui-btn ui-btn-primary flex-1 min-w-[200px] rounded-full"
           >
             {loadingAi ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>AI Gemini đang phân tích dữ liệu buổi đánh...</span>
+                <span>Đang phân tích buổi đánh...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>✨ AI Gemini phân tích trình độ</span>
+                <span>AI Gemini phân tích trình độ</span>
               </>
             )}
           </button>
@@ -204,26 +230,33 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
           <button
             type="button"
             onClick={() => setShowKeyConfig((prev) => !prev)}
-            className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold text-xs flex items-center gap-1.5 transition"
+            className="ui-btn ui-btn-secondary px-4"
           >
-            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+            <KeyRound
+              className="w-4 h-4"
+              style={{ color: 'var(--color-warning)' }}
+            />
             <span>{apiKey ? 'Đổi Key AI' : 'Nhập Key Gemini'}</span>
           </button>
         </div>
 
         {showKeyConfig && (
-          <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-            <div className="text-[11px] text-slate-300 font-semibold">
-              Gemini API Key (Miễn phí tại{' '}
+          <div className="ui-tile p-4 space-y-2.5">
+            <div
+              className="text-[13px]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Gemini API Key (miễn phí tại{' '}
               <a
                 href="https://aistudio.google.com/apikey"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-400 underline"
+                className="underline font-semibold"
+                style={{ color: 'var(--color-accent)' }}
               >
                 aistudio.google.com/apikey
               </a>
-              , chỉ lưu trên máy bạn):
+              , chỉ lưu trên máy bạn)
             </div>
             <div className="flex gap-2">
               <input
@@ -231,7 +264,8 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="AIza..."
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100"
+                className="ui-input font-mono-tabular"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
               />
               <button
                 type="button"
@@ -240,7 +274,7 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
                   setShowKeyConfig(false);
                   vibrateSuccess();
                 }}
-                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                className="ui-btn ui-btn-primary px-4 shrink-0"
               >
                 Lưu
               </button>
@@ -251,7 +285,8 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
                     clearGeminiApiKey();
                     setApiKey('');
                   }}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 font-semibold"
+                  className="ui-btn ui-btn-secondary px-3 shrink-0"
+                  style={{ backgroundColor: 'var(--bg-surface)' }}
                 >
                   Xóa
                 </button>
@@ -261,17 +296,23 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
         )}
 
         {aiError && (
-          <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-700/60 text-rose-200 text-[11px]">
-            {aiError}
-          </div>
+          <div className="ui-banner-danger p-3 text-[13px]">{aiError}</div>
         )}
 
         {aiResult && (
-          <div className="p-3 rounded-2xl bg-indigo-950/30 border border-indigo-700/50 space-y-2.5">
-            <div className="text-xs font-bold text-indigo-200">
-              Nhận định của AI Gemini:
+          <div className="ui-tile p-4 space-y-3">
+            <div
+              className="text-[14px] font-bold"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              Nhận định của AI Gemini
             </div>
-            <p className="text-[11px] text-slate-200 leading-relaxed">{aiResult.summary}</p>
+            <p
+              className="text-[14px] leading-relaxed"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {aiResult.summary}
+            </p>
 
             {aiResult.suggestions.length > 0 && (
               <div className="space-y-2">
@@ -280,12 +321,18 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
             )}
 
             {aiResult.pairInsights.length > 0 && (
-              <div className="pt-2 border-t border-indigo-800/40 space-y-1">
-                <div className="font-bold text-[11px] text-amber-300 flex items-center gap-1">
-                  <Lightbulb className="w-3.5 h-3.5" />
-                  <span>Gợi ý ghép cặp / tách cặp:</span>
+              <div className="pt-2.5 border-t ui-divider space-y-1.5">
+                <div
+                  className="font-semibold text-[13px] flex items-center gap-1.5"
+                  style={{ color: 'var(--color-warning)' }}
+                >
+                  <Lightbulb className="w-4 h-4" />
+                  <span>Gợi ý ghép cặp / tách cặp</span>
                 </div>
-                <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-300">
+                <ul
+                  className="list-disc list-inside space-y-1 text-[14px]"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   {aiResult.pairInsights.map((tip, idx) => (
                     <li key={idx}>{tip}</li>
                   ))}
