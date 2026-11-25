@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Calculator,
   Download,
@@ -68,6 +68,79 @@ import { VIETNAM_BANKS, resolveBankOption } from '../engine/vietqr';
 import { deleteRoomReceipts } from '../services/supabaseSync';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 import { GenderDot, StatusPill, UiModal } from './ui/Primitives';
+
+interface NumericInputProps {
+  value: number;
+  onChangeValue: (next: number) => void;
+  disabled?: boolean;
+  allowDecimal?: boolean;
+  min?: number;
+  placeholder?: string;
+  className?: string;
+}
+
+const NumericInput: React.FC<NumericInputProps> = ({
+  value,
+  onChangeValue,
+  disabled,
+  allowDecimal = false,
+  min = 0,
+  placeholder = '0',
+  className = 'ui-input font-semibold tabular-nums',
+}) => {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(() => (Number.isFinite(value) ? String(value) : ''));
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(Number.isFinite(value) ? String(value) : '');
+    }
+  }, [value, focused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value;
+    if (allowDecimal) {
+      raw = raw.replace(',', '.').replace(/[^0-9.]/g, '');
+      const firstDot = raw.indexOf('.');
+      if (firstDot !== -1) {
+        raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+      }
+      raw = raw.replace(/^0+(?=\d)/, '');
+    } else {
+      raw = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+    }
+
+    setDraft(raw);
+    if (raw === '' || raw === '.') {
+      onChangeValue(min);
+      return;
+    }
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      onChangeValue(Math.max(min, parsed));
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode={allowDecimal ? 'decimal' : 'numeric'}
+      disabled={disabled}
+      value={focused ? draft : Number.isFinite(value) ? String(value) : ''}
+      placeholder={placeholder}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(value === 0 ? '' : String(value));
+      }}
+      onBlur={() => {
+        setFocused(false);
+        setDraft(Number.isFinite(value) ? String(value) : '');
+      }}
+      onChange={handleChange}
+      className={className}
+    />
+  );
+};
 
 interface SettlementTabProps {
   players: Player[];
@@ -161,6 +234,33 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
     if (isViewer) return;
     onUpdateSettlementSettings(updates);
   };
+
+  const activeCourtsCount = useMemo(() => {
+    const enabled = (currentState?.courts ?? []).filter((c) => c.isActive).length;
+    return Math.max(1, enabled);
+  }, [currentState?.courts]);
+  const totalCourtsCount = currentState?.courts?.length || 3;
+  const effectiveCourtCount = settings.courtCountManual
+    ? Math.max(1, settings.courtCount ?? activeCourtsCount)
+    : activeCourtsCount;
+
+  useEffect(() => {
+    if (
+      !isViewer &&
+      settings.courtCostMode === 'HOURLY' &&
+      !settings.courtCountManual &&
+      settings.courtCount !== activeCourtsCount
+    ) {
+      onUpdateSettlementSettings({ courtCount: activeCourtsCount });
+    }
+  }, [
+    isViewer,
+    settings.courtCostMode,
+    settings.courtCountManual,
+    settings.courtCount,
+    activeCourtsCount,
+    onUpdateSettlementSettings,
+  ]);
 
   const handleReportPayment = async (
     playerId: string,
@@ -783,43 +883,74 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               </div>
 
               {settings.courtCostMode === 'HOURLY' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      className="block text-[13px] mb-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      Giá/giờ (VNĐ)
-                    </label>
-                    <input
-                      type="number"
-                      step="10000"
-                      disabled={isViewer}
-                      value={settings.courtHourlyRate}
-                      onChange={(e) =>
-                        updateSettings({ courtHourlyRate: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
-                    />
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div>
+                      <label
+                        className="block text-[13px] mb-1"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Giá/giờ (VNĐ)
+                      </label>
+                      <NumericInput
+                        disabled={isViewer}
+                        value={settings.courtHourlyRate}
+                        onChangeValue={(v) => updateSettings({ courtHourlyRate: v })}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="block text-[13px] mb-1"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Số giờ đánh
+                      </label>
+                      <NumericInput
+                        allowDecimal
+                        disabled={isViewer}
+                        value={settings.courtHours}
+                        onChangeValue={(v) => updateSettings({ courtHours: v })}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="block text-[13px] mb-1"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Số sân
+                      </label>
+                      <NumericInput
+                        min={1}
+                        disabled={isViewer}
+                        value={effectiveCourtCount}
+                        onChangeValue={(v) =>
+                          updateSettings({
+                            courtCount: Math.max(1, Math.round(v)),
+                            courtCountManual: Math.max(1, Math.round(v)) !== activeCourtsCount,
+                          })
+                        }
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label
-                      className="block text-[13px] mb-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      Số giờ đánh
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0.5"
-                      disabled={isViewer}
-                      value={settings.courtHours}
-                      onChange={(e) =>
-                        updateSettings({ courtHours: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
-                    />
+                  <div className="flex items-center justify-between gap-2 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                    <span>
+                      Đang bật <strong style={{ color: 'var(--color-accent)' }}>{activeCourtsCount}/{totalCourtsCount}</strong> sân
+                    </span>
+                    {!isViewer && settings.courtCountManual && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateSettings({
+                            courtCount: activeCourtsCount,
+                            courtCountManual: false,
+                          })
+                        }
+                        className="underline font-semibold"
+                        style={{ color: 'var(--color-accent)' }}
+                      >
+                        Dùng theo sân đang bật ({activeCourtsCount})
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -830,15 +961,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   >
                     Tổng tiền sân (VNĐ)
                   </label>
-                  <input
-                    type="number"
-                    step="10000"
+                  <NumericInput
                     disabled={isViewer}
                     value={settings.courtCostDirect}
-                    onChange={(e) =>
-                      updateSettings({ courtCostDirect: Number(e.target.value) })
-                    }
-                    className="ui-input font-semibold tabular-nums"
+                    onChangeValue={(v) => updateSettings({ courtCostDirect: v })}
                   />
                 </div>
               )}
@@ -895,15 +1021,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     >
                       Số quả cầu
                     </label>
-                    <input
-                      type="number"
-                      min="0"
+                    <NumericInput
                       disabled={isViewer}
                       value={settings.shuttleCount}
-                      onChange={(e) =>
-                        updateSettings({ shuttleCount: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
+                      onChangeValue={(v) => updateSettings({ shuttleCount: v })}
                     />
                   </div>
                   <div>
@@ -913,15 +1034,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     >
                       Giá/quả (VNĐ)
                     </label>
-                    <input
-                      type="number"
-                      step="1000"
+                    <NumericInput
                       disabled={isViewer}
                       value={settings.shuttlePrice}
-                      onChange={(e) =>
-                        updateSettings({ shuttlePrice: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
+                      onChangeValue={(v) => updateSettings({ shuttlePrice: v })}
                     />
                   </div>
                 </div>
@@ -934,15 +1050,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     >
                       Số ống cầu
                     </label>
-                    <input
-                      type="number"
-                      min="0"
+                    <NumericInput
                       disabled={isViewer}
                       value={settings.shuttleTubeCount}
-                      onChange={(e) =>
-                        updateSettings({ shuttleTubeCount: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
+                      onChangeValue={(v) => updateSettings({ shuttleTubeCount: v })}
                     />
                   </div>
                   <div>
@@ -952,15 +1063,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                     >
                       Giá/ống (VNĐ)
                     </label>
-                    <input
-                      type="number"
-                      step="10000"
+                    <NumericInput
                       disabled={isViewer}
                       value={settings.shuttleTubePrice}
-                      onChange={(e) =>
-                        updateSettings({ shuttleTubePrice: Number(e.target.value) })
-                      }
-                      className="ui-input font-semibold tabular-nums"
+                      onChangeValue={(v) => updateSettings({ shuttleTubePrice: v })}
                     />
                   </div>
                 </div>
@@ -972,15 +1078,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                   >
                     Tổng tiền cầu (VNĐ)
                   </label>
-                  <input
-                    type="number"
-                    step="10000"
+                  <NumericInput
                     disabled={isViewer}
                     value={settings.shuttleCostDirect}
-                    onChange={(e) =>
-                      updateSettings({ shuttleCostDirect: Number(e.target.value) })
-                    }
-                    className="ui-input font-semibold tabular-nums"
+                    onChangeValue={(v) => updateSettings({ shuttleCostDirect: v })}
                   />
                 </div>
               )}
@@ -995,15 +1096,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 >
                   Chi phí khác (VNĐ)
                 </label>
-                <input
-                  type="number"
-                  step="5000"
+                <NumericInput
                   disabled={isViewer}
                   value={settings.extraCost}
-                  onChange={(e) =>
-                    updateSettings({ extraCost: Number(e.target.value) })
-                  }
-                  className="ui-input font-semibold tabular-nums"
+                  onChangeValue={(v) => updateSettings({ extraCost: v })}
                 />
               </div>
               <div>
@@ -1194,15 +1290,10 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 >
                   Số tiền Nam đóng thêm so với Nữ (VNĐ)
                 </label>
-                <input
-                  type="number"
-                  step="5000"
+                <NumericInput
                   disabled={isViewer}
                   value={settings.maleExtraAmount}
-                  onChange={(e) =>
-                    updateSettings({ maleExtraAmount: Number(e.target.value) })
-                  }
-                  className="ui-input font-semibold tabular-nums"
+                  onChangeValue={(v) => updateSettings({ maleExtraAmount: v })}
                 />
               </div>
             )}
@@ -1210,20 +1301,12 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
             {/* Under-played discount */}
             <div className="pt-3 border-t ui-divider space-y-3">
               <label className="flex items-center justify-between gap-3 cursor-pointer">
-                <div>
-                  <span
-                    className="font-semibold text-[14px] block"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    Giảm giá người đánh ít trận
-                  </span>
-                  <span
-                    className="text-[13px]"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Bù vào người đủ trận (tối đa +30%, đúng theo chế độ chia tiền)
-                  </span>
-                </div>
+                <span
+                  className="font-semibold text-[14px] block"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Giảm giá người đánh ít trận
+                </span>
                 <input
                   type="checkbox"
                   disabled={isViewer}

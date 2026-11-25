@@ -193,6 +193,8 @@ export interface SettlementSettings {
   courtCostDirect: number;
   courtHourlyRate: number;
   courtHours: number;
+  courtCount?: number;
+  courtCountManual?: boolean;
 
   // Tiền cầu
   shuttleCostMode: ShuttleCostMode;
@@ -323,7 +325,11 @@ export function calculateTotalCosts(settings: SettlementSettings): {
   if (settings.courtCostMode === 'DIRECT') {
     courtCost = Math.max(0, Math.round(settings.courtCostDirect));
   } else {
-    courtCost = Math.max(0, Math.round(settings.courtHourlyRate * settings.courtHours));
+    const courtCount =
+      typeof settings.courtCount === 'number' && Number.isFinite(settings.courtCount) && settings.courtCount >= 1
+        ? settings.courtCount
+        : 1;
+    courtCost = Math.max(0, Math.round(settings.courtHourlyRate * settings.courtHours * courtCount));
   }
 
   // 2. Tiền cầu
