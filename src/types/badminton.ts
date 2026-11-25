@@ -191,6 +191,8 @@ export interface SessionSettings {
   preferMixedDoubles: boolean;
   /** Hỏi nhanh tỉ số & nhận xét sau khi kết thúc trận (mặc định true) */
   promptPostMatchReview?: boolean;
+  /** Tự cân kèo theo phong độ tạm trong buổi (tỉ số & nhận xét, mặc định true) */
+  useSessionFormBalance?: boolean;
   /** Trọng số toàn bộ các hàm phạt để tinh chỉnh */
   weights: PenaltyWeights;
 }

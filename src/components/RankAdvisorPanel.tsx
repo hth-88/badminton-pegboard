@@ -182,6 +182,116 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
         </StatusPill>
       </div>
 
+      {/* Session Performance Summary Table */}
+      {(() => {
+        const activeSummaries = localAnalysis.summaries
+          .filter(
+            (s) =>
+              s.scoredMatches > 0 ||
+              s.overRankTags > 0 ||
+              s.underRankTags > 0 ||
+              s.greatPlayTags > 0 ||
+              s.notes.length > 0
+          )
+          .sort((a, b) => b.scoredMatches - a.scoredMatches || b.avgPointDiff - a.avgPointDiff);
+
+        return (
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div
+                className="text-[13px] font-semibold"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Tổng hợp phong độ buổi chơi ({activeSummaries.length} người có dữ liệu)
+              </div>
+            </div>
+
+            {activeSummaries.length === 0 ? (
+              <div
+                className="ui-tile p-4 text-[14px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Chưa có trận nào được nhập tỉ số hoặc nhận xét trong buổi này.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activeSummaries.map((s) => (
+                  <div key={s.playerId} className="ui-tile p-3.5 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="font-semibold text-[14px] truncate"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {s.playerName}
+                        </span>
+                        <span
+                          className="text-[12px] font-semibold px-2 py-0.5 rounded-md"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          {s.currentRank}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-[13px] tabular-nums">
+                        {s.scoredMatches > 0 && (
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            {s.wins}T–{s.losses}B ({s.avgPointDiff >= 0 ? '+' : ''}
+                            {s.avgPointDiff}đ)
+                          </span>
+                        )}
+                        {s.sessionFormOffset !== 0 && (
+                          <StatusPill
+                            tone={s.sessionFormOffset > 0 ? 'accent' : 'warning'}
+                          >
+                            Phong độ {s.sessionFormOffset > 0 ? '+' : ''}
+                            {s.sessionFormOffset}đ
+                          </StatusPill>
+                        )}
+                      </div>
+                    </div>
+
+                    {(s.overRankTags > 0 ||
+                      s.underRankTags > 0 ||
+                      s.greatPlayTags > 0) && (
+                      <div className="flex items-center gap-1.5 flex-wrap text-[12px]">
+                        {s.overRankTags > 0 && (
+                          <StatusPill tone="accent">
+                            Vượt trình ×{s.overRankTags}
+                          </StatusPill>
+                        )}
+                        {s.underRankTags > 0 && (
+                          <StatusPill tone="warning">
+                            Hơi đuối ×{s.underRankTags}
+                          </StatusPill>
+                        )}
+                        {s.greatPlayTags > 0 && (
+                          <StatusPill tone="neutral">
+                            Đánh hay ×{s.greatPlayTags}
+                          </StatusPill>
+                        )}
+                      </div>
+                    )}
+
+                    {s.notes.length > 0 && (
+                      <div
+                        className="text-[12px] italic"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        Ghi chú: {s.notes.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Local Offline Analysis */}
       <div className="space-y-2.5">
         <div

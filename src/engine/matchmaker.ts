@@ -23,6 +23,7 @@ import {
   slotsToLineup,
 } from './nextUp';
 import { getEffectiveSkill } from './skillConfig';
+import { buildSessionFormOffsetMap } from './skillAnalyzer';
 import {
   buildStatsFromHistory,
   getOpponentCount,
@@ -188,9 +189,17 @@ export function calculateSinglesScore(
     }
   }
 
-  // 1. Skill Balance
-  const eff1 = getEffectiveSkill(p1.rank, p1.sex, state.settings.maleBonus);
-  const eff2 = getEffectiveSkill(p2.rank, p2.sex, state.settings.maleBonus);
+  // 1. Skill Balance (có tính thêm phong độ tạm trong buổi nếu bật)
+  const formOffsets =
+    state.settings.useSessionFormBalance !== false && state.history.length > 0
+      ? buildSessionFormOffsetMap(state.players, state.history)
+      : {};
+  const eff1 =
+    getEffectiveSkill(p1.rank, p1.sex, state.settings.maleBonus) +
+    (formOffsets[p1.id] ?? 0);
+  const eff2 =
+    getEffectiveSkill(p2.rank, p2.sex, state.settings.maleBonus) +
+    (formOffsets[p2.id] ?? 0);
   const skillDiff = Number(Math.abs(eff1 - eff2).toFixed(2));
   const skillBalancePenalty = Math.pow(skillDiff, 2) * weights.singlesSkillBalanceMultiplier;
 
@@ -358,11 +367,19 @@ export function calculateDoublesScore(
   const opp24 = getOpponentCount(state.stats, p2.id, p4.id);
   const opponentRepeatPenalty = (opp13 + opp14 + opp23 + opp24) * weights.opponentRepeatMultiplier;
 
-  // 5. Skill Balance
-  const eff1 = getEffectiveSkill(p1.rank, p1.sex, maleBonus);
-  const eff2 = getEffectiveSkill(p2.rank, p2.sex, maleBonus);
-  const eff3 = getEffectiveSkill(p3.rank, p3.sex, maleBonus);
-  const eff4 = getEffectiveSkill(p4.rank, p4.sex, maleBonus);
+  // 5. Skill Balance (có tính thêm phong độ tạm trong buổi nếu bật)
+  const formOffsets =
+    state.settings.useSessionFormBalance !== false && state.history.length > 0
+      ? buildSessionFormOffsetMap(state.players, state.history)
+      : {};
+  const eff1 =
+    getEffectiveSkill(p1.rank, p1.sex, maleBonus) + (formOffsets[p1.id] ?? 0);
+  const eff2 =
+    getEffectiveSkill(p2.rank, p2.sex, maleBonus) + (formOffsets[p2.id] ?? 0);
+  const eff3 =
+    getEffectiveSkill(p3.rank, p3.sex, maleBonus) + (formOffsets[p3.id] ?? 0);
+  const eff4 =
+    getEffectiveSkill(p4.rank, p4.sex, maleBonus) + (formOffsets[p4.id] ?? 0);
 
   const team1Skill = Number((eff1 + eff2).toFixed(2));
   const team2Skill = Number((eff3 + eff4).toFixed(2));

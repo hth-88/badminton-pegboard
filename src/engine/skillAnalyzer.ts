@@ -19,6 +19,45 @@ export interface PlayerPerformanceSummary {
   greatPlayTags: number;
   lopsidedWins: number;
   lopsidedLosses: number;
+  notes: string[];
+  sessionFormOffset: number;
+}
+
+export function computeSessionFormOffset(input: {
+  scoredMatches: number;
+  avgPointDiff: number;
+  overRankTags: number;
+  underRankTags: number;
+}): number {
+  const scoreWeight =
+    input.scoredMatches > 0
+      ? Math.max(
+          -1.0,
+          Math.min(
+            1.0,
+            (input.avgPointDiff / 8) * Math.min(1, input.scoredMatches / 2)
+          )
+        )
+      : 0;
+  const tagWeight = (input.overRankTags - input.underRankTags) * 0.45;
+  const raw = scoreWeight + tagWeight;
+  return Number(Math.max(-1.5, Math.min(1.5, raw)).toFixed(2));
+}
+
+export function buildSessionFormOffsetMap(
+  players: Player[],
+  history: MatchHistory[],
+  privateReviews: Record<string, PrivateMatchReview> = {}
+): Record<string, number> {
+  if (history.length === 0) return {};
+  const { summaries } = analyzePlayerRanksLocal(players, history, privateReviews);
+  const map: Record<string, number> = {};
+  for (const s of summaries) {
+    if (s.sessionFormOffset !== 0) {
+      map[s.playerId] = s.sessionFormOffset;
+    }
+  }
+  return map;
 }
 
 export interface RankSuggestion {
@@ -50,6 +89,7 @@ export function analyzePlayerRanksLocal(
     let greatPlayTags = 0;
     let lopsidedWins = 0;
     let lopsidedLosses = 0;
+    const notes: string[] = [];
 
     for (const match of history) {
       const inT1 = match.team1.includes(player.id);
@@ -78,10 +118,19 @@ export function analyzePlayerRanksLocal(
         if (fb.tags.includes('UNDER_RANK')) underRankTags++;
         if (fb.tags.includes('GREAT_PLAY')) greatPlayTags++;
       }
+      if (fb?.note && fb.note.trim()) {
+        notes.push(fb.note.trim());
+      }
     }
 
     const avgPointDiff =
       scoredMatches > 0 ? Number((pointDiffSum / scoredMatches).toFixed(1)) : 0;
+    const sessionFormOffset = computeSessionFormOffset({
+      scoredMatches,
+      avgPointDiff,
+      overRankTags,
+      underRankTags,
+    });
 
     const summary: PlayerPerformanceSummary = {
       playerId: player.id,
@@ -96,6 +145,8 @@ export function analyzePlayerRanksLocal(
       greatPlayTags,
       lopsidedWins,
       lopsidedLosses,
+      notes,
+      sessionFormOffset,
     };
     summaries.push(summary);
 
