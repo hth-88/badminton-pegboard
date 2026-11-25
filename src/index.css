@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
 
-@custom-variant dark (&:where(.dark, .dark *));
-
 /* ==========================================================================
    BASE & BROWSER SURFACES
    ========================================================================== */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -109,20 +109,6 @@ export function App() {
     });
   }, [selectedCourtFilter]);
 
-  useLayoutEffect(() => {
-    if (activeTab !== 'courts') return;
-    measureCourtPill();
-    const track = courtSegRef.current;
-    if (!track) return;
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureCourtPill) : null;
-    ro?.observe(track);
-    window.addEventListener('resize', measureCourtPill);
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', measureCourtPill);
-    };
-  }, [activeTab, measureCourtPill, courts.length]);
-
   const handleCloudToast = useCallback((msg: string) => {
     setInfoToastMessage(msg);
   }, []);
@@ -178,11 +164,24 @@ export function App() {
   });
 
   // Tự động rời khỏi mọi tab không dành cho VIEWER (chỉ cho phép Sân & Hàng chờ)
-  useEffect(() => {
-    if (role === 'VIEWER' && activeTab !== 'courts' && activeTab !== 'queue') {
-      setActiveTab('courts');
-    }
-  }, [role, activeTab]);
+  const effectiveTab: NavTab =
+    role === 'VIEWER' && activeTab !== 'courts' && activeTab !== 'queue'
+      ? 'courts'
+      : activeTab;
+
+  useLayoutEffect(() => {
+    if (effectiveTab !== 'courts') return;
+    measureCourtPill();
+    const track = courtSegRef.current;
+    if (!track) return;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureCourtPill) : null;
+    ro?.observe(track);
+    window.addEventListener('resize', measureCourtPill);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measureCourtPill);
+    };
+  }, [effectiveTab, measureCourtPill, courts.length]);
 
   // Tính số sân đang bật
   const activeCourtsCount = useMemo(() => {
@@ -299,7 +298,7 @@ export function App() {
         storageError={storageError}
         onExportJson={() => {
           const jsonStr = exportSession();
-          navigator.clipboard.writeText(jsonStr).catch(() => {});
+          navigator.clipboard.writeText(jsonStr).catch(() => { });
           alert('Đã sao chép toàn bộ dữ liệu JSON vào Clipboard!');
         }}
         updateSettings={(s) => guardAction(() => updateSettings(s))}
@@ -443,9 +442,9 @@ export function App() {
 
       {/* 2. MAIN CONTENT TABS */}
       <main className="relative z-10 flex-1 ui-container">
-        <div key={activeTab} className="ui-tab-enter">
+        <div key={effectiveTab} className="ui-tab-enter">
           {/* TAB 1: SÂN (Màn hình điều khiển chính) */}
-          {activeTab === 'courts' && (
+          {effectiveTab === 'courts' && (
             <div className="px-4 md:px-6 pt-4 pb-28">
               {/* Apple Minimalist Segmented Court Switcher */}
               {courts.length >= 2 && (
@@ -521,11 +520,10 @@ export function App() {
               )}
 
               <div
-                className={`grid gap-4 lg:gap-5 items-stretch md:auto-rows-fr ${
-                  selectedCourtFilter === 'ALL'
-                    ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-                    : 'grid-cols-1 max-w-lg mx-auto'
-                }`}
+                className={`grid gap-4 lg:gap-5 items-stretch md:auto-rows-fr ${selectedCourtFilter === 'ALL'
+                  ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+                  : 'grid-cols-1 max-w-lg mx-auto'
+                  }`}
               >
                 {(selectedCourtFilter === 'ALL'
                   ? courts
@@ -608,7 +606,7 @@ export function App() {
           )}
 
           {/* TAB 2: HÀNG CHỜ */}
-          {activeTab === 'queue' && (
+          {effectiveTab === 'queue' && (
             <QueueTab
               players={players}
               courts={courts}
@@ -627,7 +625,7 @@ export function App() {
           )}
 
           {/* TAB 3: LUẬT CẶP (Ẩn hoàn toàn với VIEWER) */}
-          {activeTab === 'rules' && role !== 'VIEWER' && (
+          {effectiveTab === 'rules' && role !== 'VIEWER' && (
             <PairRulesTab
               pairRules={pairRules}
               players={players}
@@ -640,7 +638,7 @@ export function App() {
           )}
 
           {/* TAB 4: LỊCH SỬ (Ẩn hoàn toàn với VIEWER) */}
-          {activeTab === 'history' && role !== 'VIEWER' && (
+          {effectiveTab === 'history' && role !== 'VIEWER' && (
             <HistoryTab
               history={history}
               players={players}
@@ -655,7 +653,7 @@ export function App() {
           )}
 
           {/* TAB 5: TÍNH TIỀN (Ẩn hoàn toàn với VIEWER) */}
-          {activeTab === 'settlement' && role !== 'VIEWER' && (
+          {effectiveTab === 'settlement' && role !== 'VIEWER' && (
             <SettlementTab
               players={players}
               history={history}
@@ -674,7 +672,7 @@ export function App() {
                 guardAction(() => {
                   const receiptPath = settlementData.payments[playerId]?.receiptPath;
                   if (receiptPath) {
-                    deleteReceiptFiles([receiptPath]).catch(() => {});
+                    deleteReceiptFiles([receiptPath]).catch(() => { });
                   }
                   rejectPendingPayment(playerId, reason);
                 })
@@ -697,7 +695,7 @@ export function App() {
                   newSessionKeepPlayers(totalCost, settlementSnapshot);
                   resetPaymentsForNewSession();
                   if (roomCode) {
-                    deleteRoomReceipts(roomCode).catch(() => {});
+                    deleteRoomReceipts(roomCode).catch(() => { });
                   }
                 })
               }
@@ -706,7 +704,7 @@ export function App() {
                   resetSession();
                   resetPaymentsForNewSession();
                   if (roomCode) {
-                    deleteRoomReceipts(roomCode).catch(() => {});
+                    deleteRoomReceipts(roomCode).catch(() => { });
                   }
                 })
               }
@@ -740,7 +738,7 @@ export function App() {
 
       {/* 4. FLOATING GLASS BOTTOM NAVIGATION */}
       <BottomNav
-        activeTab={activeTab}
+        activeTab={effectiveTab}
         onSelectTab={setActiveTab}
         waitingCount={waitingCount}
         conflictCount={ruleConflicts.length}

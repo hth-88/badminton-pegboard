@@ -300,16 +300,13 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     return players.filter((p) => p.status === 'PAUSED');
   }, [players]);
 
-  const playingPlayerIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const c of courts) {
-      if (c.isActive && c.currentMatch) {
-        c.currentMatch.team1.forEach((id) => ids.add(id));
-        c.currentMatch.team2.forEach((id) => ids.add(id));
-      }
+  const playingPlayerIds = new Set<string>();
+  for (const c of courts) {
+    if (c.isActive && c.currentMatch) {
+      for (const id of c.currentMatch.team1) playingPlayerIds.add(id);
+      for (const id of c.currentMatch.team2) playingPlayerIds.add(id);
     }
-    return ids;
-  }, [courts]);
+  }
 
   const handleAddSinglePlayer = (e: React.FormEvent) => {
     e.preventDefault();

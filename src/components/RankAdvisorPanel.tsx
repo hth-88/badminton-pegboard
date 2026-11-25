@@ -36,10 +36,9 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
   maleBonus,
   onApplyRank,
 }) => {
-  const privateReviews = useMemo(() => getAllPrivateMatchReviews(), [history]);
   const localAnalysis = useMemo(
-    () => analyzePlayerRanksLocal(players, history, privateReviews),
-    [players, history, privateReviews]
+    () => analyzePlayerRanksLocal(players, history, getAllPrivateMatchReviews()),
+    [players, history]
   );
 
   const [apiKey, setApiKey] = useState<string>(() => getGeminiApiKey());
@@ -75,7 +74,7 @@ export const RankAdvisorPanel: React.FC<RankAdvisorPanelProps> = ({
         apiKey: activeKey,
         players,
         history,
-        privateReviews,
+        privateReviews: getAllPrivateMatchReviews(),
         clubRoster: getClubRoster(),
         maleBonus,
       });

@@ -167,13 +167,13 @@ export const CourtCard: React.FC<CourtCardProps> = ({
     return null;
   };
 
-  const blockedPlayerPlayingElsewhere = useMemo(() => {
+  const blockedPlayerPlayingElsewhere = (() => {
     if (!isNextUpComplete(safeNextUp)) return null;
     const currentSlots = safeNextUp.slots.filter(Boolean) as string[];
     for (const pid of currentSlots) {
       const courtName = getPlayingCourtName(pid);
       if (courtName) {
-        const p = getPlayer(pid);
+        const p = playerMap.get(pid);
         return {
           playerName: p?.name || 'Người chơi',
           courtName,
@@ -181,7 +181,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
       }
     }
     return null;
-  }, [safeNextUp, state.courts]);
+  })();
 
   const checkLineupErrors = (lineup: Lineup): string | null => {
     const allIds = [...lineup.team1, ...lineup.team2];
@@ -407,16 +407,15 @@ export const CourtCard: React.FC<CourtCardProps> = ({
         onKeyDown={
           canClick
             ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onClick?.();
-                }
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
               }
+            }
             : undefined
         }
-        className={`ui-tile h-[62px] px-3 py-2 flex flex-col justify-between min-w-0 w-full ${
-          canClick ? 'ui-tile-interactive cursor-pointer' : ''
-        }`}
+        className={`ui-tile h-[62px] px-3 py-2 flex flex-col justify-between min-w-0 w-full ${canClick ? 'ui-tile-interactive cursor-pointer' : ''
+          }`}
       >
         <div className="flex items-center gap-2 min-w-0">
           <GenderDot sex={player.sex} />
@@ -516,14 +515,14 @@ export const CourtCard: React.FC<CourtCardProps> = ({
         style={
           playingCourtName
             ? {
-                backgroundColor: 'var(--color-danger-soft)',
-                border: '1px solid var(--color-danger-border)',
-              }
+              backgroundColor: 'var(--color-danger-soft)',
+              border: '1px solid var(--color-danger-border)',
+            }
             : isManual && !isViewer
-            ? {
+              ? {
                 border: '1px solid var(--color-warning-border)',
               }
-            : undefined
+              : undefined
         }
       >
         {!isViewer ? (
@@ -620,13 +619,12 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
   return (
     <article
-      className={`h-full flex flex-col overflow-hidden transition-colors ${cardMinHeight} ${
-        isPlaying
-          ? 'ui-card-active'
-          : court.isActive
+      className={`h-full flex flex-col overflow-hidden transition-colors ${cardMinHeight} ${isPlaying
+        ? 'ui-card-active'
+        : court.isActive
           ? 'ui-card'
           : 'ui-card-disabled'
-      }`}
+        }`}
     >
       {/* 1. COURT HEADER (Fixed 64px height) */}
       <div className="h-[64px] px-4 flex items-center justify-between gap-2 shrink-0">
@@ -668,13 +666,13 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               style={
                 isOvertime
                   ? {
-                      backgroundColor: 'var(--color-danger-soft)',
-                      color: 'var(--color-danger)',
-                    }
+                    backgroundColor: 'var(--color-danger-soft)',
+                    color: 'var(--color-danger)',
+                  }
                   : {
-                      backgroundColor: 'var(--bg-surface-secondary)',
-                      color: 'var(--text-secondary)',
-                    }
+                    backgroundColor: 'var(--bg-surface-secondary)',
+                    color: 'var(--text-secondary)',
+                  }
               }
             >
               <Clock className="w-3.5 h-3.5 shrink-0" />
@@ -692,9 +690,9 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               style={
                 showCourtMenu
                   ? {
-                      backgroundColor: 'var(--color-accent-soft)',
-                      color: 'var(--color-accent)',
-                    }
+                    backgroundColor: 'var(--color-accent-soft)',
+                    color: 'var(--color-accent)',
+                  }
                   : undefined
               }
             >
@@ -738,9 +736,9 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     style={
                       active
                         ? {
-                            backgroundColor: 'var(--color-accent)',
-                            color: 'var(--text-on-accent)',
-                          }
+                          backgroundColor: 'var(--color-accent)',
+                          color: 'var(--text-on-accent)',
+                        }
                         : { color: 'var(--text-secondary)' }
                     }
                   >
@@ -756,9 +754,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowQuickRankControls((v) => !v)}
-                className={`ui-btn flex-1 px-3 ${
-                  showQuickRankControls ? 'ui-btn-accent-soft' : 'ui-btn-ghost'
-                }`}
+                className={`ui-btn flex-1 px-3 ${showQuickRankControls ? 'ui-btn-accent-soft' : 'ui-btn-ghost'
+                  }`}
                 style={
                   !showQuickRankControls
                     ? { backgroundColor: 'var(--bg-surface)' }
@@ -774,9 +771,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                 onUpdateCourt(court.id, { isActive: !court.isActive });
                 setShowCourtMenu(false);
               }}
-              className={`ui-btn flex-1 px-3 ${
-                !court.isActive ? 'ui-btn-accent-soft' : 'ui-btn-ghost'
-              }`}
+              className={`ui-btn flex-1 px-3 ${!court.isActive ? 'ui-btn-accent-soft' : 'ui-btn-ghost'
+                }`}
               style={
                 court.isActive
                   ? { backgroundColor: 'var(--bg-surface)' }
@@ -1051,8 +1047,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     desc.label === 'Cân kèo'
                       ? 'var(--color-accent)'
                       : desc.label === 'Lệch nhẹ'
-                      ? 'var(--color-warning)'
-                      : 'var(--color-danger)';
+                        ? 'var(--color-warning)'
+                        : 'var(--color-danger)';
 
                   return (
                     <>
@@ -1153,15 +1149,13 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                           type="button"
                           onClick={openLiveBetEditor}
                           title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
-                          className={`ui-btn px-3 text-[13px] gap-1.5 min-w-0 ${
-                            court.currentMatch.type === 'DOUBLES'
-                              ? 'shrink-0'
-                              : 'flex-1'
-                          } ${
-                            court.currentMatch.bet
+                          className={`ui-btn px-3 text-[13px] gap-1.5 min-w-0 ${court.currentMatch.type === 'DOUBLES'
+                            ? 'shrink-0'
+                            : 'flex-1'
+                            } ${court.currentMatch.bet
                               ? 'ui-btn-warning-soft'
                               : 'ui-btn-secondary'
-                          }`}
+                            }`}
                         >
                           <Flame
                             className="w-4 h-4 shrink-0"
@@ -1263,8 +1257,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                     onToggleNextUpType
                       ? onToggleNextUpType(court.id)
                       : onUpdateCourt(court.id, {
-                          forcedType: safeNextUp.type === 'DOUBLES' ? 'SINGLES' : 'DOUBLES',
-                        })
+                        forcedType: safeNextUp.type === 'DOUBLES' ? 'SINGLES' : 'DOUBLES',
+                      })
                   }
                   title="Chuyển nhanh giữa Đôi (4 ô) và Đơn (2 ô)"
                   className="ui-btn ui-btn-secondary min-h-[44px] px-3.5 rounded-full text-[13px] shrink-0"
