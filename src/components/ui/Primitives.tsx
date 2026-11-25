@@ -139,7 +139,16 @@ export const UiModal: React.FC<{
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    const prevOverflow = typeof document !== 'undefined' ? document.body.style.overflow : '';
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (typeof document !== 'undefined') {
+        document.body.style.overflow = prevOverflow;
+      }
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -157,7 +166,7 @@ export const UiModal: React.FC<{
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${maxWidthClass} flex flex-col max-h-[90vh] overflow-hidden ${
+        className={`w-full ${maxWidthClass} flex flex-col max-h-[85vh] max-h-[85dvh] overflow-hidden ${
           sheetOnMobile
             ? 'ui-sheet-panel sm:rounded-[28px] sm:border'
             : 'ui-modal-panel'
@@ -204,10 +213,10 @@ export const UiModal: React.FC<{
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">{children}</div>
 
         {footer && (
-          <div className="px-5 py-4 border-t ui-divider shrink-0 flex items-center justify-end gap-2.5">
+          <div className="px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t ui-divider shrink-0 flex items-center justify-end gap-2.5">
             {footer}
           </div>
         )}

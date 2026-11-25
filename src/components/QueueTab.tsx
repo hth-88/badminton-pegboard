@@ -869,7 +869,34 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                aria-label="Chuyển sân hàng loạt"
+                defaultValue=""
+                onChange={(e) => {
+                  const targetPool = e.target.value;
+                  if (!targetPool) return;
+                  vibrateSuccess();
+                  const ids = Array.from(selectedPlayerIds);
+                  ids.forEach((id) =>
+                    onUpdatePlayer({ id, assignedPool: targetPool })
+                  );
+                  setSelectedPlayerIds(new Set());
+                  e.target.value = '';
+                }}
+                className="ui-select w-auto min-w-[130px] py-2 px-3 text-[13px] font-semibold"
+              >
+                <option value="" disabled>
+                  Chuyển sân...
+                </option>
+                <option value="ALL">Tất cả sân</option>
+                {courts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
               <button
                 type="button"
                 onClick={() => {

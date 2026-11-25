@@ -43,11 +43,14 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
   onResumePlayer,
 }) => {
   const [search, setSearch] = useState('');
+  const [showOtherCourtPlayers, setShowOtherCourtPlayers] = useState(false);
   const [confirmingPlayer, setConfirmingPlayer] = useState<{
     player: Player;
     type: 'PAUSED' | 'WARN';
     message: string;
   } | null>(null);
+
+  const isSplitCourt = state.settings.courtMode === 'SPLIT_COURT';
 
   const effectiveSlotIndex =
     slotIndex !== undefined ? slotIndex : team === 1 ? index : 2 + index;
@@ -61,12 +64,18 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
   }, [state.players]);
 
   const filteredCandidates = useMemo(() => {
-    if (!search.trim()) return sortedCandidates;
+    let list = sortedCandidates;
+    if (isSplitCourt && !showOtherCourtPlayers) {
+      list = list.filter(
+        (p) => !p.assignedPool || p.assignedPool === 'ALL' || p.assignedPool === courtId
+      );
+    }
+    if (!search.trim()) return list;
     const q = search.toLowerCase();
-    return sortedCandidates.filter(
+    return list.filter(
       (p) => p.name.toLowerCase().includes(q) || p.rank.toLowerCase().includes(q)
     );
-  }, [sortedCandidates, search]);
+  }, [sortedCandidates, isSplitCourt, showOtherCourtPlayers, courtId, search]);
 
   if (!isOpen) return null;
 
@@ -178,6 +187,32 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
           />
         </div>
 
+        {/* Giao lưu toggle in SPLIT_COURT mode */}
+        {isSplitCourt && (
+          <label className="ui-tile px-3.5 py-2.5 flex items-center justify-between gap-3 cursor-pointer">
+            <div className="min-w-0">
+              <div
+                className="text-[13px] font-semibold"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                Giao lưu (hiện sân khác)
+              </div>
+              <div
+                className="text-[12px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Mượn đánh 1 trận, xong tự quay về sân gốc
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={showOtherCourtPlayers}
+              onChange={(e) => setShowOtherCourtPlayers(e.target.checked)}
+              className="ui-checkbox w-5 h-5 shrink-0"
+            />
+          </label>
+        )}
+
         {/* Candidate List */}
         <div className="space-y-2">
           {filteredCandidates.length === 0 && (
@@ -229,6 +264,15 @@ export const SlotSheet: React.FC<SlotSheetProps> = ({
                         {player.name}
                       </span>
                       <RankBadge rank={player.rank} surface="tile" />
+                      {isSplitCourt &&
+                        player.assignedPool &&
+                        player.assignedPool !== 'ALL' &&
+                        player.assignedPool !== courtId && (
+                          <StatusPill tone="accent">
+                            {state.courts.find((c) => c.id === player.assignedPool)?.name ||
+                              player.assignedPool.replace('court-', 'Sân ')}
+                          </StatusPill>
+                        )}
                       {isPaused && (
                         <StatusPill tone="warning">
                           <UserX className="w-3 h-3" />
