@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Flame,
   Trophy,
@@ -118,46 +118,49 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
     Record<string, PlayerMatchFeedback>
   >({});
 
-  useEffect(() => {
-    if (!isOpen || !match) return;
+  const currentInitKey = isOpen && match ? `${match.id}_${isViewer}` : null;
+  const [prevInitKey, setPrevInitKey] = useState<string | null>(null);
+  if (currentInitKey !== prevInitKey) {
+    setPrevInitKey(currentInitKey);
+    if (isOpen && match) {
+      setScore1(match.score ? String(match.score.team1) : '');
+      setScore2(match.score ? String(match.score.team2) : '');
+      setBalanceRating(match.balanceRating || null);
 
-    setScore1(match.score ? String(match.score.team1) : '');
-    setScore2(match.score ? String(match.score.team2) : '');
-    setBalanceRating(match.balanceRating || null);
+      if (match.bet) {
+        setHasBet(true);
+        setBetCategory(match.bet.category);
+        setBetLabel(match.bet.label);
+        setBetQuantity(match.bet.quantity);
+        setBetUnit(match.bet.unit);
+        setBetAmountVnd(match.bet.amountVnd);
+        setBetPayoutMode(match.bet.payoutMode);
+        setBetWinner(match.betWinner ?? null);
+      } else {
+        setHasBet(false);
+        setBetCategory('DRINK');
+        setBetLabel('1 nước');
+        setBetQuantity(1);
+        setBetUnit('PER_PLAYER');
+        setBetAmountVnd(0);
+        setBetPayoutMode('TEAM_TO_TEAM');
+        setBetWinner(null);
+      }
 
-    if (match.bet) {
-      setHasBet(true);
-      setBetCategory(match.bet.category);
-      setBetLabel(match.bet.label);
-      setBetQuantity(match.bet.quantity);
-      setBetUnit(match.bet.unit);
-      setBetAmountVnd(match.bet.amountVnd);
-      setBetPayoutMode(match.bet.payoutMode);
-      setBetWinner(match.betWinner ?? null);
-    } else {
-      setHasBet(false);
-      setBetCategory('DRINK');
-      setBetLabel('1 nước');
-      setBetQuantity(1);
-      setBetUnit('PER_PLAYER');
-      setBetAmountVnd(0);
-      setBetPayoutMode('TEAM_TO_TEAM');
-      setBetWinner(null);
+      const existingPrivate = !isViewer ? getPrivateMatchReview(match.id) : null;
+      setPlayerFeedback(existingPrivate?.playerFeedback || {});
     }
+  }
 
-    const existingPrivate = !isViewer ? getPrivateMatchReview(match.id) : null;
-    setPlayerFeedback(existingPrivate?.playerFeedback || {});
-  }, [isOpen, match, isViewer]);
-
-  useEffect(() => {
-    if (!hasBet) return;
-    if (score1.trim() === '' || score2.trim() === '') return;
-    const n1 = Number(score1);
-    const n2 = Number(score2);
+  const syncBetWinnerFromScores = (nextS1: string, nextS2: string, betActive: boolean) => {
+    if (!betActive) return;
+    if (nextS1.trim() === '' || nextS2.trim() === '') return;
+    const n1 = Number(nextS1);
+    const n2 = Number(nextS2);
     if (!Number.isFinite(n1) || !Number.isFinite(n2)) return;
     if (n1 > n2) setBetWinner(1);
     else if (n2 > n1) setBetWinner(2);
-  }, [score1, score2, hasBet]);
+  };
 
   const playerMap = useMemo(
     () => new Map(players.map((p) => [p.id, p])),
@@ -311,7 +314,11 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
                 inputMode="numeric"
                 placeholder="21"
                 value={score1}
-                onChange={(e) => setScore1(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setScore1(next);
+                  syncBetWinnerFromScores(next, score2, hasBet);
+                }}
                 className="ui-input text-center font-bold text-[20px] tabular-nums"
                 style={{ backgroundColor: 'var(--bg-surface)' }}
               />
@@ -338,7 +345,11 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
                 inputMode="numeric"
                 placeholder="15"
                 value={score2}
-                onChange={(e) => setScore2(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setScore2(next);
+                  syncBetWinnerFromScores(score1, next, hasBet);
+                }}
                 className="ui-input text-center font-bold text-[20px] tabular-nums"
                 style={{ backgroundColor: 'var(--bg-surface)' }}
               />
@@ -403,6 +414,7 @@ export const PostMatchModal: React.FC<PostMatchModalProps> = ({
                   setBetWinner(null);
                 } else {
                   setHasBet(true);
+                  syncBetWinnerFromScores(score1, score2, true);
                 }
               }}
               className={`ui-btn min-h-[38px] px-3.5 text-[13px] ${

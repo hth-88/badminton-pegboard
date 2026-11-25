@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Cloud,
   Copy,
@@ -86,18 +86,19 @@ export const CloudRoomModal: React.FC<CloudRoomModalProps> = ({
   const [changePinError, setChangePinError] = useState<string | null>(null);
   const [isSavingPin, setIsSavingPin] = useState(false);
 
-  useEffect(() => {
+  const [prevIsOpen, setPrevIsOpen] = useState(false);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       const currentConfig = getSupabaseConfig();
       if (currentConfig) {
         setCustomUrl(currentConfig.url);
         setCustomKey(currentConfig.anonKey);
       }
-      if (isViewer && activeTab === 'CONFIG') {
-        setActiveTab('MANAGE');
-      }
     }
-  }, [isOpen, isViewer, activeTab]);
+  }
+
+  const effectiveTab = isViewer && activeTab === 'CONFIG' ? 'MANAGE' : activeTab;
 
   const baseUrl = useMemo(() => {
     if (typeof window !== 'undefined') {
@@ -247,7 +248,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
           }`}
         >
           {tabs.map((tab) => {
-            const active = activeTab === tab.id;
+            const active = effectiveTab === tab.id;
             return (
               <button
                 key={tab.id}
@@ -322,7 +323,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
         )}
 
         {/* TAB 1: MANAGE / CREATE */}
-        {activeTab === 'MANAGE' && (
+        {effectiveTab === 'MANAGE' && (
           <div className="space-y-4">
             {roomCode ? (
               <>
@@ -609,7 +610,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
         )}
 
         {/* TAB 2: JOIN EXISTING ROOM */}
-        {activeTab === 'JOIN' && (
+        {effectiveTab === 'JOIN' && (
           <form onSubmit={handleJoinRoomSubmit} className="space-y-4">
             <div className="space-y-3.5">
               <div>
@@ -661,7 +662,7 @@ create policy "Public delete receipts" on storage.objects for delete using (buck
         )}
 
         {/* TAB 3: SUPABASE CONFIG (Host / Offline only — hidden from VIEWER) */}
-        {activeTab === 'CONFIG' && !isViewer && (
+        {effectiveTab === 'CONFIG' && !isViewer && (
           <div className="space-y-4">
             <div className="ui-tile p-4 space-y-3">
               <h4

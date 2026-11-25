@@ -69,18 +69,18 @@ export const PaymentQrModal: React.FC<PaymentQrModalProps> = ({
     };
   }, [previewUrl]);
 
-  useEffect(() => {
+  const currentResetKey = `${isOpen}_${playerId}`;
+  const [prevResetKey, setPrevResetKey] = useState(currentResetKey);
+  if (currentResetKey !== prevResetKey) {
+    setPrevResetKey(currentResetKey);
     if (!isOpen) {
       setSelectedBlob(null);
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
       setPreviewUrl(null);
       setUploadError(null);
       setCompressing(false);
       setSubmitting(false);
     }
-  }, [isOpen, playerId]);
+  }
 
   const bankOption = useMemo(
     () => resolveBankOption(settings.bankCode, settings.bankName),

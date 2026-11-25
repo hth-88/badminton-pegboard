@@ -178,11 +178,10 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     const isMember = isClubMember(player.name, clubRoster);
     const confirmMsg =
       player.gamesPlayed > 0
-        ? `Xác nhận rút "${player.name}" khỏi buổi hôm nay?\n(Người này đã đánh ${player.gamesPlayed} trận. Khi rút sẽ không còn trong danh sách và bảng tính tiền.${
-            isMember
-              ? ' Thông tin trong Sổ CLB vẫn được giữ nguyên để điểm danh lần sau.'
-              : ''
-          })`
+        ? `Xác nhận rút "${player.name}" khỏi buổi hôm nay?\n(Người này đã đánh ${player.gamesPlayed} trận. Khi rút sẽ không còn trong danh sách và bảng tính tiền.${isMember
+          ? ' Thông tin trong Sổ CLB vẫn được giữ nguyên để điểm danh lần sau.'
+          : ''
+        })`
         : `Xóa "${player.name}" khỏi danh sách buổi hôm nay?`;
     if (window.confirm(confirmMsg)) {
       vibrateWarning();
@@ -393,9 +392,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   }
                 }}
                 title="Chọn nhiều người để tạm nghỉ hoặc rút hàng loạt"
-                className={`ui-btn px-3.5 ${
-                  isBulkMode ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                }`}
+                className={`ui-btn px-3.5 ${isBulkMode ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                  }`}
               >
                 <CheckSquare className="w-4 h-4 shrink-0" />
                 <span>Chọn nhiều</span>
@@ -474,8 +472,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               const isMember = isClubMember(player.name, clubRoster);
               const clubMember = !isViewer
                 ? clubRoster.find(
-                    (m) => m.name.trim().toLowerCase() === player.name.trim().toLowerCase()
-                  )
+                  (m) => m.name.trim().toLowerCase() === player.name.trim().toLowerCase()
+                )
                 : undefined;
               const hasNoteOrTags = Boolean(
                 clubMember?.notes?.trim() || (clubMember?.tags && clubMember.tags.length > 0)
@@ -600,13 +598,13 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                           style={
                             hasNoteOrTags
                               ? {
-                                  backgroundColor: 'var(--color-warning-soft)',
-                                  color: 'var(--color-warning)',
-                                }
+                                backgroundColor: 'var(--color-warning-soft)',
+                                color: 'var(--color-warning)',
+                              }
                               : {
-                                  backgroundColor: 'var(--bg-surface-secondary)',
-                                  color: 'var(--text-muted)',
-                                }
+                                backgroundColor: 'var(--bg-surface-secondary)',
+                                color: 'var(--text-muted)',
+                              }
                           }
                         >
                           <FileText className="w-4 h-4" />
@@ -945,10 +943,10 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   style={
                     active
                       ? {
-                          backgroundColor: 'var(--bg-surface-elevated)',
-                          color: 'var(--text-primary)',
-                          boxShadow: 'var(--shadow-sm)',
-                        }
+                        backgroundColor: 'var(--bg-surface-elevated)',
+                        color: 'var(--text-primary)',
+                        boxShadow: 'var(--shadow-sm)',
+                      }
                       : { color: 'var(--text-secondary)' }
                   }
                 >
@@ -1021,9 +1019,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                         <button
                           type="button"
                           onClick={() => setRosterNewSex('M')}
-                          className={`ui-btn px-2 ${
-                            rosterNewSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                          }`}
+                          className={`ui-btn px-2 ${rosterNewSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                            }`}
                         >
                           <GenderDot sex="M" />
                           <span>Nam</span>
@@ -1031,9 +1028,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                         <button
                           type="button"
                           onClick={() => setRosterNewSex('F')}
-                          className={`ui-btn px-2 ${
-                            rosterNewSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                          }`}
+                          className={`ui-btn px-2 ${rosterNewSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                            }`}
                         >
                           <GenderDot sex="F" />
                           <span>Nữ</span>
@@ -1090,11 +1086,11 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                           inSession
                             ? { opacity: 0.55 }
                             : isSelected
-                            ? {
+                              ? {
                                 backgroundColor: 'var(--color-accent-soft)',
                                 border: '1px solid var(--color-accent-border)',
                               }
-                            : undefined
+                              : undefined
                         }
                       >
                         <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer min-h-[36px]">
@@ -1207,9 +1203,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     <button
                       type="button"
                       onClick={() => setNewSex('M')}
-                      className={`ui-btn ${
-                        newSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                      }`}
+                      className={`ui-btn ${newSex === 'M' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                        }`}
                     >
                       <GenderDot sex="M" />
                       <span>Nam</span>
@@ -1217,9 +1212,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     <button
                       type="button"
                       onClick={() => setNewSex('F')}
-                      className={`ui-btn ${
-                        newSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                      }`}
+                      className={`ui-btn ${newSex === 'F' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                        }`}
                     >
                       <GenderDot sex="F" />
                       <span>Nữ</span>
@@ -1430,15 +1424,15 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   style={
                     isSelected
                       ? {
-                          backgroundColor: 'var(--color-accent-soft)',
-                          border: '1.5px solid var(--color-accent)',
-                          color: 'var(--color-accent)',
-                        }
+                        backgroundColor: 'var(--color-accent-soft)',
+                        border: '1.5px solid var(--color-accent)',
+                        color: 'var(--color-accent)',
+                      }
                       : {
-                          backgroundColor: 'var(--bg-surface-secondary)',
-                          border: '1px solid transparent',
-                          color: 'var(--text-primary)',
-                        }
+                        backgroundColor: 'var(--bg-surface-secondary)',
+                        border: '1px solid transparent',
+                        color: 'var(--text-primary)',
+                      }
                   }
                 >
                   <span className="text-[14px] font-bold">{meta.code}</span>
@@ -1515,9 +1509,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                           : [...prev, tag]
                       )
                     }
-                    className={`ui-btn min-h-[38px] px-3.5 rounded-full text-[13px] ${
-                      active ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-                    }`}
+                    className={`ui-btn min-h-[38px] px-3.5 rounded-full text-[13px] ${active ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                      }`}
                   >
                     {tag}
                   </button>

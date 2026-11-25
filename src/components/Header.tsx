@@ -201,9 +201,8 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenCloudModal}
               title={`Phòng ${roomCode} — ${role === 'CO_HOST' ? 'Quản trị' : 'Chỉ xem'} (${syncStatus})`}
-              className={`ui-btn px-2.5 sm:px-3 rounded-full shrink-0 ${
-                role === 'CO_HOST' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
-              }`}
+              className={`ui-btn px-2.5 sm:px-3 rounded-full shrink-0 ${role === 'CO_HOST' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
+                }`}
             >
               {role === 'CO_HOST' ? (
                 <span
@@ -213,8 +212,8 @@ export const Header: React.FC<HeaderProps> = ({
                       syncStatus === 'SYNCING'
                         ? 'var(--color-warning)'
                         : syncStatus === 'ERROR'
-                        ? 'var(--color-danger)'
-                        : 'var(--color-accent)',
+                          ? 'var(--color-danger)'
+                          : 'var(--color-accent)',
                   }}
                 />
               ) : (
@@ -295,9 +294,9 @@ export const Header: React.FC<HeaderProps> = ({
               style={
                 wakeLockActive
                   ? {
-                      backgroundColor: 'var(--color-warning-soft)',
-                      color: 'var(--color-warning)',
-                    }
+                    backgroundColor: 'var(--color-warning-soft)',
+                    color: 'var(--color-warning)',
+                  }
                   : undefined
               }
             >
@@ -502,15 +501,14 @@ export const Header: React.FC<HeaderProps> = ({
                     key={preset}
                     type="button"
                     onClick={() => setTempMaleBonus(preset)}
-                    className={`min-w-[44px] min-h-[44px] px-3 rounded-xl text-[13px] font-semibold tabular-nums transition ${
-                      active ? 'ui-btn-primary' : ''
-                    }`}
+                    className={`min-w-[44px] min-h-[44px] px-3 rounded-xl text-[13px] font-semibold tabular-nums transition ${active ? 'ui-btn-primary' : ''
+                      }`}
                     style={
                       !active
                         ? {
-                            backgroundColor: 'var(--bg-surface)',
-                            color: 'var(--text-secondary)',
-                          }
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-secondary)',
+                        }
                         : undefined
                     }
                   >
@@ -541,9 +539,8 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onToggleWakeLock}
-                className={`ui-btn px-4 shrink-0 ${
-                  wakeLockActive ? 'ui-btn-warning-soft' : 'ui-btn-secondary'
-                }`}
+                className={`ui-btn px-4 shrink-0 ${wakeLockActive ? 'ui-btn-warning-soft' : 'ui-btn-secondary'
+                  }`}
                 style={
                   !wakeLockActive
                     ? { backgroundColor: 'var(--bg-surface)' }
@@ -583,10 +580,10 @@ export const Header: React.FC<HeaderProps> = ({
                     style={
                       active
                         ? {
-                            backgroundColor: 'var(--bg-surface-elevated)',
-                            color: 'var(--text-primary)',
-                            boxShadow: 'var(--shadow-sm)',
-                          }
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          color: 'var(--text-primary)',
+                          boxShadow: 'var(--shadow-sm)',
+                        }
                         : { color: 'var(--text-secondary)' }
                     }
                   >

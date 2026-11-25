@@ -106,15 +106,15 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                           match.balanceRating === 'BALANCED'
                             ? 'accent'
                             : match.balanceRating === 'SLIGHT_GAP'
-                            ? 'warning'
-                            : 'danger'
+                              ? 'warning'
+                              : 'danger'
                         }
                       >
                         {match.balanceRating === 'BALANCED'
                           ? 'Cân hay'
                           : match.balanceRating === 'SLIGHT_GAP'
-                          ? 'Chênh nhẹ'
-                          : 'Chênh quá'}
+                            ? 'Chênh nhẹ'
+                            : 'Chênh quá'}
                       </StatusPill>
                     )}
 
@@ -187,8 +187,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       {match.betWinner === 1
                         ? 'Đội 1 thắng'
                         : match.betWinner === 2
-                        ? 'Đội 2 thắng'
-                        : 'Chưa chốt thắng'}
+                          ? 'Đội 2 thắng'
+                          : 'Chưa chốt thắng'}
                     </span>
                   </div>
                 )}
