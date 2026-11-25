@@ -473,7 +473,7 @@ export function App() {
                     role="tab"
                     aria-selected={selectedCourtFilter === 'ALL'}
                     onClick={() => setSelectedCourtFilter('ALL')}
-                    className="relative z-10 flex-1 min-w-[84px] min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0"
+                    className="relative z-10 flex-1 min-h-[44px] px-2 sm:px-3.5 rounded-xl text-[13px] sm:text-[14px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap transition-colors shrink-0"
                     style={{
                       color:
                         selectedCourtFilter === 'ALL'
@@ -499,7 +499,7 @@ export function App() {
                         role="tab"
                         aria-selected={active}
                         onClick={() => setSelectedCourtFilter(c.id)}
-                        className="relative z-10 flex-1 min-w-[84px] min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0"
+                        className="relative z-10 flex-1 min-h-[44px] px-2 sm:px-3.5 rounded-xl text-[13px] sm:text-[14px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors shrink-0"
                         style={{
                           color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
                         }}
@@ -513,7 +513,7 @@ export function App() {
                             opacity: isPlaying ? 1 : 0.4,
                           }}
                         />
-                        <span className="truncate">{c.name}</span>
+                        <span>{c.name}</span>
                       </button>
                     );
                   })}
@@ -521,7 +521,7 @@ export function App() {
               )}
 
               <div
-                className={`grid gap-4 lg:gap-5 items-stretch ${
+                className={`grid gap-4 lg:gap-5 items-stretch md:auto-rows-fr ${
                   selectedCourtFilter === 'ALL'
                     ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
                     : 'grid-cols-1 max-w-lg mx-auto'

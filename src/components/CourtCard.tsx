@@ -14,6 +14,7 @@ import {
   Square,
   X,
   AlertOctagon,
+  AlertTriangle,
   Flame,
   MoreHorizontal,
   Trash2,
@@ -511,93 +512,100 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
     return (
       <div
-        role={!isViewer ? 'button' : undefined}
-        tabIndex={!isViewer ? 0 : undefined}
-        onClick={
-          !isViewer
-            ? () =>
-                setSlotSheetTarget({
-                  target: 'NEXT_UP',
-                  slotIndex: idx,
-                })
-            : undefined
-        }
-        onKeyDown={
-          !isViewer
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSlotSheetTarget({
-                    target: 'NEXT_UP',
-                    slotIndex: idx,
-                  });
-                }
-              }
-            : undefined
-        }
-        className={`ui-tile h-[62px] w-full pl-3 pr-1.5 py-2 flex items-center justify-between gap-1 min-w-0 ${
-          !isViewer ? 'ui-tile-interactive cursor-pointer' : ''
-        }`}
+        className="ui-tile h-[62px] w-full flex items-stretch min-w-0 overflow-hidden"
         style={
           playingCourtName
             ? {
                 backgroundColor: 'var(--color-danger-soft)',
                 border: '1px solid var(--color-danger-border)',
               }
-            : isManual
+            : isManual && !isViewer
             ? {
                 border: '1px solid var(--color-warning-border)',
               }
             : undefined
         }
       >
-        <div className="min-w-0 flex-1 h-full flex flex-col justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            {player && <GenderDot sex={player.sex} />}
-            <span
-              className="text-[14px] font-semibold leading-tight truncate flex-1 min-w-0"
-              style={{ color: 'var(--text-primary)' }}
-              title={player?.name || pid}
-            >
-              {player?.name || pid}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-            {player && <RankBadge rank={player.rank} surface="tile" />}
-
-            {!isViewer && isManual && !playingCourtName && (
+        {!isViewer ? (
+          <button
+            type="button"
+            onClick={() =>
+              setSlotSheetTarget({
+                target: 'NEXT_UP',
+                slotIndex: idx,
+              })
+            }
+            className="min-w-0 flex-1 h-full pl-3 pr-1 py-2 flex flex-col justify-between text-left transition ui-tile-interactive"
+          >
+            <div className="flex items-center gap-2 min-w-0 w-full">
+              {player && <GenderDot sex={player.sex} />}
               <span
-                className="inline-flex items-center gap-0.5 text-[11px] font-semibold shrink-0"
-                style={{ color: 'var(--color-warning)' }}
-                title="Chọn thủ công"
+                className="text-[14px] font-semibold leading-tight truncate flex-1 min-w-0"
+                style={{ color: 'var(--text-primary)' }}
+                title={player?.name || pid}
               >
-                <Lock className="w-3 h-3" />
+                {player?.name || pid}
               </span>
-            )}
+            </div>
 
-            {playingCourtName && (
+            <div className="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
+              {player && <RankBadge rank={player.rank} surface="tile" />}
+
+              {isManual && !playingCourtName && (
+                <span
+                  className="inline-flex items-center text-[11px] font-semibold shrink-0"
+                  style={{ color: 'var(--color-warning)' }}
+                  title="Chọn thủ công"
+                >
+                  <Lock className="w-3 h-3" />
+                </span>
+              )}
+
+              {playingCourtName && (
+                <span
+                  className="text-[11px] font-semibold truncate"
+                  style={{ color: 'var(--color-danger)' }}
+                  title={`Đang đánh ở ${playingCourtName}`}
+                >
+                  {playingCourtName}
+                </span>
+              )}
+            </div>
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1 h-full px-3 py-2 flex flex-col justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              {player && <GenderDot sex={player.sex} />}
               <span
-                className="text-[11px] font-semibold truncate"
-                style={{ color: 'var(--color-danger)' }}
-                title={`Đang đánh ở ${playingCourtName}`}
+                className="text-[14px] font-semibold leading-tight truncate flex-1 min-w-0"
+                style={{ color: 'var(--text-primary)' }}
+                title={player?.name || pid}
               >
-                {playingCourtName}
+                {player?.name || pid}
               </span>
-            )}
+            </div>
+
+            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+              {player && <RankBadge rank={player.rank} surface="tile" />}
+              {playingCourtName && (
+                <span
+                  className="text-[11px] font-semibold truncate"
+                  style={{ color: 'var(--color-danger)' }}
+                >
+                  {playingCourtName}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {!isViewer && (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSetNextUpSlot(court.id, idx, null);
-            }}
+            onClick={() => onSetNextUpSlot(court.id, idx, null)}
             aria-label={`Bỏ ${player?.name || 'người'} khỏi lượt kế tiếp`}
             title="Bỏ người khỏi lượt kế tiếp"
-            className="w-9 h-11 rounded-xl flex items-center justify-center shrink-0 transition"
+            className="w-11 h-full flex items-center justify-center shrink-0 transition ui-tile-interactive"
             style={{ color: 'var(--text-muted)' }}
           >
             <X className="w-4 h-4" />
@@ -1052,7 +1060,11 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                         className="inline-flex items-center gap-1.5 font-semibold shrink-0"
                         style={{ color: toneColor }}
                       >
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        {desc.label === 'Cân kèo' ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                        )}
                         <span>{desc.label}</span>
                       </span>
                       <span
@@ -1113,25 +1125,25 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                             type="button"
                             onClick={handleRotatePairings}
                             title="Xoay 3 thế đứng (Đảo cặp)"
-                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] gap-1 min-w-0"
+                            aria-label="Đảo cặp đang đánh"
+                            className="ui-icon-btn w-11 h-11 shrink-0"
                           >
                             <Shuffle
-                              className="w-3.5 h-3.5 shrink-0"
+                              className="w-4 h-4"
                               style={{ color: 'var(--color-accent)' }}
                             />
-                            <span className="truncate">Đảo cặp</span>
                           </button>
                           <button
                             type="button"
                             onClick={handleAutoBalancePairings}
-                            title="Tự động xếp cặp có chênh lệch trình độ nhỏ nhất"
-                            className="ui-btn ui-btn-secondary flex-1 px-2 text-[13px] gap-1 min-w-0"
+                            title="Tự động xếp cặp có chênh lệch trình độ nhỏ nhất (Cân kèo)"
+                            aria-label="Cân kèo đang đánh"
+                            className="ui-icon-btn w-11 h-11 shrink-0"
                           >
                             <Scale
-                              className="w-3.5 h-3.5 shrink-0"
+                              className="w-4 h-4"
                               style={{ color: 'var(--color-accent)' }}
                             />
-                            <span className="truncate">Cân kèo</span>
                           </button>
                         </>
                       )}
@@ -1141,17 +1153,21 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                           type="button"
                           onClick={openLiveBetEditor}
                           title="Cài kèo đánh độ (nước / cầu / tiền) cho trận này"
-                          className={`ui-btn px-2.5 text-[13px] gap-1 shrink-0 ${
+                          className={`ui-btn px-3 text-[13px] gap-1.5 min-w-0 ${
+                            court.currentMatch.type === 'DOUBLES'
+                              ? 'shrink-0'
+                              : 'flex-1'
+                          } ${
                             court.currentMatch.bet
                               ? 'ui-btn-warning-soft'
                               : 'ui-btn-secondary'
                           }`}
                         >
                           <Flame
-                            className="w-3.5 h-3.5 shrink-0"
+                            className="w-4 h-4 shrink-0"
                             style={{ color: 'var(--color-warning)' }}
                           />
-                          <span>Độ</span>
+                          <span className="whitespace-nowrap">Độ</span>
                         </button>
                       )}
 
@@ -1168,13 +1184,13 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                           );
                         }}
                         title="Chỉ kết thúc trận hiện tại, giữ sân trống và không tự đẩy lượt mới vào"
-                        className="ui-btn ui-btn-secondary px-2.5 text-[13px] gap-1 shrink-0"
+                        className="ui-btn ui-btn-secondary flex-1 px-2.5 text-[13px] gap-1.5 min-w-0"
                       >
                         <Square
                           className="w-3.5 h-3.5 shrink-0"
                           style={{ color: 'var(--text-secondary)' }}
                         />
-                        <span>Dừng</span>
+                        <span className="truncate">Chỉ dừng</span>
                       </button>
                     </div>
                   </>
@@ -1223,8 +1239,8 @@ export const CourtCard: React.FC<CourtCardProps> = ({
 
           {/* 3. BOTTOM SECTION: NEXT UP (Fixed geometry across Doubles & Singles) */}
           <div className="pt-3.5 border-t ui-divider space-y-2.5">
-            {/* Next Up Header (Fixed 36px height) */}
-            <div className="h-[36px] flex items-center justify-between gap-2">
+            {/* Next Up Header (Fixed 44px touch height) */}
+            <div className="min-h-[44px] flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span
                   className="text-[14px] font-semibold truncate"
@@ -1251,11 +1267,7 @@ export const CourtCard: React.FC<CourtCardProps> = ({
                         })
                   }
                   title="Chuyển nhanh giữa Đôi (4 ô) và Đơn (2 ô)"
-                  className="h-9 px-3 rounded-full text-[13px] font-semibold transition shrink-0"
-                  style={{
-                    backgroundColor: 'var(--bg-surface-secondary)',
-                    color: 'var(--text-secondary)',
-                  }}
+                  className="ui-btn ui-btn-secondary min-h-[44px] px-3.5 rounded-full text-[13px] shrink-0"
                 >
                   {safeNextUp.type === 'DOUBLES' ? 'Đôi ⇄' : 'Đơn ⇄'}
                 </button>
@@ -1311,33 +1323,45 @@ export const CourtCard: React.FC<CourtCardProps> = ({
               )}
             </div>
 
-            {/* Fixed 28px Single-Line Evaluation Row (never grows card height) */}
-            <div className="h-[28px] flex items-center justify-between gap-2 text-[13px] min-w-0">
+            {/* Fixed-height 2-Line Evaluation Block (untruncated diff + warning, equal height across all courts) */}
+            <div className="min-h-[48px] flex flex-col justify-center gap-1 text-[13px] min-w-0">
               {isNextUpComplete(safeNextUp) && nextUpEval ? (
                 <>
                   <div
-                    className="flex items-center gap-1.5 tabular-nums min-w-0 truncate"
+                    className="flex items-center gap-1.5 tabular-nums min-w-0"
                     style={{ color: 'var(--text-secondary)' }}
                   >
-                    <CheckCircle2
-                      className="w-3.5 h-3.5 shrink-0"
-                      style={{ color: 'var(--color-accent)' }}
-                    />
-                    <span className="truncate">
+                    {nextUpEval.warnings.length > 0 ? (
+                      <AlertTriangle
+                        className="w-4 h-4 shrink-0"
+                        style={{ color: 'var(--color-warning)' }}
+                      />
+                    ) : (
+                      <CheckCircle2
+                        className="w-4 h-4 shrink-0"
+                        style={{ color: 'var(--color-accent)' }}
+                      />
+                    )}
+                    <span className="truncate font-medium">
                       Chênh {nextUpEval.skillDiff}đ · {nextUpEval.genderPattern}
                     </span>
                   </div>
-                  {nextUpEval.warnings.length > 0 && (
-                    <span
-                      className="text-[12px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[46%] shrink-0"
-                      style={{
-                        backgroundColor: 'var(--color-warning-soft)',
-                        color: 'var(--color-warning)',
-                      }}
-                      title={nextUpEval.warnings[0]}
+
+                  {nextUpEval.warnings.length > 0 ? (
+                    <div
+                      className="text-[12px] font-medium leading-snug truncate"
+                      style={{ color: 'var(--color-warning)' }}
+                      title={nextUpEval.warnings.join(' • ')}
                     >
                       {nextUpEval.warnings[0]}
-                    </span>
+                    </div>
+                  ) : (
+                    <div
+                      className="text-[12px] leading-snug"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Đội hình cân bằng, sẵn sàng vào sân
+                    </div>
                   )}
                 </>
               ) : (

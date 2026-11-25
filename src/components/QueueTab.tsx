@@ -361,9 +361,9 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   ).length;
 
   return (
-    <div className="max-w-[780px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
+    <div className="max-w-[880px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
       {/* Page Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <h2
@@ -385,7 +385,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
         </div>
 
         {!isViewer && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
             {players.length > 0 && (
               <button
                 type="button"
@@ -568,7 +568,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                             : 'Lưu người này vào Sổ thành viên CLB cố định'
                         }
                         aria-label={`Sổ CLB cho ${player.name}`}
-                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition"
+                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition"
                         style={{
                           color: isMember ? 'var(--color-warning)' : 'var(--text-muted)',
                         }}
@@ -599,7 +599,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                               : 'Thêm ghi chú / thẻ kín Sổ CLB'
                           }
                           aria-label={`Ghi chú kín cho ${player.name}`}
-                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition"
+                          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition"
                           style={
                             hasNoteOrTags
                               ? {
@@ -710,6 +710,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       />
 
                       <select
+                        id={`player-pool-${player.id}`}
+                        name={`player-pool-${player.id}`}
                         value={player.assignedPool}
                         onChange={(e) =>
                           onUpdatePlayer({ id: player.id, assignedPool: e.target.value })

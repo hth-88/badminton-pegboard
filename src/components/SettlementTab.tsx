@@ -493,7 +493,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
               key={tab.id}
               type="button"
               onClick={() => setSubTab(tab.id)}
-              className="min-h-[44px] px-2.5 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition"
+              className="min-h-[44px] px-1.5 sm:px-3 rounded-xl text-[13px] sm:text-[14px] font-semibold flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition"
               style={
                 active
                   ? {
@@ -508,7 +508,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                 className="w-4 h-4 shrink-0"
                 style={active ? { color: 'var(--color-accent)' } : undefined}
               />
-              <span className="truncate">{tab.label}</span>
+              <span>{tab.label}</span>
             </button>
           );
         })}
@@ -728,7 +728,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         genderRatioFemalePercent: 40,
                       });
                     }}
-                    className="text-[13px] font-semibold underline"
+                    className="min-h-[44px] px-2 inline-flex items-center text-[13px] font-semibold underline"
                     style={{ color: 'var(--color-accent)' }}
                   >
                     Giá chuẩn CLB
@@ -766,7 +766,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         type="button"
                         disabled={isViewer}
                         onClick={() => updateSettings({ courtCostMode: opt.id })}
-                        className="min-h-[36px] px-3 rounded-lg text-[13px] font-semibold transition disabled:opacity-60"
+                        className="min-h-[44px] px-3 rounded-lg text-[13px] font-semibold transition disabled:opacity-60"
                         style={
                           active
                             ? {
@@ -870,7 +870,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                         type="button"
                         disabled={isViewer}
                         onClick={() => updateSettings({ shuttleCostMode: opt.id })}
-                        className="min-h-[36px] px-3 rounded-lg text-[13px] font-semibold transition disabled:opacity-60"
+                        className="min-h-[44px] px-3 rounded-lg text-[13px] font-semibold transition disabled:opacity-60"
                         style={
                           active
                             ? {
@@ -1422,7 +1422,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             isPending: true,
                                           });
                                         }}
-                                        className="ui-btn ui-btn-secondary min-h-[36px] px-2.5 text-[12px]"
+                                        className="ui-btn ui-btn-secondary min-h-[44px] px-3 text-[13px]"
                                       >
                                         <ImageIcon className="w-3.5 h-3.5" />
                                         <span>Ảnh</span>
@@ -1434,13 +1434,14 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                         vibrateSuccess();
                                         onToggleApprovePayment(item.playerId);
                                       }}
-                                      className="ui-btn ui-btn-primary min-h-[36px] px-2.5 text-[12px]"
+                                      className="ui-btn ui-btn-primary min-h-[44px] px-3 text-[13px]"
                                     >
                                       Duyệt
                                     </button>
                                     <button
                                       type="button"
                                       title="Từ chối"
+                                      aria-label={`Từ chối biên lai của ${item.name}`}
                                       onClick={() => {
                                         vibrateWarning();
                                         setRejectReasonInput('');
@@ -1452,7 +1453,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                           isPending: true,
                                         });
                                       }}
-                                      className="ui-btn ui-btn-danger-soft min-h-[36px] px-2.5 text-[12px]"
+                                      className="ui-btn ui-btn-danger-soft min-w-[44px] min-h-[44px] px-3 text-[13px]"
                                     >
                                       ✕
                                     </button>
@@ -1473,6 +1474,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                       <button
                                         type="button"
                                         title="Xem lại ảnh biên lai"
+                                        aria-label={`Xem ảnh biên lai của ${item.name}`}
                                         onClick={() => {
                                           setRejectReasonInput('');
                                           setReviewReceiptTarget({
@@ -1483,7 +1485,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             isPending: false,
                                           });
                                         }}
-                                        className="ui-icon-btn w-9 h-9 min-w-0 min-h-0"
+                                        className="ui-icon-btn w-11 h-11"
                                       >
                                         <ImageIcon className="w-4 h-4" />
                                       </button>
@@ -1650,7 +1652,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                           amount: effectiveAmount,
                                         })
                                       }
-                                      className="ui-icon-btn w-9 h-9 min-w-0 min-h-0"
+                                      className="ui-icon-btn w-11 h-11"
                                       style={{ color: 'var(--color-accent)' }}
                                     >
                                       <QrCode className="w-4 h-4" />
@@ -2417,43 +2419,32 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                           <Clock className="w-4 h-4 shrink-0" />
                           <span>Danh sách còn nợ các buổi trước (bấm khi trả bù)</span>
                         </div>
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-0.5">
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
                           {financeSummary.unpaidDebts.map((debt) => (
                             <div
                               key={`${debt.archiveId}_${debt.playerId}`}
-                              className="ui-tile px-3.5 py-2.5 flex items-center justify-between gap-3"
+                              className="ui-tile px-3 py-2.5 sm:px-3.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-3"
                             >
-                              <div className="min-w-0 truncate text-[14px]">
-                                <span
-                                  className="font-semibold"
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div
+                                  className="font-semibold text-[14px] truncate"
                                   style={{ color: 'var(--text-primary)' }}
+                                  title={debt.playerName}
                                 >
                                   {debt.playerName}
-                                </span>
-                                <span
-                                  className="mx-1.5"
-                                  style={{ color: 'var(--text-muted)' }}
-                                >
-                                  ·
-                                </span>
-                                <span
-                                  className="text-[13px] tabular-nums"
-                                  style={{ color: 'var(--text-secondary)' }}
-                                >
-                                  {new Date(debt.createdAt).toLocaleDateString('vi-VN')}
-                                </span>
-                                <span
-                                  className="mx-1.5"
-                                  style={{ color: 'var(--text-muted)' }}
-                                >
-                                  ·
-                                </span>
-                                <span
-                                  className="font-bold tabular-nums"
-                                  style={{ color: 'var(--color-warning)' }}
-                                >
-                                  {formatVND(debt.amount)}
-                                </span>
+                                </div>
+                                <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[12.5px] sm:text-[13px] tabular-nums">
+                                  <span style={{ color: 'var(--text-secondary)' }}>
+                                    {new Date(debt.createdAt).toLocaleDateString('vi-VN')}
+                                  </span>
+                                  <span style={{ color: 'var(--text-muted)' }}>·</span>
+                                  <span
+                                    className="font-bold whitespace-nowrap"
+                                    style={{ color: 'var(--color-warning)' }}
+                                  >
+                                    {formatVND(debt.amount)}
+                                  </span>
+                                </div>
                               </div>
                               <button
                                 type="button"
@@ -2465,9 +2456,9 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                   );
                                   setArchivedSessions(next);
                                 }}
-                                className="ui-btn ui-btn-primary min-h-[38px] px-3.5 rounded-full text-[13px] shrink-0"
+                                className="ui-btn ui-btn-primary min-h-[44px] px-3 sm:px-3.5 rounded-full text-[13px] gap-1 shrink-0"
                               >
-                                <Check className="w-3.5 h-3.5" />
+                                <Check className="w-4 h-4 shrink-0" />
                                 <span>Đã trả bù</span>
                               </button>
                             </div>
@@ -2587,7 +2578,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                   }}
                                   title="Xem chi tiết đóng tiền buổi này"
                                   aria-label="Mở rộng chi tiết đóng tiền"
-                                  className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                                  className="ui-icon-btn w-11 h-11"
                                   style={{ backgroundColor: 'var(--bg-surface)' }}
                                 >
                                   {isExpanded ? (
@@ -2602,7 +2593,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                 type="button"
                                 onClick={() => handleRestoreArchivedSession(session)}
                                 title="Khôi phục buổi này vào ứng dụng"
-                                className="ui-btn ui-btn-secondary min-h-[40px] px-3 text-[13px]"
+                                className="ui-btn ui-btn-secondary min-h-[44px] px-3 text-[13px]"
                                 style={{ backgroundColor: 'var(--bg-surface)' }}
                               >
                                 <RotateCcw
@@ -2617,7 +2608,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                 onClick={() => handleDownloadArchivedJson(session)}
                                 title="Tải tệp JSON của buổi này"
                                 aria-label="Tải tệp JSON"
-                                className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                                className="ui-icon-btn w-11 h-11"
                                 style={{ backgroundColor: 'var(--bg-surface)' }}
                               >
                                 <Download className="w-4 h-4" />
@@ -2628,7 +2619,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                 onClick={() => handleDeleteArchivedSession(session.id)}
                                 title="Xóa buổi này khỏi sổ lưu trữ"
                                 aria-label="Xóa buổi lưu trữ"
-                                className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                                className="ui-icon-btn w-11 h-11"
                                 style={{ backgroundColor: 'var(--bg-surface)' }}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2669,7 +2660,7 @@ export const SettlementTab: React.FC<SettlementTabProps> = ({
                                             )
                                           );
                                         }}
-                                        className={`ui-btn min-h-[32px] px-2.5 text-[12px] ${
+                                        className={`ui-btn min-h-[44px] px-3 text-[13px] ${
                                           sp.paid ? 'ui-btn-primary' : 'ui-btn-warning-soft'
                                         }`}
                                       >

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { BadmintonRank, Sex } from '../../types/badminton';
 import { RANK_METADATA } from '../../engine/skillConfig';
@@ -130,9 +131,20 @@ export const UiModal: React.FC<{
   children,
   footer,
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       className={`fixed inset-0 z-50 ui-modal-backdrop flex justify-center ${
         sheetOnMobile
@@ -202,6 +214,11 @@ export const UiModal: React.FC<{
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+  return modalContent;
 };
 
 /**

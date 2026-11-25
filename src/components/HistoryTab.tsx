@@ -144,7 +144,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         type="button"
                         onClick={() => onEditMatchResult(match)}
                         title="Cập nhật tỉ số / độ / nhận xét"
-                        className="ui-btn ui-btn-secondary min-h-[36px] px-3 text-[13px]"
+                        className="ui-btn ui-btn-secondary min-h-[44px] px-3.5 text-[13px]"
                       >
                         <Edit3
                           className="w-3.5 h-3.5"
@@ -168,7 +168,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         }}
                         title="Xóa trận này"
                         aria-label="Xóa trận này"
-                        className="ui-icon-btn w-9 h-9 min-w-0 min-h-0"
+                        className="ui-icon-btn w-11 h-11"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

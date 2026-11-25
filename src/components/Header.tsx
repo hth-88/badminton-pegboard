@@ -135,9 +135,9 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* Main Top Bar */}
-      <div className="ui-container px-4 md:px-6 py-2.5 flex items-center justify-between gap-2">
+      <div className="ui-container px-3 sm:px-4 md:px-6 py-2.5 flex items-center justify-between gap-2">
         {/* Brand & Court Count */}
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 shrink">
           <div
             className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
             style={{
@@ -164,20 +164,20 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="min-w-0">
             <h1
-              className="font-bold text-[16px] tracking-[-0.02em] leading-tight truncate"
+              className="font-bold text-[15px] sm:text-[16px] tracking-[-0.02em] leading-tight whitespace-nowrap"
               style={{ color: 'var(--text-primary)' }}
             >
               Badminton
             </h1>
             <div
-              className="flex items-center gap-1.5 mt-0.5 text-[12px] font-medium"
+              className="flex items-center gap-1.5 mt-0.5 text-[12px] font-medium whitespace-nowrap"
               style={{ color: 'var(--text-secondary)' }}
             >
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ backgroundColor: 'var(--color-accent)' }}
               />
-              <span className="truncate tabular-nums">
+              <span className="tabular-nums">
                 {activeCourtsCount}/{totalCourtsCount} sân
               </span>
               {!isViewer && (
@@ -194,14 +194,14 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {/* Cloud Room Status Button */}
           {roomCode && role !== 'OFFLINE' ? (
             <button
               type="button"
               onClick={onOpenCloudModal}
               title={`Phòng ${roomCode} — ${role === 'CO_HOST' ? 'Quản trị' : 'Chỉ xem'} (${syncStatus})`}
-              className={`ui-btn px-3 rounded-full shrink-0 ${
+              className={`ui-btn px-2.5 sm:px-3 rounded-full shrink-0 ${
                 role === 'CO_HOST' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
               }`}
             >
@@ -236,7 +236,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenCloudModal}
               title="Phòng Online Realtime (Đồng bộ nhiều điện thoại)"
               aria-label="Phòng Online"
-              className="ui-btn ui-btn-secondary px-3 rounded-full shrink-0"
+              className="ui-btn ui-btn-secondary w-11 sm:w-auto px-0 sm:px-3 rounded-xl sm:rounded-full shrink-0"
             >
               <Cloud
                 className="w-4 h-4 shrink-0"
@@ -284,14 +284,14 @@ export const Header: React.FC<HeaderProps> = ({
             {isCurrentlyDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {/* Screen Wake Lock */}
+          {/* Screen Wake Lock (always on desktop & mobile VIEWER; mobile Host accesses via Settings to keep header clean) */}
           {wakeLockSupported && (
             <button
               type="button"
               onClick={onToggleWakeLock}
               title={wakeLockActive ? 'Màn hình luôn sáng: BẬT' : 'Màn hình luôn sáng: TẮT'}
               aria-label={wakeLockActive ? 'Màn hình luôn sáng: BẬT' : 'Màn hình luôn sáng: TẮT'}
-              className="ui-icon-btn w-11 h-11"
+              className={`ui-icon-btn w-11 h-11 ${isViewer ? 'inline-flex' : 'hidden sm:inline-flex'}`}
               style={
                 wakeLockActive
                   ? {
@@ -367,7 +367,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="text-[13px] mt-0.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
-                  Chung bể cho cả 3 sân hoặc tách riêng từng sân
+                  Chung bể cho cả {totalCourtsCount} sân hoặc tách riêng từng sân
                 </div>
               </div>
               <button
@@ -383,12 +383,15 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t ui-divider">
               <div>
                 <label
+                  htmlFor="settings-match-mix"
                   className="block text-[13px] font-semibold mb-1.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Tỷ lệ Đôi / Đơn
                 </label>
                 <select
+                  id="settings-match-mix"
+                  name="matchMix"
                   value={getMixPreset()}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -408,12 +411,15 @@ export const Header: React.FC<HeaderProps> = ({
 
               <div>
                 <label
+                  htmlFor="settings-auto-singles"
                   className="block text-[13px] font-semibold mb-1.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Đơn khi ít người
                 </label>
                 <select
+                  id="settings-auto-singles"
+                  name="autoSingles"
                   value={autoSingles}
                   onChange={(e) => onUpdateAutoSingles(e.target.value as AutoSinglesMode)}
                   className="ui-select"
@@ -431,6 +437,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <label
+                  htmlFor="settings-male-bonus"
                   className="block text-[14px] font-semibold"
                   style={{ color: 'var(--text-primary)' }}
                 >
@@ -450,7 +457,7 @@ export const Header: React.FC<HeaderProps> = ({
                     setTempMaleBonus(Math.max(0, Number((tempMaleBonus - 0.5).toFixed(1))))
                   }
                   aria-label="Giảm điểm bù Nam"
-                  className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                  className="ui-icon-btn w-11 h-11"
                   style={{ backgroundColor: 'var(--bg-surface)' }}
                 >
                   <Minus className="w-4 h-4" />
@@ -467,7 +474,7 @@ export const Header: React.FC<HeaderProps> = ({
                     setTempMaleBonus(Math.min(5, Number((tempMaleBonus + 0.5).toFixed(1))))
                   }
                   aria-label="Tăng điểm bù Nam"
-                  className="ui-icon-btn w-10 h-10 min-w-0 min-h-0"
+                  className="ui-icon-btn w-11 h-11"
                   style={{ backgroundColor: 'var(--bg-surface)' }}
                 >
                   <Plus className="w-4 h-4" />
@@ -476,6 +483,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <input
+              id="settings-male-bonus"
+              name="maleBonus"
               type="range"
               min="0"
               max="5"
@@ -493,7 +502,7 @@ export const Header: React.FC<HeaderProps> = ({
                     key={preset}
                     type="button"
                     onClick={() => setTempMaleBonus(preset)}
-                    className={`min-h-[36px] px-3 rounded-xl text-[13px] font-semibold tabular-nums transition ${
+                    className={`min-w-[44px] min-h-[44px] px-3 rounded-xl text-[13px] font-semibold tabular-nums transition ${
                       active ? 'ui-btn-primary' : ''
                     }`}
                     style={
@@ -511,6 +520,41 @@ export const Header: React.FC<HeaderProps> = ({
               })}
             </div>
           </div>
+
+          {/* Wake Lock inside Settings for Mobile convenience */}
+          {wakeLockSupported && (
+            <div className="ui-tile p-4 flex items-center justify-between gap-3">
+              <div>
+                <div
+                  className="text-[14px] font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Giữ màn hình luôn sáng
+                </div>
+                <p
+                  className="text-[13px] mt-0.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Chống tắt màn hình điện thoại ngoài sân
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleWakeLock}
+                className={`ui-btn px-4 shrink-0 ${
+                  wakeLockActive ? 'ui-btn-warning-soft' : 'ui-btn-secondary'
+                }`}
+                style={
+                  !wakeLockActive
+                    ? { backgroundColor: 'var(--bg-surface)' }
+                    : undefined
+                }
+              >
+                <Flame className="w-4 h-4" />
+                <span>{wakeLockActive ? 'Đang bật' : 'Đang tắt'}</span>
+              </button>
+            </div>
+          )}
 
           {/* 3. Theme */}
           <div className="space-y-2">
