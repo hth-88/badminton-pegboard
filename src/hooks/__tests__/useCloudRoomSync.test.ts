@@ -1497,4 +1497,153 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     expect(onApplySettlementHost).toHaveBeenCalledTimes(1);
     expect(onApplySettlementHost.mock.calls[0][1]).toBe('OFFLINE');
   });
+
+  it('24. Đợt 5 Stage 1: Host máy trống vào lại phòng (joinRoom) có 16 người + 2 chờ duyệt KHÔNG BAO GIỜ đẩy phiên trống đè Cloud kể cả khi React chưa kịp commit state mới', async () => {
+    const emptyState = createInitialSessionState();
+    const roomState: BadmintonSessionState = {
+      ...emptyState,
+      players: [
+        {
+          id: 'p1',
+          name: 'Thành',
+          sex: 'M',
+          rank: 'tb',
+          status: 'ACTIVE',
+          assignedPool: 'ALL',
+          gamesPlayed: 1,
+          virtualGamesOffset: 0,
+          waitStreak: 0,
+          lastPlayedAt: 1000,
+          singlesCount: 0,
+          noSingles: false,
+          joinedAt: 100,
+        },
+      ],
+    };
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: roomState,
+        settlement_data: {
+          settings: {
+            courtCostMode: 'HOURLY',
+            courtCostDirect: 0,
+            courtHourlyRate: 160000,
+            courtHours: 2,
+            shuttleCostMode: 'BY_SHUTTLE',
+            shuttleCostDirect: 0,
+            shuttleCount: 6,
+            shuttlePrice: 30000,
+            shuttleTubeCount: 0,
+            shuttleTubePrice: 250000,
+            extraCost: 0,
+            extraCostNote: 'Nước uống / Phụ phí',
+            splitMode: 'EQUAL',
+            genderRatioMalePercent: 60,
+            genderRatioFemalePercent: 40,
+            maleExtraAmount: 20000,
+            discountUnderPlayed: true,
+            underPlayedThreshold: 2,
+            underPlayedDiscountType: 'PROPORTIONAL',
+            zeroGamesPolicy: 'FREE',
+            mergeBetsIntoSettlement: false,
+            bankCode: '',
+            bankName: '',
+            bankAccount: '',
+            bankAccountHolder: '',
+            bankNote: 'Tien cau long',
+          },
+          payments: {
+            p1: { status: 'PENDING_REVIEW', reportedAt: 500 },
+          },
+          betPayments: {},
+          updatedAt: 1000,
+        },
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+    mockUpdateRoomSettlementOnly.mockResolvedValue({ ok: true });
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        currentSettlement: props.settlement,
+        onApplyCloudState: vi.fn(),
+        onApplyCloudSettlement: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+
+    const emptySettlement = {
+      settings: (await import('../../engine/settlement')).DEFAULT_SETTLEMENT_SETTINGS,
+      payments: {},
+      betPayments: {},
+      updatedAt: 0,
+    };
+
+    // Máy đang ở phiên trống (vừa rời phòng xong)
+    harness.render({ state: emptyState, settlement: emptySettlement });
+
+    await harness.getResult().joinRoom('SAN-49', '1234');
+    // Mô phỏng React re-render trung gian khi state trên máy vẫn chưa kịp đổi từ emptyState sang roomState
+    harness.rerender({ state: emptyState, settlement: emptySettlement });
+    await vi.advanceTimersByTimeAsync(400);
+
+    // Tuyệt đối không được gọi upsertRoom hay updateRoomSettlementOnly để đẩy phiên trống đè Cloud!
+    expect(mockUpsertRoom).not.toHaveBeenCalled();
+    expect(mockUpdateRoomSettlementOnly).not.toHaveBeenCalled();
+  });
+
+  it('25. Đợt 5 Stage 1: createRoom chặn ghi đè nếu mã phòng trên Cloud đã tồn tại và có dữ liệu', async () => {
+    const emptyState = createInitialSessionState();
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: {
+          ...emptyState,
+          players: [
+            {
+              id: 'p1',
+              name: 'Thành',
+              sex: 'M',
+              rank: 'tb',
+              status: 'ACTIVE',
+              assignedPool: 'ALL',
+              gamesPlayed: 0,
+              virtualGamesOffset: 0,
+              waitStreak: 0,
+              lastPlayedAt: 0,
+              singlesCount: 0,
+              noSingles: false,
+              joinedAt: 100,
+            },
+          ],
+        },
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+    mockUpsertRoom.mockClear();
+
+    const harness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: vi.fn(),
+        onShowToast: vi.fn(),
+      })
+    );
+    harness.render({ state: emptyState });
+
+    const res = await harness.getResult().createRoom('SAN-49', '1234', emptyState);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('đã tồn tại');
+    expect(mockUpsertRoom).not.toHaveBeenCalled();
+  });
 });

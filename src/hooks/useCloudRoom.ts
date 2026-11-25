@@ -7,6 +7,7 @@ import {
   type PlayerPaymentRecord,
 } from '../engine/settlement';
 import { createInitialSessionState } from '../engine/sessionReducer';
+import { migrateSessionState } from '../engine/stateMigration';
 import type { BadmintonSessionSnapshot, BadmintonSessionState } from '../types/badminton';
 import {
   fetchRoom,
@@ -246,6 +247,9 @@ export function useCloudRoom({
   const roleRef = useRef(role);
   roleRef.current = role;
 
+  const roomCodeRef = useRef(roomCode);
+  roomCodeRef.current = roomCode;
+
   const pinCodeRef = useRef(pinCode);
   pinCodeRef.current = pinCode;
 
@@ -257,6 +261,10 @@ export function useCloudRoom({
   // A4 (ii): Cờ đánh dấu có thay đổi local đang pending hoặc đang bay lên cloud
   const hasPendingLocalChangeRef = useRef<boolean>(false);
   const hasPendingSettlementChangeRef = useRef<boolean>(false);
+
+  // Hydration Lock: khóa không cho đẩy state/settlement cũ (VD phiên trống sau khi rời phòng) lên Cloud trước khi state Cloud vừa fetch kịp commit
+  const awaitingRemoteSessionHydrationRef = useRef<boolean>(false);
+  const awaitingRemoteSettlementHydrationRef = useRef<boolean>(false);
 
   const lastAppliedTimestampRef = useRef<number>(0);
   const lastAppliedRemoteSnapshotRef = useRef<BadmintonSessionSnapshot | BadmintonSessionState | null>(null);
@@ -330,13 +338,24 @@ export function useCloudRoom({
       }
 
       // Nạp dữ liệu phòng vào ứng dụng (hoặc giữ nguyên bản local mới hơn khi F5 lúc đang debounce)
+      let normalizedRemoteSession = roomData.session_data;
+      try {
+        normalizedRemoteSession = migrateSessionState(roomData.session_data);
+      } catch {
+        // Fallback nếu dữ liệu cloud tối giản trong mock/test
+      }
       lastAppliedTimestampRef.current = roomData.updated_at;
-      lastAppliedRemoteSnapshotRef.current = roomData.session_data;
+      lastAppliedRemoteSnapshotRef.current = normalizedRemoteSession;
       if (shouldPreservePendingLocal) {
+        awaitingRemoteSessionHydrationRef.current = false;
         hasPendingLocalChangeRef.current = true;
       } else {
+        awaitingRemoteSessionHydrationRef.current = !areSessionSnapshotsEqual(
+          currentStateRef.current,
+          normalizedRemoteSession
+        );
         isApplyingRemoteRef.current = true;
-        onApplyRef.current(roomData.session_data);
+        onApplyRef.current(normalizedRemoteSession);
         try {
           localStorage.removeItem(pendingStorageKey);
         } catch {
@@ -350,15 +369,21 @@ export function useCloudRoom({
         lastAppliedSettlementTsRef.current =
           normalizedSettlement.updatedAt || roomData.updated_at;
         lastAppliedRemoteSettlementRef.current = normalizedSettlement;
+        awaitingRemoteSettlementHydrationRef.current = !areSettlementDataEqual(
+          currentSettlementRef.current,
+          normalizedSettlement
+        );
         onApplySettlementRef.current?.(normalizedSettlement, assignedRole);
       } else if (assignedRole === 'VIEWER') {
         const empty = createDefaultCloudSettlementData(0);
         lastAppliedSettlementTsRef.current = 0;
         lastAppliedRemoteSettlementRef.current = empty;
+        awaitingRemoteSettlementHydrationRef.current = false;
         onApplySettlementRef.current?.(empty, 'VIEWER');
       } else {
         lastAppliedSettlementTsRef.current = 0;
         lastAppliedRemoteSettlementRef.current = null;
+        awaitingRemoteSettlementHydrationRef.current = false;
       }
 
       setRoomCode(cleanCode);
@@ -529,6 +554,7 @@ export function useCloudRoom({
 
     // A5: Nếu state hiện tại khớp với snapshot vừa nhận từ xa, không gửi ngược lại
     if (areSessionSnapshotsEqual(currentState, lastAppliedRemoteSnapshotRef.current)) {
+      awaitingRemoteSessionHydrationRef.current = false;
       isApplyingRemoteRef.current = false;
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -541,6 +567,11 @@ export function useCloudRoom({
       } catch {
         // Bỏ qua
       }
+      return;
+    }
+
+    // Hydration Lock: đang chờ React commit state vừa tải từ Cloud, không được đẩy state cũ lên đè Cloud
+    if (awaitingRemoteSessionHydrationRef.current) {
       return;
     }
 
@@ -608,11 +639,17 @@ export function useCloudRoom({
     }
 
     if (areSettlementDataEqual(currentSettlement, lastAppliedRemoteSettlementRef.current)) {
+      awaitingRemoteSettlementHydrationRef.current = false;
       if (settlementDebounceTimerRef.current) {
         clearTimeout(settlementDebounceTimerRef.current);
         settlementDebounceTimerRef.current = null;
       }
       hasPendingSettlementChangeRef.current = false;
+      return;
+    }
+
+    // Hydration Lock: đang chờ React commit settlement vừa tải từ Cloud, không được đẩy bản trống lên đè Cloud
+    if (awaitingRemoteSettlementHydrationRef.current) {
       return;
     }
 
@@ -664,6 +701,19 @@ export function useCloudRoom({
       const now = Date.now();
 
       setSyncStatus('SYNCING');
+      const existing = await fetchRoom(cleanCode);
+      if (
+        existing.data &&
+        ((existing.data.session_data?.players?.length ?? 0) > 0 ||
+          (existing.data.session_data?.history?.length ?? 0) > 0)
+      ) {
+        setSyncStatus('OFFLINE');
+        return {
+          ok: false,
+          error: `Phòng "${cleanCode}" đã tồn tại và đang có dữ liệu! Vui lòng chuyển sang tab "Vào phòng" để kết nối lại.`,
+        };
+      }
+
       const res = await upsertRoom({
         room_code: cleanCode,
         pin_code: cleanPin,
@@ -761,6 +811,38 @@ export function useCloudRoom({
       clearTimeout(settlementDebounceTimerRef.current);
       settlementDebounceTimerRef.current = null;
     }
+
+    // Flush thay đổi cục bộ đang chờ debounce trước khi ngắt kết nối (tránh mất thao tác vừa làm trước lúc Rời phòng)
+    if (roleRef.current === 'CO_HOST' && roomCodeRef.current) {
+      const flushTs = Date.now();
+      if (
+        hasPendingLocalChangeRef.current &&
+        !awaitingRemoteSessionHydrationRef.current
+      ) {
+        void upsertRoom({
+          room_code: roomCodeRef.current,
+          pin_code: pinCodeRef.current || '1234',
+          session_data: currentStateRef.current,
+          updated_at: flushTs,
+          updated_by: clientId,
+        });
+      }
+      if (
+        hasPendingSettlementChangeRef.current &&
+        !awaitingRemoteSettlementHydrationRef.current &&
+        currentSettlementRef.current
+      ) {
+        void updateRoomSettlementOnly(
+          roomCodeRef.current,
+          { ...currentSettlementRef.current, updatedAt: flushTs },
+          flushTs,
+          clientId
+        );
+      }
+    }
+
+    awaitingRemoteSessionHydrationRef.current = false;
+    awaitingRemoteSettlementHydrationRef.current = false;
     hasPendingLocalChangeRef.current = false;
     hasPendingSettlementChangeRef.current = false;
     lastAppliedSettlementTsRef.current = 0;
