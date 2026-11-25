@@ -1437,4 +1437,64 @@ describe('useCloudRoom Realtime & Sync Loop Hardening', () => {
     });
     expect(harnessViewer.getResult().pinCode).toBeNull();
   });
+
+  it('23. Stage C: Cả Host (CO_HOST) lẫn VIEWER khi leaveRoom đều reset sạch state & settlement về phiên trống', async () => {
+    const baseState = createInitialSessionState();
+    const roomState: BadmintonSessionState = {
+      ...baseState,
+      players: [
+        {
+          id: 'p-room-1',
+          name: 'Thành',
+          sex: 'M',
+          rank: 'tb',
+          status: 'ACTIVE',
+          assignedPool: 'ALL',
+          gamesPlayed: 2,
+          virtualGamesOffset: 0,
+          waitStreak: 0,
+          lastPlayedAt: 1000,
+          singlesCount: 0,
+          noSingles: false,
+          joinedAt: 100,
+        },
+      ],
+    };
+
+    mockFetchRoom.mockResolvedValue({
+      ok: true,
+      data: {
+        room_code: 'SAN-49',
+        pin_code: '1234',
+        session_data: roomState,
+        updated_at: 1000,
+        updated_by: 'OTHER',
+      },
+    });
+    mockUpsertRoom.mockResolvedValue({ ok: true });
+
+    const onApplyHost = vi.fn();
+    const onApplySettlementHost = vi.fn();
+    const hostHarness = createHookHarness((props: any) =>
+      useCloudRoom({
+        currentState: props.state,
+        onApplyCloudState: onApplyHost,
+        onApplyCloudSettlement: onApplySettlementHost,
+        onShowToast: vi.fn(),
+      })
+    );
+    hostHarness.render({ state: baseState });
+    await hostHarness.getResult().joinRoom('SAN-49', '1234');
+    await vi.runAllTimersAsync();
+
+    onApplyHost.mockClear();
+    onApplySettlementHost.mockClear();
+    hostHarness.getResult().leaveRoom();
+
+    expect(hostHarness.getResult().role).toBe('OFFLINE');
+    expect(onApplyHost).toHaveBeenCalledTimes(1);
+    expect(onApplyHost.mock.calls[0][0].players).toEqual([]);
+    expect(onApplySettlementHost).toHaveBeenCalledTimes(1);
+    expect(onApplySettlementHost.mock.calls[0][1]).toBe('OFFLINE');
+  });
 });

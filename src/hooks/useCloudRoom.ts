@@ -761,7 +761,6 @@ export function useCloudRoom({
       clearTimeout(settlementDebounceTimerRef.current);
       settlementDebounceTimerRef.current = null;
     }
-    const wasViewer = roleRef.current === 'VIEWER';
     hasPendingLocalChangeRef.current = false;
     hasPendingSettlementChangeRef.current = false;
     lastAppliedSettlementTsRef.current = 0;
@@ -775,40 +774,16 @@ export function useCloudRoom({
     try {
       localStorage.removeItem(STORAGE_KEY_CLOUD_ROOM);
       localStorage.removeItem(pendingStorageKey);
+      localStorage.removeItem(STORAGE_KEY_OFFLINE_BACKUP);
     } catch {
       // Bỏ qua
     }
 
-    // Cách ly dữ liệu phòng: khi VIEWER rời phòng, khôi phục phiên offline cũ (hoặc phiên trống)
-    if (wasViewer) {
-      let restoredSession: BadmintonSessionState | null = null;
-      let restoredSettlement: CloudSettlementData | null = null;
-      try {
-        const rawBackup = localStorage.getItem(STORAGE_KEY_OFFLINE_BACKUP);
-        if (rawBackup) {
-          const parsed = JSON.parse(rawBackup) as {
-            sessionData?: BadmintonSessionState;
-            settlementData?: CloudSettlementData | null;
-          };
-          if (parsed.sessionData) {
-            restoredSession = parsed.sessionData;
-          }
-          if (parsed.settlementData) {
-            restoredSettlement = normalizeCloudSettlementData(parsed.settlementData);
-          }
-        }
-        localStorage.removeItem(STORAGE_KEY_OFFLINE_BACKUP);
-      } catch {
-        // Bỏ qua lỗi parse
-      }
-
-      isApplyingRemoteRef.current = true;
-      onApplyRef.current(restoredSession ?? createInitialSessionState());
-      onApplySettlementRef.current?.(
-        restoredSettlement ?? createDefaultCloudSettlementData(0),
-        'OFFLINE'
-      );
-    }
+    // Cách ly dữ liệu phòng đồng nhất cho cả Host (CO_HOST) & Viewer:
+    // Rời phòng là đưa máy về phiên trống sạch (dữ liệu phòng trên Cloud vẫn giữ nguyên).
+    isApplyingRemoteRef.current = true;
+    onApplyRef.current(createInitialSessionState());
+    onApplySettlementRef.current?.(createDefaultCloudSettlementData(0), 'OFFLINE');
 
     // Xóa param ?room= khỏi URL mà không reload trang
     if (typeof window !== 'undefined' && window.history?.replaceState) {

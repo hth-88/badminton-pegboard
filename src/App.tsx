@@ -130,7 +130,6 @@ export function App() {
     toggleBetPaid,
     resetPaymentsForNewSession,
     applyCloudSettlement,
-    reloadLocalSettlement,
   } = useSettlementState();
 
   const handleApplyCloudSettlement = useCallback(
@@ -761,11 +760,7 @@ export function App() {
         }
         onJoinRoom={joinRoom}
         onLeaveRoom={() => {
-          const wasViewer = role === 'VIEWER';
           leaveRoom();
-          if (wasViewer) {
-            reloadLocalSettlement();
-          }
         }}
         onUpgradeToCoHost={upgradeToCoHost}
         onUpdateRoomPin={updateRoomPin}
