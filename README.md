@@ -1,32 +1,34 @@
-# React + TypeScript + Vite
+# Xếp Sân Cầu Lông Thông Minh (Badminton Pegboard)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Ứng dụng điều phối sân cầu lông phong trào theo mô hình **Digital Pegboard** (mobile-first, offline-first, đồng bộ realtime đa thiết bị).
 
-Currently, two official plugins are available:
+## Tính năng chính
+- **Quản lý tối đa 3 sân độc lập:** Theo dõi trận đang đánh, gợi ý lượt kế tiếp (`Next Up`), cân kèo Đôi/Đơn, tôn trọng khóa tay (`MANUAL`), chế độ chung bể hoặc tách sân + giao lưu.
+- **Hàng chờ thông minh:** Ưu tiên theo thời gian chờ và số trận đã đánh, hỗ trợ tạm nghỉ (`PAUSED`), luật cặp cố định (`FIXED_PAIR`) / né cặp (`AVOID_PARTNER`, `AVOID_MATCH`).
+- **Chốt trận & Lịch sử:** Ghi tỉ số nhanh, kèo độ, nhận xét riêng từng người, theo dõi phong độ trong buổi (`sessionFormOffset`).
+- **Tính tiền & VietQR:** Chia tiền sân (theo giờ/trọn gói), tiền cầu, phụ phí, tỷ lệ Nam/Nữ, giảm giá người đánh ít trận (trần bù +30%), sinh mã VietQR chuẩn NAPAS 247, xác nhận chuyển khoản & duyệt biên lai.
+- **Phòng Online Realtime:** Đồng bộ nhiều máy qua Supabase Realtime với mã phòng và PIN phân quyền (`Host`/`Co-Host` vs `Viewer`).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Tech Stack
+- React 19 + TypeScript + Vite 8 + Tailwind CSS v4
+- Vitest 5 + Oxlint
+- Supabase (`@supabase/supabase-js`) + `qrcode`
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+## Cài đặt & Chạy Local
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Để bật tính năng **Phòng Online (Supabase Realtime)**, xem hướng dẫn thiết lập bảng và biến môi trường tại [SUPABASE_SETUP.md](SUPABASE_SETUP.md).
+
+## Kiểm tra chất lượng (Harness Gate)
+```bash
+npm run check:harness   # Chạy tsc -b, vitest run và vite build
+npm run lint            # Chạy oxlint
+```
+
+## Tài liệu dự án
+- [CLAUDE.md](CLAUDE.md) — Quy chuẩn bất biến (Harness Rules)
+- [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) — Kiến trúc, quyết định nghiệp vụ & trạng thái hiện tại
+- [docs/ui/DESIGN.md](docs/ui/DESIGN.md) — Hệ thiết kế & CSS tokens

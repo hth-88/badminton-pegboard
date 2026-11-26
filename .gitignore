@@ -45,3 +45,7 @@ supabase/.temp/
 .claude/
 .cursor/
 .gemini/
+
+# Local drafts, wave plans & scratch docs (never push to GitHub)
+.local-docs/
+*.plan.md
