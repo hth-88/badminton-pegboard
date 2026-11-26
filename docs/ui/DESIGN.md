@@ -77,7 +77,9 @@
   - **Sân đang tắt** căng đầy bằng đúng chiều cao thẻ sân đang bật trong cùng lưới.
 - **Ô người chơi (`h-[62px]` cố định):** Tên người chơi luôn trên 1 dòng với `truncate` (`...`), tuyệt đối không xuống dòng hay đẩy khung rộng/cao ra khi tên rất dài.
 
-### 3.3. Quy Tắc Hiển Thị Chế Độ Người Xem (`VIEWER`)
-- Chỉ xử lý ẩn ở tầng UI dựa trên `role === 'VIEWER'` / `isViewer` (không sửa dữ liệu sync, không sửa `useCloudRoom.ts`).
-- `VIEWER` chỉ thấy 2 tab **Sân** (đội hình đang đánh + lượt kế tiếp chỉ đọc) và **Hàng chờ** (danh sách chờ chỉ đọc), cùng nút chuyển theme Sáng/Tối, giữ sáng màn hình và nút mở hộp thoại phòng/nhập PIN để nâng quyền Co-Host khi cần.
-- Ẩn hoàn toàn với `VIEWER`: tab **Tính tiền**, tab **Luật cặp**, tab **Lịch sử**, nút Hoàn tác/Làm lại, nút Cài đặt Host, toàn bộ nút điều khiển sân/xếp kèo/chỉnh sửa hàng chờ, và tab cấu hình kỹ thuật Supabase.
+### 3.3. Quy Tắc Hiển Thị Chế Độ Người Xem (`VIEWER`) & Phân Quyền Điều Hướng
+- Chỉ xử lý ẩn/khóa ở tầng UI dựa trên `role === 'VIEWER'` / `resolveUiPermissions` (không sửa dữ liệu sync phòng, không sửa `useCloudRoom.ts`).
+- Thanh điều hướng dưới (`BottomNav`) luôn giữ cố định **5 tab** chạm chuẩn `>= 44px` cho cả Host và `VIEWER`: **`Lịch tuần · Sân · Hàng chờ · Lịch sử · Tính tiền`**.
+- `Luật cặp` nằm ở sub-tab thứ 2 bên trong **`Hàng chờ`** (`Danh sách chờ | Luật cặp`):
+  - Với Host / Co-Host / Offline: hiển thị thanh chuyển `Danh sách chờ | Luật cặp`, đồng thời giữ nguyên badge đỏ `conflictCount` trên icon tab `Hàng chờ` khi có xung đột luật cặp.
+  - Với `VIEWER`: ẩn hoàn toàn sub-tab `Luật cặp`, nút Hoàn tác/Làm lại, nút Cài đặt Host, toàn bộ nút điều khiển sân/xếp kèo/chỉnh sửa hàng chờ & lịch sử; tab `Tính tiền` cho phép tự tra VietQR và bấm "Tôi đã chuyển"; tab `Lịch tuần` phân quyền độc lập theo vai trò CLB (`GUEST` / `CLUB_MEMBER` / `CLUB_HOST`).

@@ -3,22 +3,28 @@ import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useCloudRoom, type RoomRole } from './hooks/useCloudRoom';
+import { useClubSchedule } from './hooks/useClubSchedule';
 import { useSettlementState } from './hooks/useSettlementState';
 import type { CloudSettlementData } from './engine/settlement';
+import { normalizeClubCode } from './services/clubScheduleSync';
+import {
+  resolveClubUrlInitialTab,
+  resolveUiPermissions,
+} from './types/schedule';
 import { Header } from './components/Header';
 import { BottomNav, type NavTab } from './components/BottomNav';
 import { CourtCard } from './components/CourtCard';
 import { QueueTab } from './components/QueueTab';
-import { PairRulesTab } from './components/PairRulesTab';
 import { HistoryTab } from './components/HistoryTab';
 import { SettlementTab } from './components/SettlementTab';
+import { ScheduleView } from './components/schedule/ScheduleView';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
 import { savePrivateMatchReview } from './engine/matchFeedbackStorage';
 import type { Lineup, MatchHistory } from './types/badminton';
 import { InfoToast, UndoToast } from './components/Toast';
 import { UiModal } from './components/ui/Primitives';
-import { Eye, KeyRound, Lock } from 'lucide-react';
+import { ArrowRight, Eye, KeyRound, Lock, Radio } from 'lucide-react';
 import {
   deleteReceiptFiles,
   deleteRoomReceipts,
@@ -82,7 +88,22 @@ export function App() {
   const { theme, setTheme } = useTheme();
   const { isSupported: wakeLockSupported, isActive: wakeLockActive, toggleWakeLock } = useWakeLock();
 
-  const [activeTab, setActiveTab] = useState<NavTab>('courts');
+  const [userSelectedTab, setUserSelectedTab] = useState<NavTab | null>(null);
+  const [autoClubInitialTab, setAutoClubInitialTab] = useState<NavTab | null>(null);
+  const [initialUrlEntry] = useState(() => {
+    if (typeof window === 'undefined') {
+      return { hasClubParam: false, hasRoomParam: false };
+    }
+    const params = new URLSearchParams(window.location.search);
+    return {
+      hasClubParam: Boolean(normalizeClubCode(params.get('club'))),
+      hasRoomParam: Boolean(params.get('room')?.trim()),
+    };
+  });
+
+  const handleSelectTab = useCallback((nextTab: NavTab) => {
+    setUserSelectedTab(nextTab);
+  }, []);
   const [selectedCourtFilter, setSelectedCourtFilter] = useState<'ALL' | string>('ALL');
   const [undoToastMessage, setUndoToastMessage] = useState<string | null>(null);
   const [infoToastMessage, setInfoToastMessage] = useState<string | null>(null);
@@ -197,11 +218,71 @@ export function App() {
     onApplyCloudSettlement: handleApplyCloudSettlement,
   });
 
-  // Tự động rời khỏi tab Luật cặp nếu đang ở chế độ VIEWER
-  const effectiveTab: NavTab =
-    role === 'VIEWER' && activeTab === 'rules'
-      ? 'courts'
-      : activeTab;
+  const clubSchedule = useClubSchedule();
+
+  const isCurrentWeekLocked = Boolean(
+    clubSchedule.club?.lockedWeeks?.includes(clubSchedule.weekKey)
+  );
+
+  const uiPermissions = useMemo(
+    () =>
+      resolveUiPermissions({
+        roomRole: role,
+        clubRole: clubSchedule.role,
+        clubSettings: clubSchedule.club?.settings,
+        isCurrentWeekLocked,
+      }),
+    [role, clubSchedule.role, clubSchedule.club?.settings, isCurrentWeekLocked]
+  );
+
+  // Tự động mở tab Lịch tuần CHỈ KHI vào qua ?club=CODE (không có ?room=) mà CLB chưa có sân LIVE
+  if (
+    userSelectedTab === null &&
+    autoClubInitialTab === null &&
+    initialUrlEntry.hasClubParam &&
+    !initialUrlEntry.hasRoomParam &&
+    clubSchedule.syncState !== 'LOADING'
+  ) {
+    setAutoClubInitialTab(
+      resolveClubUrlInitialTab({
+        hasClubParam: initialUrlEntry.hasClubParam,
+        hasRoomParam: initialUrlEntry.hasRoomParam,
+        activeRoomsCount: clubSchedule.club?.activeRooms?.length ?? 0,
+      })
+    );
+  }
+
+  const unjoinedClubLiveRooms = useMemo(() => {
+    const activeRooms = clubSchedule.club?.activeRooms ?? [];
+    return activeRooms.filter((r) => r.roomCode && r.roomCode !== roomCode);
+  }, [clubSchedule.club?.activeRooms, roomCode]);
+
+  const handleJoinClubLiveRoom = useCallback(
+    async (targetRoomCode: string) => {
+      const clean = targetRoomCode.trim().toUpperCase();
+      if (!clean) return;
+      if (roomCode === clean) {
+        handleSelectTab('courts');
+        return;
+      }
+      const res = await joinRoom(clean);
+      if (res.ok) {
+        handleSelectTab('courts');
+      }
+    },
+    [roomCode, joinRoom, handleSelectTab]
+  );
+
+  const clubRosterSyncKey = useMemo(
+    () =>
+      `${clubSchedule.clubCode ?? 'LOCAL'}:${clubSchedule.members
+        .map((m) => `${m.id}:${m.updatedAt}`)
+        .join(',')}`,
+    [clubSchedule.clubCode, clubSchedule.members]
+  );
+
+  // Cả Host và VIEWER đều có đủ 5 tab trên BottomNav (mặc định Sân)
+  const effectiveTab: NavTab = userSelectedTab ?? autoClubInitialTab ?? 'courts';
 
   useLayoutEffect(() => {
     if (effectiveTab !== 'courts') return;
@@ -348,7 +429,7 @@ export function App() {
       />
 
       {/* VIEWER NOTICE BANNER */}
-      {role === 'VIEWER' && roomCode && (
+      {uiPermissions.isRoomViewer && roomCode && (
         <div
           className="border-b ui-divider px-4 py-2 sticky top-[61px] z-20 ui-header"
         >
@@ -379,6 +460,55 @@ export function App() {
               <KeyRound className="w-3.5 h-3.5" />
               <span>Nhập PIN Host</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* CLUB LIVE ROOM BANNER (1 chạm nhảy vào phòng đánh của CLB) */}
+      {unjoinedClubLiveRooms.length > 0 && clubSchedule.club && (
+        <div
+          className="border-b px-4 py-2.5 z-20"
+          style={{
+            backgroundColor: 'var(--color-accent-soft)',
+            borderColor: 'var(--color-accent-border)',
+          }}
+        >
+          <div className="ui-container flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+            <div
+              className="flex items-center gap-2.5 min-w-0 text-[14px]"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Radio
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--color-accent)' }}
+              />
+              <span className="truncate">
+                <strong>{clubSchedule.club.name}</strong> đang có sân LIVE:{' '}
+                <span className="font-semibold" style={{ color: 'var(--color-accent)' }}>
+                  {unjoinedClubLiveRooms.map((r) => r.label || r.roomCode).join(' · ')}
+                </span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {unjoinedClubLiveRooms.map((liveRoom) => (
+                <button
+                  key={liveRoom.roomCode}
+                  type="button"
+                  onClick={() => {
+                    void handleJoinClubLiveRoom(liveRoom.roomCode);
+                  }}
+                  className="ui-btn ui-btn-primary px-4 rounded-full text-[14px]"
+                >
+                  <span>
+                    {unjoinedClubLiveRooms.length === 1
+                      ? 'Vào sân LIVE'
+                      : `Vào ${liveRoom.label || liveRoom.roomCode}`}
+                  </span>
+                  <ArrowRight className="w-4 h-4 shrink-0" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -477,6 +607,22 @@ export function App() {
       {/* 2. MAIN CONTENT TABS */}
       <main className="relative z-10 flex-1 ui-container">
         <div key={effectiveTab} className="ui-tab-enter">
+          {/* TAB 0: LỊCH TUẦN & CHỐT SÂN */}
+          {effectiveTab === 'schedule' && (
+            <ScheduleView
+              schedule={clubSchedule}
+              uiPermissions={uiPermissions}
+              roomCode={roomCode}
+              roomRole={role}
+              sessionPlayers={players}
+              onJoinLiveRoom={handleJoinClubLiveRoom}
+              onPushPlayersToQueue={(playersToPush) =>
+                guardAction(() => addPlayers(playersToPush))
+              }
+              onShowToast={handleCloudToast}
+            />
+          )}
+
           {/* TAB 1: SÂN (Màn hình điều khiển chính) */}
           {effectiveTab === 'courts' && (
             <div className="px-4 md:px-6 pt-4 pb-28">
@@ -658,13 +804,13 @@ export function App() {
             </div>
           )}
 
-          {/* TAB 2: HÀNG CHỜ */}
+          {/* TAB 2: HÀNG CHỜ (Tích hợp sub-tab Danh sách chờ | Luật cặp) */}
           {effectiveTab === 'queue' && (
             <QueueTab
               players={players}
               courts={courts}
               maleBonus={settings.maleBonus}
-              isViewer={role === 'VIEWER'}
+              isViewer={uiPermissions.isRoomViewer}
               onAddPlayer={(data) => guardAction(() => addPlayer(data))}
               onAddPlayers={(list) => guardAction(() => addPlayers(list))}
               onPausePlayer={(id) => guardAction(() => pausePlayer(id))}
@@ -674,19 +820,12 @@ export function App() {
               onUpdatePlayer={(player) => guardAction(() => updatePlayer(player))}
               onRemovePlayer={(id) => guardAction(() => removePlayer(id))}
               onRemovePlayers={(ids) => guardAction(() => removePlayers(ids))}
-            />
-          )}
-
-          {/* TAB 3: LUẬT CẶP (Ẩn hoàn toàn với VIEWER) */}
-          {effectiveTab === 'rules' && role !== 'VIEWER' && (
-            <PairRulesTab
               pairRules={pairRules}
-              players={players}
               ruleConflicts={ruleConflicts}
-              isViewer={false}
               onRequestUpgrade={() => setShowPinPrompt(true)}
               onAddRule={(r) => guardAction(() => addPairRule(r))}
               onRemoveRule={(id) => guardAction(() => removePairRule(id))}
+              clubRosterSyncKey={clubRosterSyncKey}
             />
           )}
 
@@ -792,11 +931,11 @@ export function App() {
       {/* 4. FLOATING GLASS BOTTOM NAVIGATION */}
       <BottomNav
         activeTab={effectiveTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         waitingCount={waitingCount}
         conflictCount={ruleConflicts.length}
         pendingPaymentsCount={pendingPaymentsCount}
-        isViewer={role === 'VIEWER'}
+        isViewer={uiPermissions.isRoomViewer}
       />
 
       {/* 5. CLOUD ROOM REALTIME MODAL */}

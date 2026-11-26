@@ -322,7 +322,8 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
     weekKeyRef.current = weekKey;
   }, [clubCode, weekKey]);
 
-  // Lưu ngữ cảnh CLB xuống localStorage khi CLB đã xác thực tồn tại (hoàn toàn tách biệt với useCloudRoom)
+  // Lưu ngữ cảnh CLB xuống localStorage & đồng bộ ?club=CODE trên URL khi CLB đã xác thực tồn tại
+  // (hoàn toàn tách biệt với vòng đời ?room= của useCloudRoom)
   useEffect(() => {
     if (!clubCode || !club || club.clubCode !== clubCode) return;
     writeStoredContext({
@@ -332,6 +333,20 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
       durationHours,
     });
     setActiveClubCode(clubCode);
+
+    if (typeof window !== 'undefined' && window.history?.replaceState) {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('club') !== clubCode) {
+          url.searchParams.set('club', clubCode);
+          const search = url.searchParams.toString();
+          const nextUrl = url.pathname + (search ? `?${search}` : '') + url.hash;
+          window.history.replaceState({}, '', nextUrl);
+        }
+      } catch {
+        // Bỏ qua lỗi URL trong môi trường test
+      }
+    }
   }, [clubCode, club, selectedMemberId, weekKey, durationHours]);
 
   // Tải bundle ban đầu & mỗi khi đổi clubCode
@@ -816,6 +831,20 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
     setHostPin(null);
     setSyncState('IDLE');
     setErrorMessage(null);
+
+    if (typeof window !== 'undefined' && window.history?.replaceState) {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('club')) {
+          url.searchParams.delete('club');
+          const search = url.searchParams.toString();
+          const cleanUrl = url.pathname + (search ? `?${search}` : '') + url.hash;
+          window.history.replaceState({}, '', cleanUrl);
+        }
+      } catch {
+        // Bỏ qua lỗi URL trong môi trường test
+      }
+    }
   }, []);
 
   const selectWeek = useCallback(

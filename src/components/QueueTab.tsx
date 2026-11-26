@@ -17,8 +17,11 @@ import {
   Check,
   CheckSquare,
   Pause,
+  Scale,
 } from 'lucide-react';
-import type { BadmintonRank, Court, Player, Sex } from '../types/badminton';
+import type { BadmintonRank, Court, PairRule, Player, Sex } from '../types/badminton';
+import type { RuleConflictInfo } from '../engine/sessionReducer';
+import { PairRulesTab } from './PairRulesTab';
 import {
   getEffectiveSkill,
   ORDERED_RANKS,
@@ -75,6 +78,12 @@ interface QueueTabProps {
   onRemovePlayer: (playerId: string) => void;
   onRemovePlayers?: (playerIds: string[]) => void;
   onPausePlayers?: (playerIds: string[]) => void;
+  pairRules?: PairRule[];
+  ruleConflicts?: RuleConflictInfo[];
+  onRequestUpgrade?: () => void;
+  onAddRule?: (rule: Omit<PairRule, 'id'>) => void;
+  onRemoveRule?: (ruleId: string) => void;
+  clubRosterSyncKey?: string;
 }
 
 export const QueueTab: React.FC<QueueTabProps> = ({
@@ -91,7 +100,14 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   onUpdatePlayer,
   onRemovePlayer,
   onRemovePlayers,
+  pairRules = [],
+  ruleConflicts = [],
+  onRequestUpgrade,
+  onAddRule,
+  onRemoveRule,
+  clubRosterSyncKey,
 }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'queue' | 'rules'>('queue');
   const [showAddModal, setShowAddModal] = useState(false);
   const [addMode, setAddMode] = useState<'ROSTER' | 'SINGLE' | 'PASTE'>('ROSTER');
   const [pickerPlayer, setPickerPlayer] = useState<Player | null>(null);
@@ -100,6 +116,16 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
 
   const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster());
+  const [lastSyncedRosterKey, setLastSyncedRosterKey] = useState<string | undefined>(
+    clubRosterSyncKey
+  );
+  if (clubRosterSyncKey !== lastSyncedRosterKey) {
+    setLastSyncedRosterKey(clubRosterSyncKey);
+    setClubRoster(getClubRoster());
+  }
+
+  const canShowRulesSubTab = !isViewer && Boolean(onAddRule && onRemoveRule);
+  const effectiveSubTab: 'queue' | 'rules' = canShowRulesSubTab ? activeSubTab : 'queue';
   const [selectedRosterIds, setSelectedRosterIds] = useState<Set<string>>(new Set());
   const [showRosterAddInline, setShowRosterAddInline] = useState(false);
   const [rosterNewName, setRosterNewName] = useState('');
@@ -358,6 +384,84 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 
   return (
     <div className="max-w-[880px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
+      {/* Sub-tab Switcher: Danh sách chờ | Luật cặp (ẩn hoàn toàn với VIEWER) */}
+      {canShowRulesSubTab && (
+        <div
+          role="tablist"
+          aria-label="Chế độ Hàng chờ và Luật cặp"
+          className="ui-segmented-track grid grid-cols-2 gap-1 max-w-md"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveSubTab === 'queue'}
+            onClick={() => setActiveSubTab('queue')}
+            className="min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition"
+            style={
+              effectiveSubTab === 'queue'
+                ? {
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-primary)',
+                    boxShadow: 'var(--shadow-sm)',
+                  }
+                : { color: 'var(--text-secondary)' }
+            }
+          >
+            <Users className="w-4 h-4 shrink-0" />
+            <span>Danh sách chờ</span>
+            <span className="text-[12px] tabular-nums opacity-75">({players.length})</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveSubTab === 'rules'}
+            onClick={() => setActiveSubTab('rules')}
+            className="min-h-[44px] px-3 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-1.5 transition"
+            style={
+              effectiveSubTab === 'rules'
+                ? {
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-primary)',
+                    boxShadow: 'var(--shadow-sm)',
+                  }
+                : { color: 'var(--text-secondary)' }
+            }
+          >
+            <Scale className="w-4 h-4 shrink-0" />
+            <span>Luật cặp</span>
+            {ruleConflicts.length > 0 ? (
+              <span
+                className="px-1.5 min-w-[20px] h-[20px] inline-flex items-center justify-center rounded-full text-[11px] font-bold tabular-nums leading-none"
+                style={{
+                  backgroundColor: 'var(--color-danger-solid)',
+                  color: 'var(--text-on-danger)',
+                }}
+              >
+                {ruleConflicts.length}
+              </span>
+            ) : (
+              pairRules.length > 0 && (
+                <span className="text-[12px] tabular-nums opacity-75">({pairRules.length})</span>
+              )
+            )}
+          </button>
+        </div>
+      )}
+
+      {effectiveSubTab === 'rules' && canShowRulesSubTab && onAddRule && onRemoveRule ? (
+        <PairRulesTab
+          embedded
+          pairRules={pairRules}
+          players={players}
+          ruleConflicts={ruleConflicts}
+          isViewer={false}
+          onRequestUpgrade={onRequestUpgrade}
+          onAddRule={onAddRule}
+          onRemoveRule={onRemoveRule}
+        />
+      ) : (
+        <>
       {/* Page Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
@@ -940,6 +1044,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* MODAL 1: ADD PLAYER (ROSTER / SINGLE / PASTE) */}

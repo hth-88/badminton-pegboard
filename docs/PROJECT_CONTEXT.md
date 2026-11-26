@@ -22,8 +22,8 @@
 | **Phân tích & Kèo** | `src/engine/skillAnalyzer.ts`, `src/engine/skillConfig.ts`, `src/engine/matchFeedbackStorage.ts`, `src/engine/betLedger.ts`, `src/engine/statsManager.ts`, `src/engine/clubRosterStorage.ts` | Theo dõi phong độ buổi đánh (`sessionFormOffset`), lưu feedback trận, sổ kèo độ, danh sách CLB. |
 | **Tính tiền & VietQR** | `src/engine/settlement.ts`, `src/engine/vietqr.ts`, `src/hooks/useSettlementState.ts`, `src/utils/statementCsv.ts` | Công thức chia tiền sân/cầu/phụ phí/giảm người ít trận, sinh payload VietQR chuẩn EMVCo/NAPAS 247 + CRC-16, xuất CSV. |
 | **Cloud Sync & AI** | `src/hooks/useCloudRoom.ts`, `src/services/supabaseSync.ts`, `src/services/geminiRankAdvisor.ts` | Đồng bộ Realtime 2 chiều (session + settlement), phòng online/PIN, lưu ảnh biên lai, gọi Gemini AI. |
-| **Lịch tuần & CLB** | `src/types/schedule.ts`, `src/engine/scheduleEngine.ts`, `src/services/clubScheduleSync.ts`, `src/hooks/useClubSchedule.ts` | Lưới lịch 17 kíp (`7h–24h`), Heatmap theo `submitted` (`1h/1.5h/2h/3h`), Maximum 2-Set Coverage chia 2 ca, đồng bộ CLB & lịch qua RPC + Supabase Realtime, ghi chú kín theo UUID. |
-| **UI & Tiện ích** | `src/App.tsx`, `src/components/*`, `src/components/ui/Primitives.tsx`, `src/styles/tokens.css`, `src/utils/imageCompress.ts` | Giao diện 4–5 tab (`Sân`, `Hàng chờ`, `Luật cặp` [Host], `Lịch sử`, `Tính tiền`), modal VietQR, nén ảnh biên lai. |
+| **Lịch tuần & CLB** | `src/types/schedule.ts`, `src/engine/scheduleEngine.ts`, `src/services/clubScheduleSync.ts`, `src/hooks/useClubSchedule.ts`, `src/components/schedule/ScheduleView.tsx` | Lưới lịch 17 kíp (`7h–24h`), Heatmap theo `submitted` (`1h/1.5h/2h/3h`), Maximum 2-Set Coverage chia 2 ca, đồng bộ CLB & lịch qua RPC + Supabase Realtime, định tuyến `?club=` độc lập với phòng đánh. |
+| **UI & Tiện ích** | `src/App.tsx`, `src/components/*`, `src/components/ui/Primitives.tsx`, `src/styles/tokens.css`, `src/utils/imageCompress.ts` | Giao diện 5 tab đồng nhất cho cả Host & Viewer (`Lịch tuần`, `Sân`, `Hàng chờ` [gồm sub-tab `Danh sách chờ \| Luật cặp`], `Lịch sử`, `Tính tiền`), banner phòng LIVE, modal VietQR, nén ảnh biên lai. |
 
 ---
 
@@ -41,9 +41,10 @@
    - **Trần tiền bù giảm giá +30%:** Khóa mức bù tối đa `+30%` so với mức chia gốc cho mỗi người đánh đủ trận; nếu hụt thì co nhẹ mức giảm của nhóm đánh ít (ẩn ghi chú `+30%` rườm rà trên UI).
    - **Chế độ Theo giờ:** Tự nhân với số sân đang hoạt động; input số xử lý sạch số `0` đầu (không dính `0300000`).
    - **VietQR & Biên lai:** Tạo QR cục bộ bằng `qrcode` + Canvas (không phụ thuộc ảnh external CORS để tải về máy ổn định), nội dung chuyển khoản chuẩn `TEN IN HOA + noi dung`. Ảnh biên lai nén tự động và có fallback lưu Data URL inline nếu Supabase Storage thiếu bucket.
-4. **Phân quyền `VIEWER` & Bảo mật phòng Online:**
-   - `VIEWER` xem được 4 tab: `Sân`, `Hàng chờ`, `Lịch sử`, `Tính tiền` (ẩn `Luật cặp`, ẩn cấu hình/cài đặt Host, ẩn Sổ lưu trữ & nợ buổi trước; hiển thị chi phí sân/cầu/phụ phí và nút xác nhận đã chuyển khoản).
-   - Rời phòng (`leaveRoom`) reset cả session và settlement về trạng thái rỗng cho cả `CO_HOST` và `VIEWER` để không lộ dữ liệu phòng ra chế độ thường; vào lại phòng giữ nguyên 100% dữ liệu đang có trên Cloud nhờ khóa hydration (`awaitingRemoteSessionHydrationRef`, `awaitingRemoteSettlementHydrationRef`).
+4. **Phân quyền `VIEWER`, Định tuyến `?club=` & Bảo mật phòng Online:**
+   - Cả Host (`OFFLINE` / `CO_HOST`) và `VIEWER` đều có cố định **5 tab** trên `BottomNav`: `Lịch tuần`, `Sân`, `Hàng chờ`, `Lịch sử`, `Tính tiền`. Sub-tab `Luật cặp` nằm trong `Hàng chờ` và ẩn hoàn toàn với `VIEWER` (giữ nguyên badge đỏ `conflictCount` trên `Hàng chờ` cho Host).
+   - Truy cập mặc định mở tab `Sân`; khi vào bằng `?club=CODE` (không kèm `?room=`) mà CLB chưa có sân LIVE thì tự mở `Lịch tuần`, nếu CLB đang có sân LIVE thì giữ ở `Sân` và hiện banner 1 chạm vào phòng LIVE.
+   - Rời phòng (`leaveRoom`) chỉ reset session & settlement của phòng về trạng thái rỗng và xóa `?room=`/`?pin=`; **tuyệt đối không xóa** dữ liệu CLB, `?club=`, `selectedMemberId` (`myMemberId`) hay Lịch tuần.
    - Ẩn tab Cấu hình Supabase khỏi `CloudRoomModal` khi app đã cấu hình qua `.env`.
 5. **Phong độ buổi đánh (`skillAnalyzer.ts`, `matchmaker.ts`):**
    - Bảng thống kê phong độ buổi đánh luôn hiển thị ở tab AI; `sessionFormOffset` (biên `[-1.5, +1.5]`) tham gia vào hàm tính cân kèo khi xếp sân.

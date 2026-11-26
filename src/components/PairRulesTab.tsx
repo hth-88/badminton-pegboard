@@ -25,6 +25,7 @@ interface PairRulesTabProps {
   players: Player[];
   ruleConflicts: RuleConflictInfo[];
   isViewer?: boolean;
+  embedded?: boolean;
   onRequestUpgrade?: () => void;
   onAddRule: (rule: Omit<PairRule, 'id'>) => void;
   onRemoveRule: (ruleId: string) => void;
@@ -35,6 +36,7 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   players,
   ruleConflicts,
   isViewer = false,
+  embedded = false,
   onRequestUpgrade,
   onAddRule,
   onRemoveRule,
@@ -115,7 +117,13 @@ export const PairRulesTab: React.FC<PairRulesTabProps> = ({
   };
 
   return (
-    <div className="max-w-[780px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5">
+    <div
+      className={
+        embedded
+          ? 'space-y-5'
+          : 'max-w-[780px] mx-auto px-4 md:px-6 pt-4 pb-28 space-y-5'
+      }
+    >
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>

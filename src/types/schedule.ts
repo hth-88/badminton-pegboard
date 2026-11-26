@@ -363,3 +363,148 @@ export const CLUB_RPC_ERROR_CODES = [
 ] as const;
 
 export type ClubRpcErrorCode = (typeof CLUB_RPC_ERROR_CODES)[number];
+
+// ============================================================================
+// 6. Điều hướng 5 Tab & Hợp nhất Permission Matrix UI (Room Role × Club Role)
+// ============================================================================
+
+/** 5 tab chính trên BottomNav cho cả Host và Viewer */
+export const ALL_APP_NAV_TABS = [
+  'schedule',
+  'courts',
+  'queue',
+  'history',
+  'settlement',
+] as const;
+
+export type AppNavTab = (typeof ALL_APP_NAV_TABS)[number];
+
+/** Vai trò trong phòng đánh trực tuyến (khớp 1-1 với RoomRole của useCloudRoom) */
+export type SessionRoomRole = 'OFFLINE' | 'CO_HOST' | 'VIEWER';
+
+/** Quyền thực thi đã giải quyết cho tầng UI */
+export interface ResolvedUiPermissions {
+  visibleTabs: readonly AppNavTab[];
+  roomRole: SessionRoomRole;
+  clubRole: ClubRole;
+  isRoomViewer: boolean;
+  canMutateSession: boolean;
+  canViewPairRulesSubTab: boolean;
+  canSelfReportPayment: boolean;
+  canViewClubSchedule: boolean;
+  canSelfRegisterMember: boolean;
+  canEditOwnSchedule: boolean;
+  canSetOwnPin: boolean;
+  canEditOtherMemberSchedule: boolean;
+  canManageClubRoster: boolean;
+  canDeleteOrHideMember: boolean;
+  canResetMemberPin: boolean;
+  canLockOrUnlockWeek: boolean;
+  canFinalizeBookingAndRooms: boolean;
+  canUpdateClubSettings: boolean;
+}
+
+/**
+ * Hợp nhất phân quyền giữa Phòng đánh (RoomRole) và CLB/Lịch tuần (ClubRole).
+ * - BottomNav luôn hiển thị đủ 5 tab cho cả Host và Viewer.
+ * - Sub-tab Luật cặp trong Hàng chờ chỉ mở khi không phải VIEWER của phòng.
+ * - Các thao tác Lịch tuần độc lập hoàn toàn với quyền VIEWER của phòng đánh.
+ */
+export function resolveUiPermissions(params: {
+  roomRole: SessionRoomRole;
+  clubRole: ClubRole;
+  clubSettings?: Pick<ClubSettings, 'allowSelfRegister'>;
+  isCurrentWeekLocked?: boolean;
+}): ResolvedUiPermissions {
+  const {
+    roomRole,
+    clubRole,
+    clubSettings,
+    isCurrentWeekLocked = false,
+  } = params;
+  const isRoomViewer = roomRole === 'VIEWER';
+
+  return {
+    visibleTabs: ALL_APP_NAV_TABS,
+    roomRole,
+    clubRole,
+    isRoomViewer,
+    canMutateSession: !isRoomViewer,
+    canViewPairRulesSubTab: !isRoomViewer,
+    canSelfReportPayment: isRoomViewer,
+    canViewClubSchedule: canPerformClubAction(
+      clubRole,
+      'VIEW_CLUB_SCHEDULE',
+      clubSettings
+    ),
+    canSelfRegisterMember: canPerformClubAction(
+      clubRole,
+      'SELF_REGISTER_MEMBER',
+      clubSettings
+    ),
+    canEditOwnSchedule: isCurrentWeekLocked
+      ? canPerformClubAction(
+          clubRole,
+          'EDIT_LOCKED_WEEK_SCHEDULE',
+          clubSettings
+        )
+      : canPerformClubAction(clubRole, 'EDIT_OWN_SCHEDULE', clubSettings),
+    canSetOwnPin: canPerformClubAction(clubRole, 'SET_OWN_PIN', clubSettings),
+    canEditOtherMemberSchedule: canPerformClubAction(
+      clubRole,
+      'EDIT_OTHER_MEMBER_SCHEDULE',
+      clubSettings
+    ),
+    canManageClubRoster: canPerformClubAction(
+      clubRole,
+      'EDIT_MEMBER_RANK_OR_PROFILE',
+      clubSettings
+    ),
+    canDeleteOrHideMember: canPerformClubAction(
+      clubRole,
+      'DELETE_OR_HIDE_MEMBER',
+      clubSettings
+    ),
+    canResetMemberPin: canPerformClubAction(
+      clubRole,
+      'RESET_MEMBER_PIN',
+      clubSettings
+    ),
+    canLockOrUnlockWeek: canPerformClubAction(
+      clubRole,
+      'LOCK_OR_UNLOCK_WEEK',
+      clubSettings
+    ),
+    canFinalizeBookingAndRooms: canPerformClubAction(
+      clubRole,
+      'FINALIZE_BOOKING_AND_ROOMS',
+      clubSettings
+    ),
+    canUpdateClubSettings: canPerformClubAction(
+      clubRole,
+      'UPDATE_CLUB_SETTINGS',
+      clubSettings
+    ),
+  };
+}
+
+/**
+ * Quyết định tab mở đầu tiên khi truy cập từ URL:
+ * - Mặc định luôn là 'courts' (Sân), kể cả khi có ?room=CODE hoặc có phòng LIVE.
+ * - Chỉ tự động chuyển sang 'schedule' (Lịch tuần) khi vào bằng ?club=CODE
+ *   (không kèm ?room=) VÀ CLB hiện chưa có phòng đánh LIVE nào.
+ */
+export function resolveClubUrlInitialTab(params: {
+  hasClubParam: boolean;
+  hasRoomParam: boolean;
+  activeRoomsCount: number;
+}): AppNavTab {
+  if (
+    params.hasClubParam &&
+    !params.hasRoomParam &&
+    params.activeRoomsCount <= 0
+  ) {
+    return 'schedule';
+  }
+  return 'courts';
+}

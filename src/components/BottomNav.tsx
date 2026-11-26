@@ -1,13 +1,14 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  CalendarDays,
   LayoutDashboard,
   Users,
-  Scale,
   History,
   Calculator,
 } from 'lucide-react';
+import type { AppNavTab } from '../types/schedule';
 
-export type NavTab = 'courts' | 'queue' | 'rules' | 'history' | 'settlement';
+export type NavTab = AppNavTab;
 
 interface BottomNavProps {
   activeTab: NavTab;
@@ -35,7 +36,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   });
 
   const tabs = useMemo(() => {
-    const allTabs = [
+    const hasRuleConflictAlert = !isViewer && conflictCount > 0;
+
+    return [
+      {
+        id: 'schedule' as const,
+        label: 'Lịch tuần',
+        icon: CalendarDays,
+        badge: 0,
+        badgeTone: 'accent' as const,
+      },
       {
         id: 'courts' as const,
         label: 'Sân',
@@ -47,15 +57,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         id: 'queue' as const,
         label: 'Hàng chờ',
         icon: Users,
-        badge: waitingCount,
-        badgeTone: 'accent' as const,
-      },
-      {
-        id: 'rules' as const,
-        label: 'Luật cặp',
-        icon: Scale,
-        badge: conflictCount,
-        badgeTone: 'danger' as const,
+        badge: hasRuleConflictAlert ? conflictCount : waitingCount,
+        badgeTone: hasRuleConflictAlert ? ('danger' as const) : ('accent' as const),
       },
       {
         id: 'history' as const,
@@ -72,11 +75,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         badgeTone: 'warning' as const,
       },
     ];
-
-    // VIEWER thấy Sân, Hàng chờ, Lịch sử, Tính tiền (ẩn hoàn toàn Luật cặp)
-    return isViewer
-      ? allTabs.filter((t) => t.id !== 'rules')
-      : allTabs;
   }, [waitingCount, conflictCount, pendingPaymentsCount, isViewer]);
 
   const measureActivePill = useCallback(() => {
@@ -104,18 +102,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       ro?.disconnect();
       window.removeEventListener('resize', measureActivePill);
     };
-  }, [measureActivePill, isViewer]);
+  }, [measureActivePill]);
 
   return (
     <nav
       aria-label="Điều hướng chính"
-      className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none px-4 safe-area-bottom flex justify-center"
+      className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none px-3 sm:px-4 safe-area-bottom flex justify-center"
     >
       <div
         ref={dockRef}
-        className={`pointer-events-auto relative w-full ui-dock p-1.5 grid ${
-          isViewer ? 'max-w-md grid-cols-4' : 'max-w-lg grid-cols-5'
-        }`}
+        className="pointer-events-auto relative w-full max-w-lg ui-dock p-1.5 grid grid-cols-5"
       >
         {pillStyle.ready && (
           <div
@@ -157,7 +153,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               type="button"
               aria-current={isActive ? 'page' : undefined}
               onClick={() => onSelectTab(tab.id)}
-              className="relative z-10 flex flex-col items-center justify-center gap-1 h-[54px] rounded-[20px] select-none transition-colors"
+              className="relative z-10 flex flex-col items-center justify-center gap-1 min-w-[44px] min-h-[44px] h-[54px] rounded-[20px] select-none transition-colors"
               style={{
                 color: isActive ? 'var(--color-accent)' : 'var(--text-muted)',
               }}
