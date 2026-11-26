@@ -20,9 +20,11 @@ import { SettlementTab } from './components/SettlementTab';
 import { ScheduleView } from './components/schedule/ScheduleView';
 import type { CreateClubRoomBookingPayload } from './components/schedule/FinalizeBookingSheet';
 import {
+  buildFreshSessionFromPayloads,
   buildFreshSessionWithPlayers,
   buildFreshSettlementForNewRoom,
 } from './components/schedule/scheduleUiHelpers';
+import { vibrateSuccess } from './utils/vibrate';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
 import { savePrivateMatchReview } from './engine/matchFeedbackStorage';
@@ -287,7 +289,8 @@ export function App() {
       const freshSession = buildFreshSessionWithPlayers(
         payload.selectedMembers,
         settings,
-        now
+        now,
+        courts
       );
       const freshSettlement = buildFreshSettlementForNewRoom(settlementData, now);
 
@@ -327,6 +330,7 @@ export function App() {
     },
     [
       settings,
+      courts,
       settlementData,
       createRoom,
       loadCloudState,
@@ -340,8 +344,10 @@ export function App() {
     () =>
       `${clubSchedule.clubCode ?? 'LOCAL'}:${clubSchedule.members
         .map((m) => `${m.id}:${m.updatedAt}`)
+        .join(',')}:${Object.entries(clubSchedule.privateMetaMap)
+        .map(([id, meta]) => `${id}:${meta.updatedAt}`)
         .join(',')}`,
-    [clubSchedule.clubCode, clubSchedule.members]
+    [clubSchedule.clubCode, clubSchedule.members, clubSchedule.privateMetaMap]
   );
 
   // Cả Host và VIEWER đều có đủ 5 tab trên BottomNav (mặc định Sân)
@@ -680,20 +686,44 @@ export function App() {
               sessionPlayers={players}
               maleBonus={settings.maleBonus}
               onJoinLiveRoom={handleJoinClubLiveRoom}
-              onPushPlayersToQueue={(playersToPush) =>
+              onPushPlayersToQueue={(playersToPush, opts) =>
                 guardAction(() => {
                   addPlayers(playersToPush);
+                  if (roomCode && opts?.attachRoomMeta) {
+                    void clubSchedule.attachActiveRoomAsHost({
+                      ...opts.attachRoomMeta,
+                      roomCode,
+                    });
+                  }
+                  vibrateSuccess();
+                  if (opts?.successToast) {
+                    handleCloudToast(opts.successToast);
+                  }
                   handleSelectTab('queue');
                 })
               }
-              onResetAndPushPlayersToQueue={(playersToPush) =>
+              onResetAndPushPlayersToQueue={(playersToPush, opts) =>
                 guardAction(() => {
-                  resetSession();
-                  updateSettings(settings);
-                  addPlayers(playersToPush);
+                  const fresh = buildFreshSessionFromPayloads(
+                    playersToPush,
+                    settings,
+                    Date.now(),
+                    courts
+                  );
+                  loadCloudState(fresh);
                   resetPaymentsForNewSession();
                   if (roomCode) {
                     deleteRoomReceipts(roomCode).catch(() => {});
+                    if (opts?.attachRoomMeta) {
+                      void clubSchedule.attachActiveRoomAsHost({
+                        ...opts.attachRoomMeta,
+                        roomCode,
+                      });
+                    }
+                  }
+                  vibrateSuccess();
+                  if (opts?.successToast) {
+                    handleCloudToast(opts.successToast);
                   }
                   handleSelectTab('queue');
                 })

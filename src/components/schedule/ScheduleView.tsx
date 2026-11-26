@@ -40,6 +40,7 @@ import { MyScheduleEditor } from './MyScheduleEditor';
 import { ScheduleHeatmap } from './ScheduleHeatmap';
 import {
   formatWeekKeyDisplay,
+  type FinalizeQueueActionOptions,
   type NewQueuePlayerPayload,
 } from './scheduleUiHelpers';
 
@@ -51,8 +52,14 @@ export interface ScheduleViewProps {
   sessionPlayers: Player[];
   maleBonus?: number;
   onJoinLiveRoom: (targetRoomCode: string) => Promise<void> | void;
-  onPushPlayersToQueue: (playersToPush: NewQueuePlayerPayload[]) => void;
-  onResetAndPushPlayersToQueue: (playersToPush: NewQueuePlayerPayload[]) => void;
+  onPushPlayersToQueue: (
+    playersToPush: NewQueuePlayerPayload[],
+    options?: FinalizeQueueActionOptions
+  ) => void;
+  onResetAndPushPlayersToQueue: (
+    playersToPush: NewQueuePlayerPayload[],
+    options?: FinalizeQueueActionOptions
+  ) => void;
   onCreateClubRoomWithPlayers: (
     payload: CreateClubRoomBookingPayload
   ) => Promise<{ ok: boolean; error?: string }>;

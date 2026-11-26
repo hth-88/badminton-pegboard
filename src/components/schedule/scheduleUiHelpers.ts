@@ -1,3 +1,4 @@
+import { createEmptyNextUp } from '../../engine/nextUp';
 import type { CloudSettlementData } from '../../engine/settlement';
 import {
   badmintonReducer,
@@ -9,14 +10,18 @@ import {
   normalizeBusySlots,
   parseSlotKey,
 } from '../../engine/scheduleEngine';
+import { SESSION_KEY_CLUB_PINS } from '../../hooks/useClubSchedule';
+import { normalizeClubCode } from '../../services/clubScheduleSync';
 import type {
   BadmintonSessionState,
+  Court,
   Player,
   SessionSettings,
 } from '../../types/badminton';
 import {
   DAY_LABELS_VI,
   SCHEDULE_HOURS,
+  type ClubActiveRoom,
   type ClubMember,
   type DayOfWeek,
   type HeatmapSlot,
@@ -112,6 +117,45 @@ export function paintBusySlotsRange(params: {
 }
 
 /**
+ * Xác định kíp giờ gần nhất theo tọa độ dọc `clientY` trên dải quét mobile.
+ * Kể cả khi ngón tay chạm vào khe hở 6px giữa 2 hàng liên tiếp, hàm vẫn ánh xạ
+ * chính xác về hàng gần nhất theo điểm giữa (midpoint), loại bỏ hoàn toàn vùng chết.
+ */
+export function resolveNearestScheduleHour(
+  clientY: number,
+  rowBounds: ReadonlyArray<{ hour: ScheduleHour; top: number; bottom: number }>
+): ScheduleHour | null {
+  if (rowBounds.length === 0 || !Number.isFinite(clientY)) {
+    return null;
+  }
+
+  if (clientY <= rowBounds[0].bottom) {
+    return rowBounds[0].hour;
+  }
+
+  const last = rowBounds[rowBounds.length - 1];
+  if (clientY >= last.top) {
+    return last.hour;
+  }
+
+  for (let i = 0; i < rowBounds.length; i++) {
+    const cur = rowBounds[i];
+    if (clientY >= cur.top && clientY <= cur.bottom) {
+      return cur.hour;
+    }
+    if (i + 1 < rowBounds.length) {
+      const next = rowBounds[i + 1];
+      if (clientY > cur.bottom && clientY < next.top) {
+        const midpoint = (cur.bottom + next.top) / 2;
+        return clientY <= midpoint ? cur.hour : next.hour;
+      }
+    }
+  }
+
+  return last.hour;
+}
+
+/**
  * Bậc màu đơn sắc (0..4) cho Heatmap dựa duy nhất trên `--color-accent`:
  * - 0: Chưa có ai nộp hoặc 0 người rảnh
  * - 1: Có người rảnh nhưng chưa đủ `meetsMinPlayers` hoặc tỷ lệ < 40%
@@ -186,6 +230,36 @@ export function formatWeekKeyDisplay(weekKey: WeekKey): {
  */
 export function isValidFourDigitPin(rawPin: string): boolean {
   return /^\d{4}$/.test(rawPin.trim());
+}
+
+/**
+ * Kiểm tra mã PIN phòng đánh trực tuyến chuẩn (4–6 ký tự, khớp hợp đồng badminton_rooms)
+ */
+export function isValidRoomPin(rawPin: string): boolean {
+  const clean = rawPin.trim();
+  return clean.length >= 4 && clean.length <= 6;
+}
+
+/**
+ * Kiểm tra phiên hiện tại đã lưu sẵn PIN cá nhân của thành viên trong `sessionStorage` hay chưa,
+ * giúp mở popup nhập PIN tức thì mà không phải bắn một request RPC lỗi lên Supabase trước.
+ */
+export function hasCachedMemberSessionPin(
+  clubCode: string | null | undefined,
+  memberId: string | null | undefined
+): boolean {
+  if (typeof sessionStorage === 'undefined') return false;
+  const cleanCode = normalizeClubCode(clubCode ?? '');
+  if (!cleanCode || !memberId) return false;
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY_CLUB_PINS);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { memberPins?: Record<string, string> };
+    const cached = parsed?.memberPins?.[`${cleanCode}::${memberId}`];
+    return typeof cached === 'string' && cached.trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -331,18 +405,39 @@ export function partitionMergePlayers(
   };
 }
 
+export interface FinalizeQueueActionOptions {
+  attachRoomMeta?: Omit<ClubActiveRoom, 'createdAt' | 'roomCode'> | null;
+  successToast?: string;
+}
+
 /**
- * Dựng state buổi đánh mới sạch (giữ cấu hình `currentSettings` như `maleBonus`, `courtMode`)
- * và nạp sẵn danh sách người chơi đã chốt kèo, dùng cho Kịch bản 3 (Tạo phòng mới gắn CLB).
+ * Dựng state buổi đánh mới sạch từ danh sách payload người chơi (giữ cấu hình `currentSettings`
+ * và bố cục sân `currentCourts`, đặt `undoStack` / `redoStack` rỗng sạch).
  */
-export function buildFreshSessionWithPlayers(
-  selectedMembers: readonly ClubMember[],
+export function buildFreshSessionFromPayloads(
+  payloads: readonly NewQueuePlayerPayload[],
   currentSettings: SessionSettings,
-  now: number
+  now: number,
+  currentCourts?: readonly Court[]
 ): BadmintonSessionState {
   const base = createInitialSessionState();
+  const preservedCourts: Court[] =
+    currentCourts && currentCourts.length > 0
+      ? currentCourts.map((c) => ({
+          id: c.id,
+          name: c.name,
+          isActive: c.isActive,
+          policy: c.policy,
+          forcedType: null,
+          currentMatch: null,
+          nextUp: createEmptyNextUp(c.policy === 'SINGLES_ONLY' ? 'SINGLES' : 'DOUBLES'),
+          suggestCursor: 0,
+        }))
+      : base.courts;
+
   const baseWithSettings: BadmintonSessionState = {
     ...base,
+    courts: preservedCourts,
     settings: {
       ...base.settings,
       ...currentSettings,
@@ -351,7 +446,6 @@ export function buildFreshSessionWithPlayers(
     },
   };
 
-  const payloads = mapClubMembersToSessionPlayers(selectedMembers, now);
   if (payloads.length === 0) {
     return {
       ...baseWithSettings,
@@ -363,7 +457,7 @@ export function buildFreshSessionWithPlayers(
   const populated = badmintonReducer(baseWithSettings, {
     type: 'ADD_PLAYERS',
     payload: {
-      players: payloads,
+      players: [...payloads],
       now,
     },
   });
@@ -373,6 +467,20 @@ export function buildFreshSessionWithPlayers(
     undoStack: [],
     redoStack: [],
   };
+}
+
+/**
+ * Dựng state buổi đánh mới sạch (giữ cấu hình `currentSettings` & bố cục sân `currentCourts`)
+ * và nạp sẵn danh sách người chơi đã chốt kèo, dùng cho Kịch bản 2b & Kịch bản 3.
+ */
+export function buildFreshSessionWithPlayers(
+  selectedMembers: readonly ClubMember[],
+  currentSettings: SessionSettings,
+  now: number,
+  currentCourts?: readonly Court[]
+): BadmintonSessionState {
+  const payloads = mapClubMembersToSessionPlayers(selectedMembers, now);
+  return buildFreshSessionFromPayloads(payloads, currentSettings, now, currentCourts);
 }
 
 /**

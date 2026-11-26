@@ -61,6 +61,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
     toggleWeekLockAsHost,
     updateSettingsAsHost,
     updateMemberAsHost,
+    updatePrivateMemberMeta,
     deleteMemberAsHost,
     setMemberPersonalPin,
     copyClubFixedToWeekAsHost,
@@ -81,6 +82,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
   const [editNoSingles, setEditNoSingles] = useState(false);
   const [editNotes, setEditNotes] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
+  const [editModalError, setEditModalError] = useState<string | null>(null);
 
   const inactiveCount = useMemo(
     () => rosterWithPrivateMeta.filter((m) => m.isActive === false).length,
@@ -110,6 +112,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
     setEditNoSingles(Boolean(member.noSingles));
     setEditNotes(member.notes ?? '');
     setEditTags(member.tags ?? []);
+    setEditModalError(null);
   };
 
   const handleToggleAllowSelfRegister = async () => {
@@ -244,7 +247,28 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
     e.preventDefault();
     if (!editingMember) return;
     const cleanName = editName.trim();
-    if (!cleanName) return;
+    if (!cleanName) {
+      setEditModalError('Tên thành viên không được để trống.');
+      return;
+    }
+
+    const publicFieldsChanged =
+      cleanName !== editingMember.name ||
+      editGender !== editingMember.sex ||
+      editRank !== editingMember.rank ||
+      editNoSingles !== Boolean(editingMember.noSingles);
+
+    setEditModalError(null);
+    if (!publicFieldsChanged) {
+      updatePrivateMemberMeta(editingMember.id, {
+        notes: editNotes.trim(),
+        tags: editTags,
+      });
+      vibrateSuccess();
+      setEditingMember(null);
+      onShowToast?.(`Đã lưu ghi chú kín cho "${cleanName}".`);
+      return;
+    }
 
     setBusyActionKey(`SAVE_${editingMember.id}`);
     setPanelError(null);
@@ -260,7 +284,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
       });
       if (res.error) {
         vibrateWarning();
-        setPanelError(res.error);
+        setEditModalError(res.error);
         return;
       }
       vibrateSuccess();
@@ -810,6 +834,10 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
               />
             </div>
           </div>
+
+          {editModalError && (
+            <div className="ui-banner-danger px-3.5 py-2.5 text-[14px]">{editModalError}</div>
+          )}
 
           <div className="flex items-center gap-2.5 pt-1">
             <button

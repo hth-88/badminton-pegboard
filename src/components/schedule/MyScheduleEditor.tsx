@@ -24,6 +24,7 @@ import type { BadmintonRank, Sex } from '../../types/badminton';
 import {
   DAY_LABELS_VI,
   SCHEDULE_DAYS,
+  SCHEDULE_HOURS,
   type DayOfWeek,
   type ResolvedUiPermissions,
   type ScheduleHour,
@@ -40,8 +41,10 @@ import {
   countEarlyMorningBusySlots,
   formatWeekKeyDisplay,
   getVisibleScheduleHours,
+  hasCachedMemberSessionPin,
   isValidFourDigitPin,
   paintBusySlotsRange,
+  resolveNearestScheduleHour,
 } from './scheduleUiHelpers';
 
 export interface MyScheduleEditorProps {
@@ -185,37 +188,28 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const resolveMobileHitHour = (clientY: number): ScheduleHour | null => {
     if (visibleHours.length === 0) return null;
-    let firstRect: DOMRect | null = null;
-    let lastRect: DOMRect | null = null;
+    const rowBounds: Array<{ hour: ScheduleHour; top: number; bottom: number }> = [];
 
     for (let i = 0; i < visibleHours.length; i++) {
       const h = visibleHours[i];
       const el = mobileRowRefs.current[h];
       if (!el) continue;
       const rect = el.getBoundingClientRect();
-      if (!firstRect) firstRect = rect;
-      lastRect = rect;
-      if (clientY >= rect.top && clientY <= rect.bottom) {
-        return h;
-      }
+      rowBounds.push({ hour: h, top: rect.top, bottom: rect.bottom });
     }
 
-    if (firstRect && clientY < firstRect.top) {
-      return visibleHours[0];
-    }
-    if (lastRect && clientY > lastRect.bottom) {
-      return visibleHours[visibleHours.length - 1];
-    }
-    return null;
+    return resolveNearestScheduleHour(clientY, rowBounds);
   };
 
   const handleStripPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
-    day: DayOfWeek,
-    hour: ScheduleHour
+    day: DayOfWeek
   ) => {
     if (!canEditGrid) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    const hour = resolveMobileHitHour(e.clientY);
+    if (hour === null) return;
 
     const slotKey = makeSlotKey(day, hour);
     const nextTargetBusy = !busySlotSet.has(slotKey);
@@ -347,6 +341,19 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const executeSaveSchedule = async (explicitMemberPin?: string) => {
     if (!selectedMember) return;
+
+    if (
+      !explicitMemberPin &&
+      !isHost &&
+      selectedMember.hasPin &&
+      !hasCachedMemberSessionPin(clubCode, selectedMember.id)
+    ) {
+      setVerifyPinInput('');
+      setVerifyPinError(null);
+      setPendingPinVerifyAction('SAVE_DRAFT');
+      return;
+    }
+
     setIsSaving(true);
     setLocalError(null);
     try {
@@ -395,6 +402,18 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     if (!fixedEntry) {
       onShowToast?.('Bạn chưa có Lịch cố định (FIXED). Đang mở trang khai Lịch cố định...');
       void selectWeek('FIXED');
+      return;
+    }
+
+    if (
+      !explicitMemberPin &&
+      !isHost &&
+      selectedMember.hasPin &&
+      !hasCachedMemberSessionPin(clubCode, selectedMember.id)
+    ) {
+      setVerifyPinInput('');
+      setVerifyPinError(null);
+      setPendingPinVerifyAction('COPY_FIXED');
       return;
     }
 
@@ -482,6 +501,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const handleSavePersonalPin = async (removePin: boolean) => {
     if (!selectedMember) return;
+    if (removePin && !isHost) return;
     setPinSetupError(null);
 
     const trimmedCurrent = currentPinInput.trim();
@@ -589,7 +609,13 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                 className="ui-btn ui-btn-secondary px-3.5"
               >
                 <KeyRound className="w-4 h-4 shrink-0" />
-                <span>{selectedMember.hasPin ? 'Đổi / Gỡ PIN' : 'Đặt PIN 4 số'}</span>
+                <span>
+                  {selectedMember.hasPin
+                    ? isHost
+                      ? 'Đổi / Gỡ PIN'
+                      : 'Đổi PIN 4 số'
+                    : 'Đặt PIN 4 số'}
+                </span>
               </button>
             )}
           </div>
@@ -830,25 +856,20 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
               </span>
             </div>
 
-            {/* Danh sách kíp 1h: Bên trái cuộn dọc tự nhiên, Bên phải dải quét touch-action: none */}
-            <div className="space-y-1.5">
-              {visibleHours.map((hour) => {
-                const slotKey = makeSlotKey(selectedDay, hour);
-                const isBusy = busySlotSet.has(slotKey);
-                return (
-                  <div
-                    key={hour}
-                    ref={(el) => {
-                      mobileRowRefs.current[hour] = el;
-                    }}
-                    className="flex items-stretch gap-1.5"
-                  >
-                    {/* Vùng trái: KHÔNG touch-action:none để vuốt dọc scroll mượt; chạm lẻ đảo trạng thái */}
+            {/* Danh sách kíp 1h: Cột trái cuộn dọc tự nhiên, Cột phải là 1 dải quét liên tục duy nhất (touch-action: none) */}
+            <div className="flex items-start gap-1.5">
+              {/* Cột trái: KHÔNG touch-action:none để vuốt dọc scroll mượt; chạm lẻ đảo trạng thái */}
+              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                {visibleHours.map((hour) => {
+                  const slotKey = makeSlotKey(selectedDay, hour);
+                  const isBusy = busySlotSet.has(slotKey);
+                  return (
                     <button
+                      key={hour}
                       type="button"
                       disabled={!canEditGrid}
                       onClick={() => handleToggleSingleSlot(selectedDay, hour)}
-                      className="flex-1 min-h-[48px] px-3.5 rounded-xl flex items-center justify-between gap-3 transition-colors text-left"
+                      className="w-full h-[48px] min-h-[48px] px-3.5 rounded-xl flex items-center justify-between gap-3 transition-colors text-left"
                       style={{
                         backgroundColor: isBusy
                           ? 'var(--bg-surface-secondary)'
@@ -881,17 +902,41 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                         )}
                       </span>
                     </button>
+                  );
+                })}
+              </div>
 
-                    {/* Dải quét Drag-to-Paint riêng bên phải: CHỈ đặt touch-action: none tại đây */}
+              {/* Cột phải: Dải quét Drag-to-Paint liền mạch — CHỈ đặt touch-action: none tại container này (không bị khe hở 6px làm trôi scroll) */}
+              <div
+                data-drag-strip="true"
+                aria-label={`Dải quét nhanh khung giờ ngày ${DAY_LABELS_VI[selectedDay]}`}
+                style={{
+                  touchAction: 'none',
+                  WebkitTouchCallout: 'none',
+                  opacity: canEditGrid ? 1 : 0.45,
+                }}
+                onPointerDown={(e) => handleStripPointerDown(e, selectedDay)}
+                onPointerMove={handleStripPointerMove}
+                onPointerUp={finishStripDrag}
+                onPointerCancel={finishStripDrag}
+                onLostPointerCapture={finishStripDrag}
+                className="w-[58px] shrink-0 flex flex-col gap-1.5 select-none cursor-ns-resize"
+              >
+                {visibleHours.map((hour) => {
+                  const slotKey = makeSlotKey(selectedDay, hour);
+                  const isBusy = busySlotSet.has(slotKey);
+                  return (
                     <div
+                      key={hour}
+                      ref={(el) => {
+                        mobileRowRefs.current[hour] = el;
+                      }}
                       role="button"
                       tabIndex={canEditGrid ? 0 : -1}
                       aria-label={`Quét nhanh khung ${hour}h–${hour + 1}h ${DAY_LABELS_VI[selectedDay]}`}
                       aria-disabled={!canEditGrid}
-                      data-drag-strip="true"
                       data-slot-key={slotKey}
                       style={{
-                        touchAction: 'none',
                         backgroundColor: isBusy
                           ? 'var(--bg-surface-secondary)'
                           : 'var(--color-accent-soft)',
@@ -899,26 +944,20 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                           isBusy ? 'var(--border-subtle)' : 'var(--color-accent-border)'
                         }`,
                         color: isBusy ? 'var(--text-muted)' : 'var(--color-accent)',
-                        opacity: canEditGrid ? 1 : 0.45,
                       }}
-                      onPointerDown={(e) => handleStripPointerDown(e, selectedDay, hour)}
-                      onPointerMove={handleStripPointerMove}
-                      onPointerUp={finishStripDrag}
-                      onPointerCancel={finishStripDrag}
-                      onLostPointerCapture={finishStripDrag}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           handleToggleSingleSlot(selectedDay, hour);
                         }
                       }}
-                      className="w-[58px] min-h-[48px] rounded-xl flex items-center justify-center shrink-0 select-none cursor-ns-resize"
+                      className="w-full h-[48px] min-h-[48px] rounded-xl flex items-center justify-center"
                     >
-                      <GripVertical className="w-5 h-5" />
+                      <GripVertical className="w-5 h-5 pointer-events-none" />
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -941,7 +980,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                         type="button"
                         disabled={!canEditGrid}
                         onClick={() => {
-                          const allBusy = busyCountByDay[day] >= visibleHours.length;
+                          const allBusy = busyCountByDay[day] >= SCHEDULE_HOURS.length;
                           applyDraftBusyChange((prev) => setDayBusySlots(prev, day, !allBusy));
                         }}
                         title={`Đảo nhanh cả ngày ${DAY_LABELS_VI[day]}`}
@@ -1275,12 +1314,18 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
             />
           </div>
 
+          {selectedMember?.hasPin && !isHost && (
+            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+              Quên hoặc muốn gỡ hẳn mã PIN? Hãy nhờ Quản trị CLB bấm <strong>Reset PIN</strong>.
+            </p>
+          )}
+
           {pinSetupError && (
             <div className="ui-banner-danger px-3.5 py-2.5 text-[14px]">{pinSetupError}</div>
           )}
 
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
-            {selectedMember?.hasPin && (
+            {selectedMember?.hasPin && isHost && (
               <button
                 type="button"
                 disabled={isUpdatingPin}

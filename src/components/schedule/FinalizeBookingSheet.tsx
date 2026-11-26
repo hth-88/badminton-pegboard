@@ -32,9 +32,11 @@ import {
 import {
   buildBookingSheetGroups,
   buildSuggestedClubRoomCode,
+  isValidRoomPin,
   mapClubMembersToSessionPlayers,
   partitionMergePlayers,
   type FinalizeBookingMode,
+  type FinalizeQueueActionOptions,
   type NewQueuePlayerPayload,
 } from './scheduleUiHelpers';
 
@@ -60,8 +62,14 @@ export interface FinalizeBookingSheetProps {
   roomRole: SessionRoomRole;
   sessionPlayers: Player[];
   maleBonus: number;
-  onPushPlayersToQueue: (playersToPush: NewQueuePlayerPayload[]) => void;
-  onResetAndPushPlayersToQueue: (playersToPush: NewQueuePlayerPayload[]) => void;
+  onPushPlayersToQueue: (
+    playersToPush: NewQueuePlayerPayload[],
+    options?: FinalizeQueueActionOptions
+  ) => void;
+  onResetAndPushPlayersToQueue: (
+    playersToPush: NewQueuePlayerPayload[],
+    options?: FinalizeQueueActionOptions
+  ) => void;
   onCreateClubRoomWithPlayers: (
     payload: CreateClubRoomBookingPayload
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -82,14 +90,12 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
   onPushPlayersToQueue,
   onResetAndPushPlayersToQueue,
   onCreateClubRoomWithPlayers,
-  onShowToast,
 }) => {
   const {
     clubCode,
     weekKey,
     activeMembers,
     weekEntriesByMemberId,
-    attachActiveRoomAsHost,
   } = schedule;
 
   const canFinalize = uiPermissions.canFinalizeBookingAndRooms;
@@ -215,9 +221,9 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
         setSheetError('Mã phòng mới từ 2–24 ký tự và không chứa khoảng trắng.');
         return;
       }
-      if (cleanPin.length < 4 || cleanPin.length > 8) {
+      if (!isValidRoomPin(cleanPin)) {
         vibrateWarning();
-        setSheetError('Mã PIN phòng phải từ 4 đến 8 ký tự.');
+        setSheetError('Mã PIN phòng phải từ 4 đến 6 ký tự.');
         return;
       }
 
@@ -248,28 +254,25 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
       return;
     }
 
-    // KỊCH BẢN 1: Phòng đang trống -> Nạp thẳng vào Hàng chờ kèm giới tính & điểm trình
-    if (mode === 'DIRECT_PUSH' || isSessionEmpty) {
-      const payloads = mapClubMembersToSessionPlayers(selectedMembersList, now);
-      setIsSubmitting(true);
-      try {
-        onPushPlayersToQueue(payloads);
-        if (roomCode && roomRole === 'CO_HOST' && alsoAttachExistingRoom && clubCode) {
-          await attachActiveRoomAsHost({
-            roomCode,
+    const attachRoomMeta =
+      roomCode && alsoAttachExistingRoom && clubCode
+        ? {
             label: newRoomLabel.trim() || windowTitle,
             weekKey,
             dayOfWeek: slot.dayOfWeek,
             startHour: slot.startHour,
             durationHours: slot.durationHours,
-          });
-        }
-        vibrateSuccess();
-        onShowToast?.(`Đã nạp ${payloads.length} thành viên vào Hàng chờ!`);
-        onClose();
-      } finally {
-        setIsSubmitting(false);
-      }
+          }
+        : null;
+
+    // KỊCH BẢN 1: Phòng đang trống -> Nạp thẳng vào Hàng chờ kèm giới tính & điểm trình
+    if (mode === 'DIRECT_PUSH' || isSessionEmpty) {
+      const payloads = mapClubMembersToSessionPlayers(selectedMembersList, now);
+      onClose();
+      onPushPlayersToQueue(payloads, {
+        attachRoomMeta,
+        successToast: `Đã nạp ${payloads.length} thành viên vào Hàng chờ!`,
+      });
       return;
     }
 
@@ -288,54 +291,25 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
         return;
       }
 
-      setIsSubmitting(true);
-      try {
-        onPushPlayersToQueue(playersToAdd);
-        if (roomCode && roomRole === 'CO_HOST' && alsoAttachExistingRoom && clubCode) {
-          await attachActiveRoomAsHost({
-            roomCode,
-            label: newRoomLabel.trim() || windowTitle,
-            weekKey,
-            dayOfWeek: slot.dayOfWeek,
-            startHour: slot.startHour,
-            durationHours: slot.durationHours,
-          });
-        }
-        vibrateSuccess();
-        onShowToast?.(
+      onClose();
+      onPushPlayersToQueue(playersToAdd, {
+        attachRoomMeta,
+        successToast:
           alreadyInRoomMembers.length > 0
             ? `Đã gộp thêm ${playersToAdd.length} người mới (giữ nguyên ${alreadyInRoomMembers.length} người đã có).`
-            : `Đã thêm ${playersToAdd.length} người vào Hàng chờ!`
-        );
-        onClose();
-      } finally {
-        setIsSubmitting(false);
-      }
+            : `Đã thêm ${playersToAdd.length} người vào Hàng chờ!`,
+      });
       return;
     }
 
     // KỊCH BẢN 2B: Phòng đang có người -> Reset buổi mới & nạp danh sách này
     if (mode === 'RESET_AND_PUSH') {
       const payloads = mapClubMembersToSessionPlayers(selectedMembersList, now);
-      setIsSubmitting(true);
-      try {
-        onResetAndPushPlayersToQueue(payloads);
-        if (roomCode && roomRole === 'CO_HOST' && alsoAttachExistingRoom && clubCode) {
-          await attachActiveRoomAsHost({
-            roomCode,
-            label: newRoomLabel.trim() || windowTitle,
-            weekKey,
-            dayOfWeek: slot.dayOfWeek,
-            startHour: slot.startHour,
-            durationHours: slot.durationHours,
-          });
-        }
-        vibrateSuccess();
-        onShowToast?.(`Đã tạo buổi mới sạch và nạp ${payloads.length} người vào Hàng chờ!`);
-        onClose();
-      } finally {
-        setIsSubmitting(false);
-      }
+      onClose();
+      onResetAndPushPlayersToQueue(payloads, {
+        attachRoomMeta,
+        successToast: `Đã tạo buổi mới sạch và nạp ${payloads.length} người vào Hàng chờ!`,
+      });
     }
   };
 
@@ -460,7 +434,7 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
       sheetOnMobile
       maxWidthClass="max-w-xl"
       title={windowTitle}
-      subtitle={`Tuần ${weekKey} · Ca ${slot.durationHours}h · ${slot.freeCount}/${slot.submittedCount} rảnh trọn buổi`}
+      subtitle={`${weekKey === 'FIXED' ? 'Mẫu FIXED' : `Tuần ${weekKey}`} · Ca ${slot.durationHours}h · ${slot.freeCount}/${slot.submittedCount} rảnh trọn buổi`}
       footer={
         canFinalize ? (
           <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
@@ -770,7 +744,7 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
             </div>
 
             {/* Tùy chọn phụ khi đang ở phòng online sẵn có */}
-            {mode !== 'CREATE_CLUB_ROOM' && roomCode && roomRole === 'CO_HOST' && (
+            {mode !== 'CREATE_CLUB_ROOM' && roomCode && (
               <label className="ui-tile px-3.5 py-2.5 min-h-[46px] flex items-center justify-between gap-3 cursor-pointer">
                 <span className="text-[14px]" style={{ color: 'var(--text-primary)' }}>
                   Gắn phòng hiện tại (<strong className="font-mono-tabular">{roomCode}</strong>) lên banner LIVE của CLB
@@ -822,18 +796,19 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
                       className="block text-[14px] font-semibold mb-1"
                       style={{ color: 'var(--text-primary)' }}
                     >
-                      PIN Co-Host của phòng
+                      PIN Co-Host (4–6 ký tự)
                     </label>
                     <input
                       id="booking-new-room-pin"
                       type="text"
                       inputMode="numeric"
-                      maxLength={8}
+                      maxLength={6}
                       value={newRoomPin}
                       onChange={(e) => {
-                        setNewRoomPin(e.target.value);
+                        setNewRoomPin(e.target.value.slice(0, 6));
                         setSheetError(null);
                       }}
+                      placeholder="4–6 ký tự"
                       className="ui-input font-mono-tabular"
                       style={{ backgroundColor: 'var(--bg-surface)' }}
                     />

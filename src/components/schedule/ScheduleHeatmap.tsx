@@ -233,8 +233,11 @@ export const ScheduleHeatmap: React.FC<ScheduleHeatmapProps> = ({
             <thead>
               <tr>
                 <th
-                  className="w-[82px] text-left text-[14px] font-semibold px-2 py-1.5"
-                  style={{ color: 'var(--text-secondary)' }}
+                  className="w-[82px] sticky left-0 z-10 text-left text-[14px] font-semibold px-2 py-1.5"
+                  style={{
+                    color: 'var(--text-secondary)',
+                    backgroundColor: 'var(--bg-surface)',
+                  }}
                 >
                   Giờ vào
                 </th>
@@ -261,8 +264,11 @@ export const ScheduleHeatmap: React.FC<ScheduleHeatmapProps> = ({
                 return (
                   <tr key={startHour}>
                     <td
-                      className="text-[14px] font-semibold tabular-nums px-2 py-1 whitespace-nowrap"
-                      style={{ color: 'var(--text-secondary)' }}
+                      className="sticky left-0 z-10 text-[14px] font-semibold tabular-nums px-2 py-1 whitespace-nowrap"
+                      style={{
+                        color: 'var(--text-secondary)',
+                        backgroundColor: 'var(--bg-surface)',
+                      }}
                     >
                       {formatHourPoint(startHour)}–{formatHourPoint(endHour)}
                     </td>

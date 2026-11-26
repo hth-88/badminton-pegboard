@@ -33,9 +33,11 @@ import {
   getHeatmapIntensityTier,
   getVisibleScheduleHours,
   isValidFourDigitPin,
+  isValidRoomPin,
   mapClubMembersToSessionPlayers,
   paintBusySlotsRange,
   partitionMergePlayers,
+  resolveNearestScheduleHour,
 } from '../scheduleUiHelpers';
 
 function makeMember(
@@ -260,6 +262,14 @@ describe('Phase 4 — Schedule UI Helpers & Booking Bridge', () => {
       targetBusy: false,
     });
     expect(paintedFree).toEqual(['0-8', '0-16', '0-20', '3-20']);
+
+    // Chạm trúng khe hở 6px giữa 2 hàng (17h bottom=148, 18h top=154) vẫn bắt dính hàng gần nhất
+    const rowBounds = [
+      { hour: 17 as const, top: 100, bottom: 148 },
+      { hour: 18 as const, top: 154, bottom: 202 },
+    ];
+    expect(resolveNearestScheduleHour(150, rowBounds)).toBe(17);
+    expect(resolveNearestScheduleHour(153, rowBounds)).toBe(18);
   });
 
   it('getHeatmapIntensityTier phân đúng 5 bậc (0..4) theo tỷ lệ người rảnh & ngưỡng tối thiểu', () => {
@@ -316,6 +326,13 @@ describe('Phase 4 — Schedule UI Helpers & Booking Bridge', () => {
     expect(isValidFourDigitPin('12345')).toBe(false);
     expect(isValidFourDigitPin('12a4')).toBe(false);
     expect(isValidFourDigitPin('')).toBe(false);
+
+    // Hợp đồng PIN phòng trực tuyến: chỉ 4–6 ký tự (chặn 7–8 ký tự gây khóa Co-Host)
+    expect(isValidRoomPin('1234')).toBe(true);
+    expect(isValidRoomPin('123456')).toBe(true);
+    expect(isValidRoomPin('123')).toBe(false);
+    expect(isValidRoomPin('1234567')).toBe(false);
+    expect(isValidRoomPin('12345678')).toBe(false);
 
     const fixedLabel = formatWeekKeyDisplay('FIXED');
     expect(fixedLabel.title).toContain('FIXED');
@@ -377,12 +394,22 @@ describe('Phase 4 — Schedule UI Helpers & Booking Bridge', () => {
     expect(merged.alreadyInRoomMembers.map((m) => m.id)).toEqual(['m1']);
     expect(merged.playersToAdd.map((p) => p.name)).toEqual(['Hồng Nhung', 'Quốc Tuấn']);
 
-    // Kịch bản 2b & 3: Dựng session mới & settlement mới giữ settings nhưng sạch undo/thanh toán cũ
+    // Kịch bản 2b & 3: Dựng session mới & settlement mới giữ settings + bố cục sân nhưng sạch undo/thanh toán cũ
     const baseState = createInitialSessionState();
     const customSettings = { ...baseState.settings, maleBonus: 2.0 };
-    const freshSession = buildFreshSessionWithPlayers([m1, m2], customSettings, 1700000002000);
+    const customCourts = baseState.courts.map((c, idx) =>
+      idx === 2 ? { ...c, name: 'Sân VIP 3', isActive: true } : c
+    );
+    const freshSession = buildFreshSessionWithPlayers(
+      [m1, m2],
+      customSettings,
+      1700000002000,
+      customCourts
+    );
     expect(freshSession.players).toHaveLength(2);
     expect(freshSession.settings.maleBonus).toBe(2.0);
+    expect(freshSession.courts[2].name).toBe('Sân VIP 3');
+    expect(freshSession.courts[2].isActive).toBe(true);
     expect(freshSession.history).toHaveLength(0);
     expect(freshSession.undoStack).toHaveLength(0);
 
@@ -458,11 +485,18 @@ describe('Phase 4 — Rendered UI Invariants (Touch Ergonomics, Single Accent & 
       <MyScheduleEditor schedule={schedule} uiPermissions={perms} />
     );
 
-    // 9 kíp mặc định (15h..23h) -> đúng 9 dải quét bên phải có touch-action:none
+    // Dải quét liền mạch duy nhất bên phải (data-drag-strip="true") chứa 9 ô giờ mặc định (15h..23h),
+    // và touch-action:none CHỈ xuất hiện duy nhất trên container dải quét đó
     const touchNoneMatches = html.match(/touch-action:none/g) ?? [];
     const dragStripMatches = html.match(/data-drag-strip="true"/g) ?? [];
-    expect(dragStripMatches).toHaveLength(9);
-    expect(touchNoneMatches).toHaveLength(9);
+    const dragSlotMatches = html.match(/data-slot-key="0-\d+"/g) ?? [];
+    expect(dragStripMatches).toHaveLength(1);
+    expect(touchNoneMatches).toHaveLength(1);
+    expect(dragSlotMatches).toHaveLength(9);
+
+    // Thành viên thường đã có PIN chỉ thấy "Đổi PIN 4 số" (không thấy "Đổi / Gỡ PIN" gây lỗi RPC)
+    expect(html).toContain('Đổi PIN 4 số');
+    expect(html).not.toContain('Đổi / Gỡ PIN');
 
     // Hiển thị đủ day-pills T2..CN, nút mở rộng sáng sớm kèm số kíp sáng bận (1 bận ở 8h)
     expect(html).toContain('T2');
