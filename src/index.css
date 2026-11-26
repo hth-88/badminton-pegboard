@@ -496,6 +496,49 @@
     scrollbar-width: none;
   }
 
+  /* Single-Accent Schedule Heatmap Tiers (strictly --color-accent opacity steps) */
+  .ui-heatmap-cell {
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-subtle);
+    transition: transform var(--dur-fast) var(--ease-standard),
+      border-color var(--dur-fast) var(--ease-standard),
+      background-color var(--dur-fast) var(--ease-standard);
+  }
+
+  .ui-heatmap-cell:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .ui-heatmap-0 {
+    background-color: var(--bg-surface-secondary);
+    border-color: var(--border-subtle);
+    color: var(--text-muted);
+  }
+
+  .ui-heatmap-1 {
+    background-color: color-mix(in srgb, var(--color-accent) 9%, var(--bg-surface-secondary));
+    border-color: var(--border-subtle);
+    color: var(--text-secondary);
+  }
+
+  .ui-heatmap-2 {
+    background-color: color-mix(in srgb, var(--color-accent) 18%, var(--bg-surface-secondary));
+    border-color: var(--color-accent-border);
+    color: var(--text-primary);
+  }
+
+  .ui-heatmap-3 {
+    background-color: color-mix(in srgb, var(--color-accent) 30%, var(--bg-surface-secondary));
+    border-color: var(--color-accent-border);
+    color: var(--text-primary);
+  }
+
+  .ui-heatmap-4 {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--text-on-accent);
+  }
+
   .safe-area-bottom {
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   }

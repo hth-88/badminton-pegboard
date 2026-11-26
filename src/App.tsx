@@ -18,6 +18,11 @@ import { QueueTab } from './components/QueueTab';
 import { HistoryTab } from './components/HistoryTab';
 import { SettlementTab } from './components/SettlementTab';
 import { ScheduleView } from './components/schedule/ScheduleView';
+import type { CreateClubRoomBookingPayload } from './components/schedule/FinalizeBookingSheet';
+import {
+  buildFreshSessionWithPlayers,
+  buildFreshSettlementForNewRoom,
+} from './components/schedule/scheduleUiHelpers';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
 import { savePrivateMatchReview } from './engine/matchFeedbackStorage';
@@ -271,6 +276,64 @@ export function App() {
       }
     },
     [roomCode, joinRoom, handleSelectTab]
+  );
+
+  const handleCreateClubRoomWithPlayers = useCallback(
+    async (
+      payload: CreateClubRoomBookingPayload
+    ): Promise<{ ok: boolean; error?: string }> => {
+      const now = Date.now();
+      const cleanCode = payload.newRoomCode.trim().toUpperCase();
+      const freshSession = buildFreshSessionWithPlayers(
+        payload.selectedMembers,
+        settings,
+        now
+      );
+      const freshSettlement = buildFreshSettlementForNewRoom(settlementData, now);
+
+      const roomRes = await createRoom(
+        cleanCode,
+        payload.newRoomPin,
+        freshSession,
+        freshSettlement
+      );
+      if (!roomRes.ok) {
+        return { ok: false, error: roomRes.error };
+      }
+
+      loadCloudState(freshSession);
+      resetPaymentsForNewSession();
+
+      const attachRes = await clubSchedule.attachActiveRoomAsHost({
+        roomCode: cleanCode,
+        label: payload.roomLabel,
+        weekKey: payload.weekKey,
+        dayOfWeek: payload.dayOfWeek,
+        startHour: payload.startHour,
+        durationHours: payload.durationHours,
+      });
+
+      handleSelectTab('queue');
+      if (attachRes.error) {
+        setWarningToastMessage(
+          `Đã tạo phòng "${cleanCode}", nhưng chưa ghim được lên banner CLB: ${attachRes.error}`
+        );
+      } else {
+        setInfoToastMessage(
+          `Đã tạo phòng LIVE "${cleanCode}" gắn với CLB và nạp ${payload.selectedMembers.length} người vào Hàng chờ!`
+        );
+      }
+      return { ok: true };
+    },
+    [
+      settings,
+      settlementData,
+      createRoom,
+      loadCloudState,
+      resetPaymentsForNewSession,
+      clubSchedule,
+      handleSelectTab,
+    ]
   );
 
   const clubRosterSyncKey = useMemo(
@@ -615,10 +678,27 @@ export function App() {
               roomCode={roomCode}
               roomRole={role}
               sessionPlayers={players}
+              maleBonus={settings.maleBonus}
               onJoinLiveRoom={handleJoinClubLiveRoom}
               onPushPlayersToQueue={(playersToPush) =>
-                guardAction(() => addPlayers(playersToPush))
+                guardAction(() => {
+                  addPlayers(playersToPush);
+                  handleSelectTab('queue');
+                })
               }
+              onResetAndPushPlayersToQueue={(playersToPush) =>
+                guardAction(() => {
+                  resetSession();
+                  updateSettings(settings);
+                  addPlayers(playersToPush);
+                  resetPaymentsForNewSession();
+                  if (roomCode) {
+                    deleteRoomReceipts(roomCode).catch(() => {});
+                  }
+                  handleSelectTab('queue');
+                })
+              }
+              onCreateClubRoomWithPlayers={handleCreateClubRoomWithPlayers}
               onShowToast={handleCloudToast}
             />
           )}
