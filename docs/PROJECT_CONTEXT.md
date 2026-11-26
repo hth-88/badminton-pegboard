@@ -22,6 +22,7 @@
 | **Phân tích & Kèo** | `src/engine/skillAnalyzer.ts`, `src/engine/skillConfig.ts`, `src/engine/matchFeedbackStorage.ts`, `src/engine/betLedger.ts`, `src/engine/statsManager.ts`, `src/engine/clubRosterStorage.ts` | Theo dõi phong độ buổi đánh (`sessionFormOffset`), lưu feedback trận, sổ kèo độ, danh sách CLB. |
 | **Tính tiền & VietQR** | `src/engine/settlement.ts`, `src/engine/vietqr.ts`, `src/hooks/useSettlementState.ts`, `src/utils/statementCsv.ts` | Công thức chia tiền sân/cầu/phụ phí/giảm người ít trận, sinh payload VietQR chuẩn EMVCo/NAPAS 247 + CRC-16, xuất CSV. |
 | **Cloud Sync & AI** | `src/hooks/useCloudRoom.ts`, `src/services/supabaseSync.ts`, `src/services/geminiRankAdvisor.ts` | Đồng bộ Realtime 2 chiều (session + settlement), phòng online/PIN, lưu ảnh biên lai, gọi Gemini AI. |
+| **Lịch tuần & CLB** | `src/types/schedule.ts`, `src/engine/scheduleEngine.ts`, `src/services/clubScheduleSync.ts`, `src/hooks/useClubSchedule.ts` | Lưới lịch 17 kíp (`7h–24h`), Heatmap theo `submitted` (`1h/1.5h/2h/3h`), Maximum 2-Set Coverage chia 2 ca, đồng bộ CLB & lịch qua RPC + Supabase Realtime, ghi chú kín theo UUID. |
 | **UI & Tiện ích** | `src/App.tsx`, `src/components/*`, `src/components/ui/Primitives.tsx`, `src/styles/tokens.css`, `src/utils/imageCompress.ts` | Giao diện 4–5 tab (`Sân`, `Hàng chờ`, `Luật cặp` [Host], `Lịch sử`, `Tính tiền`), modal VietQR, nén ảnh biên lai. |
 
 ---

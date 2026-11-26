@@ -68,6 +68,19 @@ create policy "Public delete receipts"
 
 ---
 
+## BƯỚC 2B: CHẠY MIGRATION SQL CHO LỊCH TUẦN CLB (`clubs`, `club_members`, `member_schedules`)
+Để bật tính năng **Lịch tuần & Chốt sân CLB** (một link `?club=` duy nhất, lịch bận cố định + theo tuần, bảo mật PIN phía server bằng `pgcrypto`):
+
+1. Mở file migration [supabase/migrations/001_club_schedule_schema.sql](supabase/migrations/001_club_schedule_schema.sql) trong dự án.
+2. Trong Supabase Dashboard -> **SQL Editor** -> bấm **"New Query"**, dán toàn bộ nội dung file `001_club_schedule_schema.sql` và bấm **"Run"**.
+3. Script sẽ tự động:
+   - Bật `pgcrypto` trong schema `extensions`.
+   - Tạo 3 bảng `public.clubs`, `public.club_members` (có `auth_user_id` nullable và cột sinh `has_pin`), `public.member_schedules` (unique `(club_code, week_key, member_id)`).
+   - Bật RLS, thu hồi quyền `SELECT` cột `host_pin_hash` / `pin_hash` khỏi `anon` & `authenticated`, và bật Realtime cho cả 3 bảng.
+   - Tạo đầy đủ các RPC `SECURITY DEFINER` (`SET search_path = public, extensions`) kiểm tra khóa tuần, Host PIN và PIN cá nhân trên server.
+
+---
+
 ## BƯỚC 3: LẤY THÔNG TIN KẾT NỐI (URL & ANON KEY)
 1. Vào menu **Project Settings** (icon Bánh răng góc dưới bên trái) -> Chọn mục **API**.
 2. Sao chép 2 thông tin:
