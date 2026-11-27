@@ -36,27 +36,45 @@ export interface ClubMember {
   updatedAt?: string;
 }
 
-export const STORAGE_KEY_CLUB_ROSTER = 'badminton_club_roster';
-export const STORAGE_KEY_CLUB_ROSTER_CUSTOMIZED = 'badminton_club_roster_customized';
+/** Namespace Sổ CLB: `roster:local` (máy đơn) tách biệt với `roster:<club_code>` (cache CLB) */
+const ROSTER_NAMESPACE_PREFIX = 'badminton_club_roster:';
+/** Khóa cũ (trước khi tách namespace) — chỉ đọc để không mất dữ liệu người dùng đã tự nhập */
+export const LEGACY_STORAGE_KEY_CLUB_ROSTER = 'badminton_club_roster';
+export const STORAGE_KEY_CLUB_ROSTER = `${ROSTER_NAMESPACE_PREFIX}local`;
 export const STORAGE_KEY_ACTIVE_CLUB_CODE = 'badminton_active_club_code';
-export const STORAGE_PREFIX_CLOUD_ROSTER = 'badminton_club_cloud_roster_';
+export const STORAGE_PREFIX_CLOUD_ROSTER = ROSTER_NAMESPACE_PREFIX;
 export const STORAGE_PREFIX_PRIVATE_META = 'badminton_club_private_meta_';
 export const STORAGE_PREFIX_MIGRATION_STATE = 'badminton_club_migration_';
 
 /**
- * 9 thành viên mẫu ban đầu nếu máy người dùng chưa từng tạo Sổ CLB
+ * Nhận diện 9 người mẫu mà các phiên bản cũ từng tự ghi xuống máy (id + tên) để bỏ qua,
+ * đảm bảo chế độ local chưa có CLB luôn hiển thị Sổ CLB rỗng.
  */
-export const DEFAULT_9_CLUB_MEMBERS: ClubMember[] = [
-  { id: 'roster_1', name: 'Đức Anh', sex: 'M', rank: 'y-', noSingles: false, joinedAt: 1001 },
-  { id: 'roster_2', name: 'Huy Hoàng', sex: 'M', rank: 'y+', noSingles: false, joinedAt: 1002 },
-  { id: 'roster_3', name: 'Minh Trí', sex: 'M', rank: 'tby', noSingles: false, joinedAt: 1003 },
-  { id: 'roster_4', name: 'Quốc Tuấn', sex: 'M', rank: 'tby+', noSingles: false, joinedAt: 1004 },
-  { id: 'roster_5', name: 'Tiến Đạt', sex: 'M', rank: 'tb', noSingles: false, joinedAt: 1005 },
-  { id: 'roster_6', name: 'Thùy Linh', sex: 'F', rank: 'newbie', noSingles: false, joinedAt: 1006 },
-  { id: 'roster_7', name: 'Mai Anh', sex: 'F', rank: 'y-', noSingles: false, joinedAt: 1007 },
-  { id: 'roster_8', name: 'Phương Thảo', sex: 'F', rank: 'tby-', noSingles: false, joinedAt: 1008 },
-  { id: 'roster_9', name: 'Hồng Nhung', sex: 'F', rank: 'tby', noSingles: false, joinedAt: 1009 },
-];
+const LEGACY_SEEDED_SAMPLE_NAMES: Record<string, string> = {
+  roster_1: 'Đức Anh',
+  roster_2: 'Huy Hoàng',
+  roster_3: 'Minh Trí',
+  roster_4: 'Quốc Tuấn',
+  roster_5: 'Tiến Đạt',
+  roster_6: 'Thùy Linh',
+  roster_7: 'Mai Anh',
+  roster_8: 'Phương Thảo',
+  roster_9: 'Hồng Nhung',
+};
+
+function isLegacySeededSampleRoster(roster: readonly unknown[]): boolean {
+  const ids = Object.keys(LEGACY_SEEDED_SAMPLE_NAMES);
+  if (roster.length !== ids.length) return false;
+  const seen = new Set<string>();
+  for (const item of roster) {
+    const m = item as Partial<ClubMember> | null;
+    if (!m || typeof m.id !== 'string' || typeof m.name !== 'string') return false;
+    if (LEGACY_SEEDED_SAMPLE_NAMES[m.id] !== m.name.trim()) return false;
+    if (typeof m.notes === 'string' && m.notes.trim()) return false;
+    seen.add(m.id);
+  }
+  return seen.size === ids.length;
+}
 
 // =============================================================================
 // 1. Quản lý ngữ cảnh CLB đang kích hoạt & khóa lưu trữ theo club_code
@@ -330,69 +348,46 @@ export function applyCloudRosterSnapshot(
 // 4. Kiểm tra danh sách mẫu mặc định & Migrate an toàn Sổ CLB local lên Cloud
 // =============================================================================
 
-/**
- * Kiểm tra xem một danh sách có trùng khớp nguyên bản với 9 thành viên mẫu mặc định
- * (`DEFAULT_9_CLUB_MEMBERS`) chưa từng được tùy biến hay không.
- */
-export function isDefaultSampleRoster(roster: readonly ClubMember[]): boolean {
-  if (!Array.isArray(roster) || roster.length !== DEFAULT_9_CLUB_MEMBERS.length) {
-    return false;
-  }
-
-  const typedRoster = roster as readonly ClubMember[];
-  const defaultById = new Map<string, ClubMember>();
-  for (const sample of DEFAULT_9_CLUB_MEMBERS) {
-    defaultById.set(sample.id, sample);
-  }
-
-  const seenIds = new Set<string>();
-  for (const item of typedRoster) {
-    if (!item || typeof item !== 'object') return false;
-    if (typeof item.id !== 'string' || typeof item.name !== 'string') return false;
-    if (seenIds.has(item.id)) return false;
-    seenIds.add(item.id);
-
-    const sample = defaultById.get(item.id);
-    if (!sample) return false;
-    if (item.name.trim() !== sample.name.trim()) return false;
-    if (item.sex !== sample.sex) return false;
-    if (item.rank !== sample.rank) return false;
-    if (Boolean(item.noSingles) !== Boolean(sample.noSingles)) return false;
-    if (typeof item.notes === 'string' && item.notes.trim().length > 0) return false;
-    if (item.tags !== undefined) {
-      if (!Array.isArray(item.tags)) return false;
-      if (item.tags.some((t: unknown) => typeof t === 'string' && t.trim().length > 0)) {
-        return false;
-      }
-    }
-  }
-
-  return seenIds.size === DEFAULT_9_CLUB_MEMBERS.length;
-}
-
-/**
- * Đọc danh sách legacy trong `STORAGE_KEY_CLUB_ROSTER` mà KHÔNG tự ghi 9 thành viên mẫu xuống máy
- */
-export function peekLegacyLocalRoster(): ClubMember[] | null {
-  if (typeof localStorage === 'undefined') return null;
+function readLocalRoster(): ClubMember[] {
+  if (typeof localStorage === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CLUB_ROSTER);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as ClubMember[]) : null;
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as ClubMember[]) : [];
+    }
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY_CLUB_ROSTER);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw);
+    if (!Array.isArray(legacy) || isLegacySeededSampleRoster(legacy)) return [];
+    return legacy as ClubMember[];
   } catch {
-    return null;
+    return [];
+  }
+}
+
+function writeLocalRoster(roster: ClubMember[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY_CLUB_ROSTER, JSON.stringify(roster));
+  } catch (err) {
+    console.error('Không thể lưu Sổ thành viên CLB:', err);
   }
 }
 
 /**
- * Kiểm tra máy hiện tại có danh sách Sổ CLB đã được người dùng tùy biến thật sự hay chưa
- * (trả `false` nếu trống hoặc vẫn là đúng 9 thành viên mẫu `DEFAULT_9_CLUB_MEMBERS`).
+ * Đọc Sổ CLB chế độ máy đơn (namespace `roster:local`), trả null nếu đang trống
+ */
+export function peekLegacyLocalRoster(): ClubMember[] | null {
+  const roster = readLocalRoster();
+  return roster.length > 0 ? roster : null;
+}
+
+/**
+ * Máy hiện tại có Sổ CLB local do người dùng tự nhập hay không
  */
 export function hasCustomLegacyLocalRoster(): boolean {
-  const legacy = peekLegacyLocalRoster();
-  if (!legacy || legacy.length === 0) return false;
-  return !isDefaultSampleRoster(legacy);
+  return peekLegacyLocalRoster() !== null;
 }
 
 export interface ClubRosterCloudAdapter {
@@ -421,8 +416,6 @@ export interface MigrateLocalRosterToCloudParams {
   hostPin?: string | null;
   /** Bỏ qua cờ đã migrate trước đó để chạy đồng bộ bù */
   force?: boolean;
-  /** Chỉ bật true nếu người dùng chủ động xác nhận muốn đẩy cả bộ 9 người mẫu */
-  forceIncludeDefaultSample?: boolean;
   nowIso?: string;
   adapter?: ClubRosterCloudAdapter;
 }
@@ -431,7 +424,6 @@ export interface MigrateLocalRosterResult {
   status:
     | 'MIGRATED'
     | 'SKIPPED_EMPTY'
-    | 'SKIPPED_DEFAULT_SAMPLE'
     | 'ALREADY_MIGRATED'
     | 'PARTIAL_ERROR';
   clubCode: string;
@@ -496,7 +488,6 @@ function mergePrivateMetaForUuid(
 
 /**
  * Migrate an toàn danh sách Sổ CLB cũ ở `localStorage` lên Cloud theo `club_code`:
- * - KHÔNG tự động đẩy `DEFAULT_9_CLUB_MEMBERS` khi máy chưa tùy biến.
  * - Khớp thông minh theo tên với các thành viên đã có sẵn trên Cloud (tránh lỗi trùng tên).
  * - Giữ nguyên 100% `notes` & `tags` kín ở `localStorage`, chuyển sang ánh xạ theo `cloudMember.id` (UUID),
  *   TUYỆT ĐỐI không gửi `notes/tags` lên bảng công khai `public.club_members`.
@@ -527,18 +518,6 @@ export async function migrateLocalRosterToCloud(
   if (!localRoster || localRoster.length === 0) {
     return {
       status: 'SKIPPED_EMPTY',
-      clubCode: cleanCode,
-      createdMembers: [],
-      matchedExistingMembers: [],
-      memberIdMap: {},
-      migratedPrivateMetaCount: 0,
-      errors: [],
-    };
-  }
-
-  if (isDefaultSampleRoster(localRoster) && !params.forceIncludeDefaultSample) {
-    return {
-      status: 'SKIPPED_DEFAULT_SAMPLE',
       clubCode: cleanCode,
       createdMembers: [],
       matchedExistingMembers: [],
@@ -688,33 +667,11 @@ export async function migrateLocalRosterToCloud(
 // 5. Các hàm đồng bộ tương thích ngược 100% với QueueTab, RankAdvisorPanel & Test cũ
 // =============================================================================
 
-function markLegacyRosterCustomized(): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY_CLUB_ROSTER_CUSTOMIZED, '1');
-  } catch {
-    // Bỏ qua
-  }
-}
-
-function saveLegacyClubRosterInternal(roster: ClubMember[], markCustom: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY_CLUB_ROSTER, JSON.stringify(roster));
-    if (markCustom) {
-      markLegacyRosterCustomized();
-    }
-  } catch (err) {
-    console.error('Không thể lưu Sổ thành viên CLB:', err);
-  }
-}
-
 /**
  * Đọc toàn bộ danh sách thành viên trong Sổ CLB:
  * - Nếu truyền `clubCode` (hoặc đang kích hoạt `activeClubCode` đã có cache Cloud),
  *   trả về danh sách thành viên của CLB đó đã ghép `notes/tags` kín theo UUID.
- * - Ngược lại (chế độ máy đơn / legacy), giữ nguyên hành vi đọc `STORAGE_KEY_CLUB_ROSTER`
- *   và khởi tạo 9 thành viên mẫu lần đầu.
+ * - Ngược lại (chế độ máy đơn), đọc `roster:local` (mặc định rỗng, KHÔNG seed người mẫu).
  */
 export function getClubRoster(clubCode?: string): ClubMember[] {
   const targetClub = resolveTargetClubCode(clubCode);
@@ -725,33 +682,14 @@ export function getClubRoster(clubCode?: string): ClubMember[] {
       return mergeCloudMembersWithPrivateMeta(cloudMembers, privateMetaMap);
     }
   }
-
-  if (typeof localStorage === 'undefined') {
-    return DEFAULT_9_CLUB_MEMBERS.map((m) => ({ ...m }));
-  }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_CLUB_ROSTER);
-    if (!raw) {
-      // Khởi tạo 9 thành viên mặc định lần đầu (KHÔNG đánh dấu customized để tránh đẩy nhầm lên Cloud)
-      saveLegacyClubRosterInternal(DEFAULT_9_CLUB_MEMBERS, false);
-      return DEFAULT_9_CLUB_MEMBERS.map((m) => ({ ...m }));
-    }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch {
-    // Bỏ qua lỗi parse
-  }
-  return DEFAULT_9_CLUB_MEMBERS.map((m) => ({ ...m }));
+  return readLocalRoster();
 }
 
 /**
- * Lưu toàn bộ danh sách thành viên vào Sổ CLB (legacy local)
+ * Lưu toàn bộ danh sách thành viên vào Sổ CLB (chế độ máy đơn)
  */
 export function saveClubRoster(roster: ClubMember[]): void {
-  const isCustom = !isDefaultSampleRoster(roster);
-  saveLegacyClubRosterInternal(roster, isCustom);
+  writeLocalRoster(roster);
 }
 
 /**
@@ -841,7 +779,7 @@ export function upsertClubMember(
     current.push(newEntry);
   }
 
-  saveLegacyClubRosterInternal(current, true);
+  writeLocalRoster(current);
   return newEntry;
 }
 
@@ -918,7 +856,7 @@ export function updateClubMemberProfile(
     tags: nextTags && nextTags.length > 0 ? nextTags : undefined,
   };
   current[idx] = updated;
-  saveLegacyClubRosterInternal(current, true);
+  writeLocalRoster(current);
   return updated;
 }
 
@@ -958,7 +896,7 @@ export function syncClubMemberRank(
   if (idx === -1) return false;
 
   current[idx] = { ...current[idx], rank };
-  saveLegacyClubRosterInternal(current, true);
+  writeLocalRoster(current);
   return true;
 }
 
@@ -976,7 +914,7 @@ export function deleteClubMember(id: string, clubCode?: string): void {
 
   const current = getClubRoster('');
   const updated = current.filter((m) => m.id !== id);
-  saveLegacyClubRosterInternal(updated, true);
+  writeLocalRoster(updated);
 }
 
 /**

@@ -3,7 +3,6 @@ import {
   UserPlus,
   PlayCircle,
   Trash2,
-  Sparkles,
   ClipboardPaste,
   AlertCircle,
   Minus,
@@ -30,7 +29,6 @@ import {
   stepRankUp,
 } from '../engine/skillConfig';
 import { sortPlayersByWaitPriority } from '../engine/matchmaker';
-import { SAMPLE_16_PLAYERS } from '../data/samplePlayers';
 import { vibrateSuccess, vibrateWarning } from '../utils/vibrate';
 import { parsePasteLines } from '../utils/parsePasteLines';
 import {
@@ -84,6 +82,24 @@ interface QueueTabProps {
   onAddRule?: (rule: Omit<PairRule, 'id'>) => void;
   onRemoveRule?: (ruleId: string) => void;
   clubRosterSyncKey?: string;
+  /** Mã CLB đang mở (null/undefined = chế độ máy đơn, Sổ CLB namespace `roster:local`) */
+  clubCode?: string | null;
+  /** Chỉ Host CLB mới được xóa/ẩn thành viên khỏi CLB */
+  isClubHost?: boolean;
+  /** Thêm thành viên thẳng vào `club_members` (RPC) để đồng bộ sang Lịch tuần */
+  onAddClubMember?: (params: {
+    name: string;
+    gender: Sex;
+    rank: BadmintonRank;
+    noSingles?: boolean;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  /** Ẩn/xóa thành viên khỏi CLB (RPC, chỉ Host CLB) */
+  onDeleteClubMember?: (memberId: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Cập nhật trình độ thành viên CLB (RPC, chỉ Host CLB) */
+  onUpdateClubMemberRank?: (
+    memberId: string,
+    rank: BadmintonRank
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export const QueueTab: React.FC<QueueTabProps> = ({
@@ -106,6 +122,11 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   onAddRule,
   onRemoveRule,
   clubRosterSyncKey,
+  clubCode = null,
+  isClubHost = false,
+  onAddClubMember,
+  onDeleteClubMember,
+  onUpdateClubMemberRank,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'queue' | 'rules'>('queue');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -115,13 +136,16 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
 
-  const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster());
+  // '' = ép đọc Sổ CLB local (roster:local), không bị trộn với CLB đang active
+  const rosterCode = clubCode ?? '';
+  const canDeleteFromClub = !clubCode || isClubHost;
+  const [clubRoster, setClubRoster] = useState<ClubMember[]>(() => getClubRoster(rosterCode));
   const [lastSyncedRosterKey, setLastSyncedRosterKey] = useState<string | undefined>(
     clubRosterSyncKey
   );
   if (clubRosterSyncKey !== lastSyncedRosterKey) {
     setLastSyncedRosterKey(clubRosterSyncKey);
-    setClubRoster(getClubRoster());
+    setClubRoster(getClubRoster(rosterCode));
   }
 
   const canShowRulesSubTab = !isViewer && Boolean(onAddRule && onRemoveRule);
@@ -144,17 +168,21 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 
   const handleSaveClubProfile = () => {
     if (!profileModalMember) return;
-    updateClubMemberProfile(profileModalMember.id, {
-      notes: profileNotesInput,
-      tags: profileTagsInput,
-    });
-    setClubRoster(getClubRoster());
+    updateClubMemberProfile(
+      profileModalMember.id,
+      {
+        notes: profileNotesInput,
+        tags: profileTagsInput,
+      },
+      rosterCode
+    );
+    setClubRoster(getClubRoster(rosterCode));
     setProfileModalMember(null);
     vibrateSuccess();
   };
 
   const handleOpenAddModal = (mode: 'ROSTER' | 'SINGLE' | 'PASTE' = 'ROSTER') => {
-    const currentRoster = getClubRoster();
+    const currentRoster = getClubRoster(rosterCode);
     setClubRoster(currentRoster);
     const inSession = new Set(players.map((p) => p.name.trim().toLowerCase()));
     const initialSelected = new Set<string>();
@@ -168,27 +196,77 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     setShowAddModal(true);
   };
 
+  const reportClubError = (error?: string) => {
+    vibrateWarning();
+    alert(error || 'Không thể đồng bộ với CLB. Vui lòng thử lại.');
+  };
+
+  const addMemberToRoster = async (member: {
+    name: string;
+    sex: Sex;
+    rank: BadmintonRank;
+    noSingles?: boolean;
+  }): Promise<boolean> => {
+    if (clubCode) {
+      if (!onAddClubMember) return false;
+      const res = await onAddClubMember({
+        name: member.name,
+        gender: member.sex,
+        rank: member.rank,
+        noSingles: member.noSingles,
+      });
+      if (!res.ok) {
+        reportClubError(res.error);
+        return false;
+      }
+    } else {
+      upsertClubMember(member, '');
+    }
+    setClubRoster(getClubRoster(rosterCode));
+    vibrateSuccess();
+    return true;
+  };
+
+  const syncRankToRoster = (name: string, rank: BadmintonRank) => {
+    if (!clubCode) {
+      syncClubMemberRank(name, rank, '');
+      setClubRoster(getClubRoster(rosterCode));
+      return true;
+    }
+    // CLB Cloud: chỉ Host CLB được sửa trình độ thành viên (RPC)
+    const target = clubRoster.find(
+      (m) => m.name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
+    if (!isClubHost || !target || !onUpdateClubMemberRank) return false;
+    void onUpdateClubMemberRank(target.id, rank).then((res) => {
+      if (!res.ok) reportClubError(res.error);
+    });
+    return true;
+  };
+
   const handleToggleClubMember = (player: Player) => {
     const isMember = isClubMember(player.name, clubRoster);
     if (isMember) {
+      if (clubCode && !isClubHost) {
+        alert(`"${player.name}" đã có trong Sổ CLB. Chỉ Host CLB mới cập nhật được trình độ.`);
+        return;
+      }
       if (
         window.confirm(
           `"${player.name}" đang là thành viên trong Sổ CLB.\nBạn có muốn cập nhật trình độ hiện tại (${RANK_METADATA[player.rank].code}) vào Sổ CLB không?`
         )
       ) {
-        syncClubMemberRank(player.name, player.rank);
-        setClubRoster(getClubRoster());
-        vibrateSuccess();
+        if (syncRankToRoster(player.name, player.rank)) {
+          vibrateSuccess();
+        }
       }
     } else {
-      upsertClubMember({
+      void addMemberToRoster({
         name: player.name,
         sex: player.sex,
         rank: player.rank,
         noSingles: player.noSingles,
       });
-      setClubRoster(getClubRoster());
-      vibrateSuccess();
     }
   };
 
@@ -219,37 +297,48 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     onEditRank(playerId, rank);
     const p = players.find((pl) => pl.id === playerId);
     if (p) {
-      syncClubMemberRank(p.name, rank);
-      setClubRoster(getClubRoster());
+      syncRankToRoster(p.name, rank);
     }
   };
 
-  const handleAddMemberToRoster = (e: React.FormEvent) => {
+  const handleAddMemberToRoster = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rosterNewName.trim()) return;
-    upsertClubMember({
+    const ok = await addMemberToRoster({
       name: rosterNewName.trim(),
       sex: rosterNewSex,
       rank: rosterNewRank,
       noSingles: false,
     });
+    if (!ok) return;
     setRosterNewName('');
-    setClubRoster(getClubRoster());
     setShowRosterAddInline(false);
-    vibrateSuccess();
   };
 
-  const handleDeleteFromRoster = (id: string, name: string) => {
-    if (window.confirm(`Xóa vĩnh viễn "${name}" khỏi Sổ Thành Viên CLB?`)) {
-      deleteClubMember(id);
-      setClubRoster(getClubRoster());
-      setSelectedRosterIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      vibrateWarning();
+  // Xóa thành viên khỏi SỔ CLB (khác hoàn toàn với "Rút khỏi buổi" ở Hàng chờ)
+  const handleDeleteFromRoster = async (id: string, name: string) => {
+    if (!canDeleteFromClub) return;
+    const confirmMsg = clubCode
+      ? `Xóa "${name}" khỏi CLB ${clubCode}?\nThành viên sẽ bị ẩn khỏi Sổ CLB và Lịch tuần của CLB (không ảnh hưởng buổi đánh đang mở).`
+      : `Xóa vĩnh viễn "${name}" khỏi Sổ Thành Viên CLB?`;
+    if (!window.confirm(confirmMsg)) return;
+    if (clubCode) {
+      if (!onDeleteClubMember) return;
+      const res = await onDeleteClubMember(id);
+      if (!res.ok) {
+        reportClubError(res.error);
+        return;
+      }
+    } else {
+      deleteClubMember(id, '');
     }
+    setClubRoster(getClubRoster(rosterCode));
+    setSelectedRosterIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    vibrateWarning();
   };
 
   const toggleSelectRosterMember = (id: string) => {
@@ -369,11 +458,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
     onAddPlayers(playersToImport);
     setPasteText('');
     setShowAddModal(false);
-  };
-
-  const handleLoadSample16 = () => {
-    vibrateSuccess();
-    onAddPlayers(SAMPLE_16_PLAYERS);
   };
 
   const selectedRosterCount = clubRoster.filter(
@@ -529,20 +613,6 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               <UserPlus className="w-4 h-4 shrink-0" />
               <span>Thêm khách</span>
             </button>
-
-            {players.length === 0 && (
-              <button
-                type="button"
-                onClick={handleLoadSample16}
-                className="ui-btn ui-btn-secondary px-3.5"
-              >
-                <Sparkles
-                  className="w-4 h-4 shrink-0"
-                  style={{ color: 'var(--color-accent)' }}
-                />
-                <span>16 mẫu</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -564,7 +634,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             description={
               isViewer
                 ? 'Chủ sân chưa thêm danh sách người chơi cho buổi này.'
-                : 'Bấm Thêm khách, Điểm danh CLB hoặc nạp 16 mẫu để bắt đầu buổi chơi.'
+                : 'Bấm Thêm khách hoặc Điểm danh CLB để bắt đầu buổi chơi.'
             }
           />
         ) : (
@@ -1062,7 +1132,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
               [
                 { id: 'ROSTER', label: 'Sổ CLB', icon: Star },
                 { id: 'SINGLE', label: 'Khách lẻ', icon: UserPlus },
-                { id: 'PASTE', label: 'Dán Zalo', icon: ClipboardPaste },
+                { id: 'PASTE', label: 'Dán nhanh', icon: ClipboardPaste },
               ] as const
             ).map((tab) => {
               const Icon = tab.icon;
@@ -1100,7 +1170,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   className="text-[14px] font-semibold"
                   style={{ color: 'var(--text-secondary)' }}
                 >
-                  Sổ CLB ({clubRoster.length})
+                  Sổ CLB{clubCode ? ` ${clubCode}` : ''} ({clubRoster.length})
                 </span>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <button
@@ -1129,7 +1199,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 
               {showRosterAddInline && (
                 <form
-                  onSubmit={handleAddMemberToRoster}
+                  onSubmit={(e) => void handleAddMemberToRoster(e)}
                   className="ui-tile p-4 space-y-3"
                 >
                   <div
@@ -1265,20 +1335,20 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 
                           {inSession ? (
                             <StatusPill tone="accent">Có mặt</StatusPill>
-                          ) : (
+                          ) : canDeleteFromClub ? (
                             <button
                               type="button"
                               onClick={() =>
-                                handleDeleteFromRoster(member.id, member.name)
+                                void handleDeleteFromRoster(member.id, member.name)
                               }
-                              title="Xóa khỏi Sổ CLB"
-                              aria-label={`Xóa ${member.name} khỏi Sổ CLB`}
+                              title={clubCode ? 'Xóa thành viên khỏi CLB (Host CLB)' : 'Xóa khỏi Sổ CLB'}
+                              aria-label={`Xóa ${member.name} khỏi ${clubCode ? 'CLB' : 'Sổ CLB'}`}
                               className="w-9 h-9 rounded-lg flex items-center justify-center transition"
                               style={{ color: 'var(--text-muted)' }}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -1453,7 +1523,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   className="ui-checkbox w-4 h-4 shrink-0"
                 />
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  Tự điền Nam &amp; TB- nếu thiếu (chuẩn tin nhắn Zalo)
+                  Tự điền Nam &amp; TB- nếu thiếu
                 </span>
               </label>
 

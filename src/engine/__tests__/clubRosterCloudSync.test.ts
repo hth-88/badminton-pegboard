@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyCloudRosterSnapshot,
-  DEFAULT_9_CLUB_MEMBERS,
   deleteClubMember,
   getClubRoster,
   getHostMemberPrivateMeta,
   hasCustomLegacyLocalRoster,
-  isDefaultSampleRoster,
   mergeCloudMembersWithPrivateMeta,
   migrateLocalRosterToCloud,
   setActiveClubCode,
@@ -143,12 +141,19 @@ describe('Phase 2 — Club Roster Local-First + Cloud Sync & Safe Migration', ()
     expect(getHostMemberPrivateMeta('CLB-B', sharedUuid)?.notes).toBe('Ghi chú riêng CLB B');
   });
 
-  it('3. KHÔNG tự động đẩy 9 thành viên mẫu mặc định (DEFAULT_9_CLUB_MEMBERS) lên Cloud khi máy chưa tùy biến', async () => {
-    // Giả lập người dùng mở app lần đầu -> getClubRoster() tự ghi DEFAULT_9_CLUB_MEMBERS vào localStorage
+  it('3. Máy chưa có CLB: Sổ CLB rỗng (0 người), không seed người mẫu và không đẩy gì lên Cloud', async () => {
     const initial = getClubRoster();
-    expect(initial).toHaveLength(9);
-    expect(isDefaultSampleRoster(initial)).toBe(true);
+    expect(initial).toHaveLength(0);
     expect(hasCustomLegacyLocalRoster()).toBe(false);
+
+    // Dữ liệu 9 người mẫu do phiên bản cũ từng tự ghi cũng bị bỏ qua
+    const seeded = [
+      'Đức Anh', 'Huy Hoàng', 'Minh Trí', 'Quốc Tuấn', 'Tiến Đạt',
+      'Thùy Linh', 'Mai Anh', 'Phương Thảo', 'Hồng Nhung',
+    ].map((name, i) => ({ id: `roster_${i + 1}`, name, sex: 'M', rank: 'tb' }));
+    localStorage.setItem('badminton_club_roster', JSON.stringify(seeded));
+    expect(getClubRoster()).toHaveLength(0);
+    localStorage.removeItem('badminton_club_roster');
 
     const fetchMembersMock = vi.fn();
     const registerMemberMock = vi.fn();
@@ -163,7 +168,7 @@ describe('Phase 2 — Club Roster Local-First + Cloud Sync & Safe Migration', ()
       adapter,
     });
 
-    expect(migration.status).toBe('SKIPPED_DEFAULT_SAMPLE');
+    expect(migration.status).toBe('SKIPPED_EMPTY');
     expect(migration.createdMembers).toEqual([]);
     expect(fetchMembersMock).not.toHaveBeenCalled();
     expect(registerMemberMock).not.toHaveBeenCalled();
@@ -352,7 +357,7 @@ describe('Phase 2 — Club Roster Local-First + Cloud Sync & Safe Migration', ()
     expect(rosterAfterReset[0].tags).toEqual(['Trình cứng']);
   });
 
-  it('7. Thao tác legacy với clubCode="" không bị trộn/ghi đè bởi CLB Cloud đang active, chống trùng ID ở isDefaultSampleRoster & migrate', async () => {
+  it('7. Thao tác legacy với clubCode="" không bị trộn/ghi đè bởi CLB Cloud đang active, chống trùng ID khi migrate', async () => {
     // Legacy roster có sẵn 1 người riêng
     localStorage.setItem(
       STORAGE_KEY_CLUB_ROSTER,
@@ -375,10 +380,6 @@ describe('Phase 2 — Club Roster Local-First + Cloud Sync & Safe Migration', ()
     expect(legacyList.map((m) => m.name)).toEqual(['Người Máy Đơn', 'Người Máy Đơn 2']);
     expect(legacyList[0].rank).toBe('tb+');
     expect(legacyList[0].notes).toBe('Ghi chú máy đơn');
-
-    // 9 bản sao trùng ID của thành viên mẫu đầu tiên KHÔNG ĐƯỢC coi là DEFAULT_9_CLUB_MEMBERS
-    const nineDuplicates = Array.from({ length: 9 }, () => ({ ...DEFAULT_9_CLUB_MEMBERS[0] }));
-    expect(isDefaultSampleRoster(nineDuplicates)).toBe(false);
 
     // Migrate danh sách local có 2 dòng trùng tên (khác hoa/thường) không sinh UUID trùng lặp
     localStorage.setItem(

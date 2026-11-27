@@ -18,7 +18,8 @@ import {
 import type { AutoSinglesMode, CourtMode, SessionSettings } from '../types/badminton';
 import type { ThemeMode } from '../hooks/useTheme';
 import type { RoomRole, SyncStatus } from '../hooks/useCloudRoom';
-import { UiModal } from './ui/Primitives';
+import type { ClubRole } from '../types/schedule';
+import { StatusPill, UiModal } from './ui/Primitives';
 
 interface HeaderProps {
   activeCourtsCount: number;
@@ -50,6 +51,10 @@ interface HeaderProps {
   role?: RoomRole;
   syncStatus?: SyncStatus;
   onOpenCloudModal?: () => void;
+  /** Vai trò CLB (Host CLB > Host Sân > Thành viên) */
+  clubRole?: ClubRole;
+  /** Host hạ phiên xuống VIEWER, không rời phòng/CLB */
+  onSwitchToViewMode?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -80,11 +85,25 @@ export const Header: React.FC<HeaderProps> = ({
   role = 'OFFLINE',
   syncStatus = 'OFFLINE',
   onOpenCloudModal,
+  clubRole = 'GUEST',
+  onSwitchToViewMode,
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempMaleBonus, setTempMaleBonus] = useState(maleBonus);
 
   const isViewer = role === 'VIEWER';
+
+  // 1 badge vai trò duy nhất, ưu tiên: Host CLB > Host Sân > Thành viên
+  const roleBadge: { label: string; tone: 'accent' | 'neutral' } | null =
+    clubRole === 'CLUB_HOST'
+      ? { label: 'Host CLB', tone: 'accent' }
+      : role === 'CO_HOST'
+        ? { label: 'Host Sân', tone: 'accent' }
+        : clubRole === 'CLUB_MEMBER'
+          ? { label: 'Thành viên', tone: 'neutral' }
+          : null;
+  const canSwitchToView =
+    Boolean(onSwitchToViewMode) && (clubRole === 'CLUB_HOST' || role === 'CO_HOST');
 
   const isCurrentlyDark =
     theme === 'dark' ||
@@ -195,6 +214,25 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {roleBadge && (
+            <StatusPill tone={roleBadge.tone} className="shrink-0 whitespace-nowrap">
+              {roleBadge.label}
+            </StatusPill>
+          )}
+
+          {canSwitchToView && (
+            <button
+              type="button"
+              onClick={onSwitchToViewMode}
+              title="Chuyển sang chế độ Xem"
+              aria-label="Chuyển sang chế độ Xem"
+              className="ui-btn ui-btn-secondary w-11 md:w-auto px-0 md:px-3 rounded-xl md:rounded-full shrink-0"
+            >
+              <Eye className="w-4 h-4 shrink-0" />
+              <span className="hidden md:inline text-[13px]">Chuyển sang chế độ Xem</span>
+            </button>
+          )}
+
           {/* Cloud Room Status Button */}
           {roomCode && role !== 'OFFLINE' ? (
             <button

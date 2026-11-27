@@ -1715,7 +1715,7 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
   );
 
   const migrateLegacyRosterAsHost = useCallback(
-    async (opts: { force?: boolean; forceIncludeDefaultSample?: boolean } = {}) => {
+    async (opts: { force?: boolean } = {}) => {
       const activeCode = clubCodeRef.current;
       if (!activeCode) {
         return null;
@@ -1724,7 +1724,6 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
         clubCode: activeCode,
         hostPin,
         force: opts.force,
-        forceIncludeDefaultSample: opts.forceIncludeDefaultSample,
       });
 
       if (res.status === 'MIGRATED' || res.status === 'PARTIAL_ERROR') {

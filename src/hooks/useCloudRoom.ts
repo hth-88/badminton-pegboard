@@ -884,6 +884,98 @@ export function useCloudRoom({
     onToastRef.current?.('Đã ngắt kết nối phòng online. Quay về chế độ máy đơn.');
   }, []);
 
+  // 7b. Host CLB đã mở khóa → tự có quyền Host Sân trên phòng gắn CLB (không cần nhập lại PIN phòng).
+  // Chỉ nâng role phiên hiện tại; KHÔNG chạm vào cơ chế hydration/ref guard.
+  const grantHostFromClub = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    const targetRoom = roomCodeRef.current;
+    if (!targetRoom) return { ok: false, error: 'Chưa vào phòng' };
+    if (roleRef.current === 'CO_HOST') return { ok: true };
+
+    const res = await fetchRoom(targetRoom);
+    if (res.error || !res.data) {
+      return { ok: false, error: res.error || 'Lỗi khi kiểm tra phòng' };
+    }
+    if (roomCodeRef.current !== targetRoom) return { ok: false, error: 'Đã đổi phòng' };
+
+    pinCodeRef.current = res.data.pin_code;
+    setPinCode(res.data.pin_code);
+    setRole('CO_HOST');
+    try {
+      const stored: StoredCloudRoom = {
+        roomCode: targetRoom,
+        pinCode: res.data.pin_code,
+        role: 'CO_HOST',
+      };
+      localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
+    } catch {
+      // Bỏ qua
+    }
+    setShowPinPrompt(false);
+    onToastRef.current?.(`Host CLB: đã mở quyền Host Sân cho phòng "${targetRoom}"`);
+    return { ok: true };
+  }, [setShowPinPrompt]);
+
+  // 7c. Chuyển sang chế độ Xem: hạ phiên hiện tại xuống VIEWER + xóa cache PIN đã mở khóa,
+  // KHÔNG rời phòng và KHÔNG xóa dữ liệu hiện tại.
+  const downgradeToViewer = useCallback(() => {
+    const currentRoom = roomCodeRef.current;
+    if (!currentRoom || roleRef.current !== 'CO_HOST') return;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (settlementDebounceTimerRef.current) {
+      clearTimeout(settlementDebounceTimerRef.current);
+      settlementDebounceTimerRef.current = null;
+    }
+
+    // Đẩy nốt thay đổi đang chờ debounce trước khi mất quyền ghi
+    const flushTs = Date.now();
+    if (hasPendingLocalChangeRef.current && !awaitingRemoteSessionHydrationRef.current) {
+      lastAppliedTimestampRef.current = flushTs;
+      lastAppliedRemoteSnapshotRef.current = currentStateRef.current;
+      void upsertRoom({
+        room_code: currentRoom,
+        pin_code: pinCodeRef.current || '1234',
+        session_data: currentStateRef.current,
+        updated_at: flushTs,
+        updated_by: clientId,
+      });
+    }
+    if (
+      hasPendingSettlementChangeRef.current &&
+      !awaitingRemoteSettlementHydrationRef.current &&
+      currentSettlementRef.current
+    ) {
+      lastAppliedSettlementTsRef.current = flushTs;
+      lastAppliedRemoteSettlementRef.current = {
+        ...currentSettlementRef.current,
+        updatedAt: flushTs,
+      };
+      void updateRoomSettlementOnly(
+        currentRoom,
+        { ...currentSettlementRef.current, updatedAt: flushTs },
+        flushTs,
+        clientId
+      );
+    }
+    hasPendingLocalChangeRef.current = false;
+    hasPendingSettlementChangeRef.current = false;
+
+    pinCodeRef.current = null;
+    setPinCode(null);
+    setRole('VIEWER');
+    try {
+      const stored: StoredCloudRoom = { roomCode: currentRoom, pinCode: '', role: 'VIEWER' };
+      localStorage.setItem(STORAGE_KEY_CLOUD_ROOM, JSON.stringify(stored));
+      localStorage.removeItem(pendingStorageKey);
+    } catch {
+      // Bỏ qua
+    }
+    onToastRef.current?.('Đã chuyển sang chế độ Xem. Muốn điều khiển lại cần nhập PIN.');
+  }, [clientId, pendingStorageKey]);
+
   // 8. Chặn hành động sửa đổi nếu chỉ ở quyền VIEWER (Action Guard)
   const guardAction = useCallback(
     (actionFn: () => void) => {
@@ -1018,6 +1110,8 @@ export function useCloudRoom({
     createRoom,
     joinRoom,
     upgradeToCoHost,
+    grantHostFromClub,
+    downgradeToViewer,
     leaveRoom,
     guardAction,
     reportPlayerPayment,

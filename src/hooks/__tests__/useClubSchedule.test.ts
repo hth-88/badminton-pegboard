@@ -472,9 +472,9 @@ describe('Phase 2 — useClubSchedule Hook & Realtime Integration', () => {
     expect(harness.getResult().submissionSummary.submittedCount).toBe(1);
   });
 
-  it('3. createNewClub tự bỏ qua không đẩy 9 thành viên mẫu mặc định lên Cloud', async () => {
-    // Máy mới tinh gọi getClubRoster() -> ghi 9 thành viên mẫu vào localStorage
-    expect(getClubRoster()).toHaveLength(9);
+  it('3. createNewClub không đẩy người mẫu nào lên Cloud khi Sổ CLB local đang rỗng', async () => {
+    // Máy mới tinh: Sổ CLB local rỗng, không seed người mẫu
+    expect(getClubRoster()).toHaveLength(0);
 
     mockCreateClub.mockResolvedValue({
       data: makeMockClub('CLB-FRESH'),
@@ -494,7 +494,7 @@ describe('Phase 2 — useClubSchedule Hook & Realtime Integration', () => {
     });
 
     expect(createRes.error).toBeNull();
-    expect(createRes.data?.migration?.status).toBe('SKIPPED_DEFAULT_SAMPLE');
+    expect(createRes.data?.migration?.status).toBe('SKIPPED_EMPTY');
     expect(harness.getResult().members).toEqual([]);
   });
 

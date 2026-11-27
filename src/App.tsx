@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useBadmintonSession } from './engine/useBadmintonSession';
 import { useTheme } from './hooks/useTheme';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -7,6 +7,7 @@ import { useClubSchedule } from './hooks/useClubSchedule';
 import { useSettlementState } from './hooks/useSettlementState';
 import type { CloudSettlementData } from './engine/settlement';
 import { normalizeClubCode } from './services/clubScheduleSync';
+import { getCachedCloudClubMembers } from './engine/clubRosterStorage';
 import {
   resolveClubUrlInitialTab,
   resolveUiPermissions,
@@ -28,7 +29,7 @@ import { vibrateSuccess } from './utils/vibrate';
 import { CloudRoomModal } from './components/CloudRoomModal';
 import { PostMatchModal } from './components/PostMatchModal';
 import { savePrivateMatchReview } from './engine/matchFeedbackStorage';
-import type { Lineup, MatchHistory } from './types/badminton';
+import type { BadmintonRank, Lineup, MatchHistory, Sex } from './types/badminton';
 import { InfoToast, UndoToast } from './components/Toast';
 import { UiModal } from './components/ui/Primitives';
 import { ArrowRight, Eye, KeyRound, Lock, Radio } from 'lucide-react';
@@ -213,6 +214,8 @@ export function App() {
     createRoom,
     joinRoom,
     upgradeToCoHost,
+    grantHostFromClub,
+    downgradeToViewer,
     leaveRoom,
     guardAction,
     reportPlayerPayment,
@@ -240,6 +243,112 @@ export function App() {
         isCurrentWeekLocked,
       }),
     [role, clubSchedule.role, clubSchedule.club?.settings, isCurrentWeekLocked]
+  );
+
+  // Host CLB đã mở khóa → tự có quyền Host Sân trên mọi phòng gắn CLB đó (không nhập lại PIN phòng).
+  const isRoomAttachedToClub = Boolean(
+    roomCode && clubSchedule.club?.activeRooms?.some((r) => r.roomCode === roomCode)
+  );
+  const autoHostAttemptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (clubSchedule.role !== 'CLUB_HOST' || role !== 'VIEWER' || !roomCode || !isRoomAttachedToClub) {
+      autoHostAttemptRef.current = null;
+      return;
+    }
+    if (autoHostAttemptRef.current === roomCode) return;
+    autoHostAttemptRef.current = roomCode;
+    void grantHostFromClub();
+  }, [clubSchedule.role, role, roomCode, isRoomAttachedToClub, grantHostFromClub]);
+
+  // Nút "Chuyển sang chế độ Xem": hạ xuống VIEWER + xóa cache PIN, KHÔNG leaveRoom/disconnectClub
+  const handleSwitchToViewMode = useCallback(() => {
+    downgradeToViewer();
+    clubSchedule.lockHostRole();
+    setInfoToastMessage('Đã chuyển sang chế độ Xem. Nhập PIN để điều khiển lại.');
+  }, [downgradeToViewer, clubSchedule]);
+
+  // Đổi CLB / rời CLB khi Hàng chờ còn người của CLB cũ → hỏi Làm mới hoặc Giữ nguyên
+  const [trackedClubCode, setTrackedClubCode] = useState<string | null>(clubSchedule.clubCode);
+  const [clubSwitchPrompt, setClubSwitchPrompt] = useState<{
+    fromCode: string;
+    toCode: string | null;
+    playerIds: string[];
+  } | null>(null);
+  if ((clubSchedule.clubCode ?? null) !== trackedClubCode) {
+    const prevCode = trackedClubCode;
+    setTrackedClubCode(clubSchedule.clubCode ?? null);
+    if (prevCode) {
+      const oldNames = new Set(
+        getCachedCloudClubMembers(prevCode)
+          .filter((m) => m.isActive !== false)
+          .map((m) => m.name.trim().toLowerCase())
+      );
+      const stalePlayerIds = players
+        .filter((p) => oldNames.has(p.name.trim().toLowerCase()))
+        .map((p) => p.id);
+      if (stalePlayerIds.length > 0) {
+        setClubSwitchPrompt({
+          fromCode: prevCode,
+          toCode: clubSchedule.clubCode ?? null,
+          playerIds: stalePlayerIds,
+        });
+      }
+    }
+  }
+
+  const handleRefreshQueueAfterClubSwitch = () => {
+    if (!clubSwitchPrompt) return;
+    const playingIds = new Set<string>();
+    for (const c of courts) {
+      if (c.isActive && c.currentMatch) {
+        c.currentMatch.team1.forEach((id) => playingIds.add(id));
+        c.currentMatch.team2.forEach((id) => playingIds.add(id));
+      }
+    }
+    const removable = clubSwitchPrompt.playerIds.filter((id) => !playingIds.has(id));
+    const skipped = clubSwitchPrompt.playerIds.length - removable.length;
+    guardAction(() => {
+      if (removable.length > 0) removePlayers(removable);
+    });
+    setClubSwitchPrompt(null);
+    setInfoToastMessage(
+      skipped > 0
+        ? `Đã làm mới Hàng chờ (giữ lại ${skipped} người đang thi đấu trên sân).`
+        : 'Đã làm mới Hàng chờ.'
+    );
+  };
+
+  // Sổ CLB ↔ Lịch tuần dùng chung nguồn club_members (RPC)
+  const handleAddClubMember = useCallback(
+    async (params: {
+      name: string;
+      gender: Sex;
+      rank: BadmintonRank;
+      noSingles?: boolean;
+    }): Promise<{ ok: boolean; error?: string }> => {
+      const res = await clubSchedule.registerMember(params);
+      return res.data && !res.error ? { ok: true } : { ok: false, error: res.error ?? undefined };
+    },
+    [clubSchedule]
+  );
+
+  const handleDeleteClubMember = useCallback(
+    async (memberId: string): Promise<{ ok: boolean; error?: string }> => {
+      const res = await clubSchedule.deleteMemberAsHost({ memberId, hardDelete: false });
+      return res.data === true ? { ok: true } : { ok: false, error: res.error ?? undefined };
+    },
+    [clubSchedule]
+  );
+
+  const handleUpdateClubMemberRank = useCallback(
+    async (
+      memberId: string,
+      rank: BadmintonRank
+    ): Promise<{ ok: boolean; error?: string }> => {
+      const res = await clubSchedule.updateMemberAsHost({ memberId, rank });
+      return res.data && !res.error ? { ok: true } : { ok: false, error: res.error ?? undefined };
+    },
+    [clubSchedule]
   );
 
   // Tự động mở tab Lịch tuần CHỈ KHI vào qua ?club=CODE (không có ?room=) mà CLB chưa có sân LIVE
@@ -345,7 +454,7 @@ export function App() {
   const clubRosterSyncKey = useMemo(
     () =>
       `${clubSchedule.clubCode ?? 'LOCAL'}:${clubSchedule.members
-        .map((m) => `${m.id}:${m.updatedAt}`)
+        .map((m) => `${m.id}:${m.updatedAt}:${m.isActive ? 1 : 0}`)
         .join(',')}:${Object.entries(clubSchedule.privateMetaMap)
         .map(([id, meta]) => `${id}:${meta.updatedAt}`)
         .join(',')}`,
@@ -497,6 +606,8 @@ export function App() {
         role={role}
         syncStatus={syncStatus}
         onOpenCloudModal={() => setShowCloudModal(true)}
+        clubRole={clubSchedule.role}
+        onSwitchToViewMode={handleSwitchToViewMode}
       />
 
       {/* VIEWER NOTICE BANNER */}
@@ -954,6 +1065,11 @@ export function App() {
               onAddRule={(r) => guardAction(() => addPairRule(r))}
               onRemoveRule={(id) => guardAction(() => removePairRule(id))}
               clubRosterSyncKey={clubRosterSyncKey}
+              clubCode={clubSchedule.clubCode}
+              isClubHost={clubSchedule.role === 'CLUB_HOST'}
+              onAddClubMember={handleAddClubMember}
+              onDeleteClubMember={handleDeleteClubMember}
+              onUpdateClubMemberRank={handleUpdateClubMemberRank}
             />
           )}
 
@@ -1065,6 +1181,46 @@ export function App() {
         pendingPaymentsCount={pendingPaymentsCount}
         isViewer={uiPermissions.isRoomViewer}
       />
+
+      {/* 4b. HỘP THOẠI ĐỔI / RỜI CLB KHI HÀNG CHỜ CÒN NGƯỜI CỦA CLB CŨ */}
+      <UiModal
+        isOpen={clubSwitchPrompt !== null}
+        onClose={() => setClubSwitchPrompt(null)}
+        maxWidthClass="max-w-sm"
+        title="Hàng chờ còn người của CLB cũ"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setClubSwitchPrompt(null)}
+              className="ui-btn ui-btn-secondary px-4"
+            >
+              Giữ nguyên
+            </button>
+            <button
+              type="button"
+              onClick={handleRefreshQueueAfterClubSwitch}
+              className="ui-btn ui-btn-primary px-5 rounded-full"
+            >
+              Làm mới Hàng chờ
+            </button>
+          </>
+        }
+      >
+        <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          Bạn vừa {clubSwitchPrompt?.toCode ? 'chuyển sang CLB' : 'rời CLB'}{' '}
+          {clubSwitchPrompt?.toCode ? (
+            <strong style={{ color: 'var(--text-primary)' }}>{clubSwitchPrompt.toCode}</strong>
+          ) : (
+            <strong style={{ color: 'var(--text-primary)' }}>{clubSwitchPrompt?.fromCode}</strong>
+          )}
+          , nhưng Hàng chờ đang có{' '}
+          <strong style={{ color: 'var(--text-primary)' }}>
+            {clubSwitchPrompt?.playerIds.length ?? 0} người
+          </strong>{' '}
+          của CLB <strong>{clubSwitchPrompt?.fromCode}</strong>. Bạn muốn làm mới Hàng chờ hay giữ nguyên?
+        </p>
+      </UiModal>
 
       {/* 5. CLOUD ROOM REALTIME MODAL */}
       <CloudRoomModal
