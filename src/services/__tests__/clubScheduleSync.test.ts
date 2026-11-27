@@ -13,6 +13,7 @@ import {
   fetchClubScheduleBundle,
   fetchWeekSchedules,
   mapClubMemberRecord,
+  NETWORK_OFFLINE_ERROR_VI,
   NO_SUPABASE_CONFIG_ERROR,
   parseClubRpcError,
   registerClubMember,
@@ -259,11 +260,11 @@ describe('Phase 2 — Club Schedule Supabase Sync Service (src/services/clubSche
       clubCode: 'clb-88',
       weekKey: '2026-W48',
       memberId: 'uuid-1',
-      busySlots: ['1-20', '1-19', 'invalid'],
+      busySlots: ['1-20', '0-6', '1-19', 'invalid'],
       note: 'Bận ca đầu',
       memberPin: '5678',
     });
-    expect(schedRes.data?.busySlots).toEqual(['1-19', '1-20']);
+    expect(schedRes.data?.busySlots).toEqual(['0-6', '1-19', '1-20']);
 
     const calledFns = rpcMock.mock.calls.map((c) => c[0]);
     expect(calledFns).toEqual([
@@ -386,5 +387,13 @@ describe('Phase 2 — Club Schedule Supabase Sync Service (src/services/clubSche
     const badWeek = await fetchWeekSchedules('CLB-HN', '2025-W53');
     expect(badWeek.errorCode).toBe('INVALID_WEEK_KEY');
     expect(badWeek.data).toBeNull();
+
+    // Lỗi rớt mạng / offline trên trình duyệt chuyển sang thông báo tiếng Việt gọn gàng
+    expect(parseClubRpcError(new TypeError('Failed to fetch')).message).toBe(
+      NETWORK_OFFLINE_ERROR_VI
+    );
+    expect(parseClubRpcError({ message: 'TypeError: Load failed' }).message).toBe(
+      NETWORK_OFFLINE_ERROR_VI
+    );
   });
 });

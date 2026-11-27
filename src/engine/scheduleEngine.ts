@@ -18,12 +18,12 @@ import {
 } from '../types/schedule';
 
 // =============================================================================
-// 1. Lưới 17 kíp (7h–24h) × 7 ngày (T2..CN) = 119 kíp
+// 1. Lưới 18 kíp (6h–24h) × 7 ngày (T2..CN) = 126 kíp
 // =============================================================================
 
-export const TOTAL_WEEKLY_SLOTS = SCHEDULE_DAYS.length * SCHEDULE_HOURS.length; // 119
+export const TOTAL_WEEKLY_SLOTS = SCHEDULE_DAYS.length * SCHEDULE_HOURS.length; // 126
 
-const SLOT_KEY_REGEX = /^([0-6])-(7|8|9|1[0-9]|2[0-3])$/;
+const SLOT_KEY_REGEX = /^([0-6])-(6|7|8|9|1[0-9]|2[0-3])$/;
 const ISO_WEEK_KEY_REGEX = /^([0-9]{4})-W(0[1-9]|[1-4][0-9]|5[0-3])$/;
 
 /**
@@ -49,14 +49,14 @@ export function parseSlotKey(
 }
 
 /**
- * Kiểm tra chuỗi có phải ScheduleSlotKey chuẩn trong lưới 7h–24h × T2..CN không
+ * Kiểm tra chuỗi có phải ScheduleSlotKey chuẩn trong lưới 6h–24h × T2..CN không
  */
 export function isValidSlotKey(rawKey: string): rawKey is ScheduleSlotKey {
   return parseSlotKey(rawKey) !== null;
 }
 
 /**
- * Sinh toàn bộ 119 khóa kíp theo thứ tự thời gian (T2 7h..23h -> CN 7h..23h)
+ * Sinh toàn bộ 126 khóa kíp theo thứ tự thời gian (T2 6h..23h -> CN 6h..23h)
  */
 export function buildAllSlotKeys(): ScheduleSlotKey[] {
   const keys: ScheduleSlotKey[] = [];
@@ -117,7 +117,7 @@ export function toggleBusySlot(
 }
 
 /**
- * Đánh dấu bận hoặc rảnh toàn bộ 17 kíp của một ngày trong tuần (pure)
+ * Đánh dấu bận hoặc rảnh toàn bộ 18 kíp của một ngày trong tuần (pure)
  */
 export function setDayBusySlots(
   currentSlots: readonly ScheduleSlotKey[],
@@ -548,10 +548,10 @@ export function getScheduleSubmissionSummary(
 
 /**
  * Trả về các kíp 1 tiếng liền kề bị phủ bởi cửa sổ thời lượng `durationHours` bắt đầu từ `startHour`.
- * - 1h   -> 1 kíp  [h]          (endHour = h + 1 <= 24, startHour 7..23)
- * - 1.5h -> 2 kíp  [h, h+1]     (endHour = h + 1.5 <= 24, startHour 7..22)
- * - 2h   -> 2 kíp  [h, h+1]     (endHour = h + 2 <= 24, startHour 7..22)
- * - 3h   -> 3 kíp  [h, h+1, h+2] (endHour = h + 3 <= 24, startHour 7..21)
+ * - 1h   -> 1 kíp  [h]          (endHour = h + 1 <= 24, startHour 6..23)
+ * - 1.5h -> 2 kíp  [h, h+1]     (endHour = h + 1.5 <= 24, startHour 6..22)
+ * - 2h   -> 2 kíp  [h, h+1]     (endHour = h + 2 <= 24, startHour 6..22)
+ * - 3h   -> 3 kíp  [h, h+1, h+2] (endHour = h + 3 <= 24, startHour 6..21)
  */
 export function getCoveredSlotKeysForWindow(
   dayOfWeek: DayOfWeek,

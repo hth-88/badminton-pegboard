@@ -68,32 +68,34 @@ function makeScheduleEntry(
 }
 
 describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () => {
-  describe('1. Lưới 17 kíp (7h–24h) × 7 ngày (T2..CN)', () => {
-    it('sinh đủ 119 kíp hợp lệ từ 0-7 tới 6-23 và validate chặt chẽ khóa kíp', () => {
+  describe('1. Lưới 18 kíp (6h–24h) × 7 ngày (T2..CN)', () => {
+    it('sinh đủ 126 kíp hợp lệ từ 0-6 tới 6-23 và validate chặt chẽ khóa kíp', () => {
       const allKeys = buildAllSlotKeys();
-      expect(TOTAL_WEEKLY_SLOTS).toBe(119);
-      expect(allKeys).toHaveLength(119);
-      expect(allKeys[0]).toBe('0-7');
-      expect(allKeys[16]).toBe('0-23');
-      expect(allKeys[118]).toBe('6-23');
+      expect(TOTAL_WEEKLY_SLOTS).toBe(126);
+      expect(allKeys).toHaveLength(126);
+      expect(allKeys[0]).toBe('0-6');
+      expect(allKeys[17]).toBe('0-23');
+      expect(allKeys[125]).toBe('6-23');
 
+      expect(isValidSlotKey('0-6')).toBe(true);
       expect(isValidSlotKey('0-7')).toBe(true);
       expect(isValidSlotKey('4-19')).toBe(true);
       expect(isValidSlotKey('6-23')).toBe(true);
 
       // Các kíp ngoài biên hoặc sai định dạng phải bị từ chối
-      expect(isValidSlotKey('0-6')).toBe(false);
+      expect(isValidSlotKey('0-5')).toBe(false);
       expect(isValidSlotKey('0-24')).toBe(false);
       expect(isValidSlotKey('7-19')).toBe(false);
       expect(isValidSlotKey('-1-19')).toBe(false);
+      expect(isValidSlotKey('0-06')).toBe(false);
       expect(isValidSlotKey('0-07')).toBe(false);
       expect(isValidSlotKey('0-19.5')).toBe(false);
       expect(parseSlotKey('')).toBeNull();
     });
 
     it('normalizeBusySlots, toggleBusySlot và setDayBusySlots hoạt động bất biến và đúng thứ tự thời gian', () => {
-      const messy = ['2-20', '0-19', '0-8', '2-20', 'invalid-slot', '0-24', '6-7'];
-      expect(normalizeBusySlots(messy)).toEqual(['0-8', '0-19', '2-20', '6-7']);
+      const messy = ['2-20', '0-19', '0-6', '0-8', '2-20', 'invalid-slot', '0-5', '0-24', '6-7'];
+      expect(normalizeBusySlots(messy)).toEqual(['0-6', '0-8', '0-19', '2-20', '6-7']);
 
       const initial: ScheduleSlotKey[] = ['1-19'];
       const toggledOn = toggleBusySlot(initial, '1-18');
@@ -104,7 +106,7 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
       expect(toggledOff).toEqual(['1-18']);
 
       const fullTuesday = setDayBusySlots(['0-19'], 1, true);
-      expect(fullTuesday).toHaveLength(18); // 1 kíp T2 + 17 kíp T3
+      expect(fullTuesday).toHaveLength(19); // 1 kíp T2 + 18 kíp T3 (6..23)
       const clearedTuesday = setDayBusySlots(fullTuesday, 1, false);
       expect(clearedTuesday).toEqual(['0-19']);
     });
@@ -245,7 +247,7 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
         durationHours: 2,
       });
 
-      expect(heatmap).toHaveLength(112); // 16 cửa sổ/ngày × 7 ngày
+      expect(heatmap).toHaveLength(119); // 17 cửa sổ/ngày (6h..22h) × 7 ngày
       for (const slot of heatmap) {
         expect(slot.submittedCount).toBe(0);
         expect(slot.totalActiveMembers).toBe(5);
@@ -324,11 +326,14 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
       const h2 = computeHeatmap({ members, entriesByMemberId: entries, durationHours: 2 });
       const h3 = computeHeatmap({ members, entriesByMemberId: entries, durationHours: 3 });
 
-      expect(h1).toHaveLength(17 * 7); // 119
-      expect(h15).toHaveLength(16 * 7); // 112 (startHour tối đa = 22 -> endHour = 23.5, quét kíp 22 & 23)
-      expect(h2).toHaveLength(16 * 7); // 112 (startHour tối đa = 22 -> endHour = 24)
-      expect(h3).toHaveLength(15 * 7); // 105 (startHour tối đa = 21 -> endHour = 24)
+      expect(h1).toHaveLength(18 * 7); // 126 (startHour 6..23)
+      expect(h15).toHaveLength(17 * 7); // 119 (startHour 6..22 -> endHour tối đa 23.5, quét kíp 22 & 23)
+      expect(h2).toHaveLength(17 * 7); // 119 (startHour 6..22 -> endHour tối đa 24)
+      expect(h3).toHaveLength(16 * 7); // 112 (startHour 6..21 -> endHour tối đa 24)
 
+      expect(getCoveredSlotKeysForWindow(0, 6, 1.5)).toEqual(['0-6', '0-7']);
+      expect(getCoveredSlotKeysForWindow(0, 6, 2)).toEqual(['0-6', '0-7']);
+      expect(getCoveredSlotKeysForWindow(0, 6, 3)).toEqual(['0-6', '0-7', '0-8']);
       expect(getCoveredSlotKeysForWindow(0, 22, 1.5)).toEqual(['0-22', '0-23']);
       expect(getCoveredSlotKeysForWindow(0, 23, 1.5)).toBeNull();
       expect(getCoveredSlotKeysForWindow(0, 21, 3)).toEqual(['0-21', '0-22', '0-23']);
@@ -488,6 +493,35 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
       expect(best.overlapMemberIds).toEqual([]);
       expect(best.uncoveredMemberIds).toEqual([]);
       expect(best.coverageRatio).toBe(1);
+
+      // Kiểm chứng chia 2 ca có ca sáng sớm 6h–8h (T7 06:00–08:00) + ca tối 19h–21h (T3 19:00–21:00)
+      const earlyAndEveningEntries: Record<string, MemberScheduleEntry> = {
+        m1: makeScheduleEntry('m1', onlyFreeOn(['5-6', '5-7'])),
+        m2: makeScheduleEntry('m2', onlyFreeOn(['5-6', '5-7'])),
+        m3: makeScheduleEntry('m3', onlyFreeOn(['5-6', '5-7'])),
+        m4: makeScheduleEntry('m4', onlyFreeOn(['5-6', '5-7'])),
+        m5: makeScheduleEntry('m5', onlyFreeOn(['1-19', '1-20'])),
+        m6: makeScheduleEntry('m6', onlyFreeOn(['1-19', '1-20'])),
+        m7: makeScheduleEntry('m7', onlyFreeOn(['1-19', '1-20'])),
+        m8: makeScheduleEntry('m8', onlyFreeOn(['1-19', '1-20'])),
+      };
+      const earlyMembers = members.slice(0, 8);
+      const earlyHeatmap = computeHeatmap({
+        members: earlyMembers,
+        entriesByMemberId: earlyAndEveningEntries,
+        durationHours: 2,
+        minPlayersPerShift: 4,
+      });
+      const earlySplit = suggestTwoShifts({
+        heatmapSlots: earlyHeatmap,
+        members: earlyMembers,
+        entriesByMemberId: earlyAndEveningEntries,
+        minPlayersPerShift: 4,
+      });
+      expect(earlySplit).toHaveLength(1);
+      expect(earlySplit[0].shiftA.slot).toMatchObject({ dayOfWeek: 1, startHour: 19, endHour: 21 });
+      expect(earlySplit[0].shiftB.slot).toMatchObject({ dayOfWeek: 5, startHour: 6, endHour: 8 });
+      expect(earlySplit[0].coverageRatio).toBe(1);
     });
 
     it('Edge case: Chia 2 ca không đủ 4 người ở ca thứ 2 hoặc 2 cửa sổ đè giờ nhau -> trả về mảng rỗng []', () => {

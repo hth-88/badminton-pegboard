@@ -68,6 +68,7 @@ export const STORAGE_KEY_CLUB_SCHEDULE_CONTEXT = 'badminton_club_schedule_ctx_v1
 export const STORAGE_PREFIX_CLUB_META_CACHE = 'badminton_club_meta_';
 export const STORAGE_PREFIX_CLUB_WEEK_CACHE = 'badminton_club_week_sched_';
 export const SESSION_KEY_CLUB_PINS = 'badminton_club_pins_v1';
+export const STORAGE_KEY_CLUB_MEMBER_PINS = 'badminton_club_member_pins_v1';
 
 export type ClubSyncState = 'IDLE' | 'LOADING' | 'SYNCED' | 'ERROR';
 
@@ -182,29 +183,66 @@ function saveCachedWeekEntries(
 }
 
 function readSessionPins(): SessionPinStore {
-  if (typeof sessionStorage === 'undefined') {
-    return { hostPins: {}, memberPins: {} };
+  let hostPins: Record<string, string> = {};
+  let sessionMemberPins: Record<string, string> = {};
+  let persistedMemberPins: Record<string, string> = {};
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const rawLocal = localStorage.getItem(STORAGE_KEY_CLUB_MEMBER_PINS);
+      if (rawLocal) {
+        const parsedLocal = JSON.parse(rawLocal);
+        if (parsedLocal && typeof parsedLocal === 'object' && !Array.isArray(parsedLocal)) {
+          persistedMemberPins = parsedLocal as Record<string, string>;
+        }
+      }
+    } catch {
+      // Bỏ qua
+    }
   }
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY_CLUB_PINS);
-    if (!raw) return { hostPins: {}, memberPins: {} };
-    const parsed = JSON.parse(raw) as Partial<SessionPinStore>;
-    return {
-      hostPins: parsed.hostPins && typeof parsed.hostPins === 'object' ? parsed.hostPins : {},
-      memberPins:
-        parsed.memberPins && typeof parsed.memberPins === 'object' ? parsed.memberPins : {},
-    };
-  } catch {
-    return { hostPins: {}, memberPins: {} };
+
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY_CLUB_PINS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<SessionPinStore>;
+        if (parsed.hostPins && typeof parsed.hostPins === 'object') {
+          hostPins = parsed.hostPins;
+        }
+        if (parsed.memberPins && typeof parsed.memberPins === 'object') {
+          sessionMemberPins = parsed.memberPins;
+        }
+      }
+    } catch {
+      // Bỏ qua
+    }
   }
+
+  return {
+    hostPins,
+    memberPins: { ...persistedMemberPins, ...sessionMemberPins },
+  };
 }
 
 function writeSessionPins(store: SessionPinStore): void {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    sessionStorage.setItem(SESSION_KEY_CLUB_PINS, JSON.stringify(store));
-  } catch {
-    // Bỏ qua
+  if (typeof localStorage !== 'undefined') {
+    try {
+      if (Object.keys(store.memberPins).length === 0) {
+        localStorage.removeItem(STORAGE_KEY_CLUB_MEMBER_PINS);
+      } else {
+        localStorage.setItem(STORAGE_KEY_CLUB_MEMBER_PINS, JSON.stringify(store.memberPins));
+      }
+    } catch {
+      // Bỏ qua
+    }
+  }
+
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.setItem(SESSION_KEY_CLUB_PINS, JSON.stringify(store));
+    } catch {
+      // Bỏ qua
+    }
   }
 }
 
@@ -867,13 +905,20 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
       setWeekEntriesByMemberId(toEntryMap(cached));
 
       const res = await fetchWeekSchedules(activeCode, cleanWeek);
-      if (!res.error && res.data && clubCodeRef.current === activeCode) {
-        saveCachedWeekEntries(activeCode, cleanWeek, res.data);
-        if (weekKeyRef.current === cleanWeek) {
-          setWeekEntriesByMemberId(toEntryMap(res.data));
-        }
-        if (cleanWeek === 'FIXED') {
-          setFixedEntriesByMemberId(toEntryMap(res.data));
+      if (clubCodeRef.current === activeCode) {
+        if (!res.error && res.data) {
+          saveCachedWeekEntries(activeCode, cleanWeek, res.data);
+          if (weekKeyRef.current === cleanWeek) {
+            setWeekEntriesByMemberId(toEntryMap(res.data));
+            setSyncState('SYNCED');
+            setErrorMessage(null);
+          }
+          if (cleanWeek === 'FIXED') {
+            setFixedEntriesByMemberId(toEntryMap(res.data));
+          }
+        } else if (res.error && weekKeyRef.current === cleanWeek) {
+          setSyncState('ERROR');
+          setErrorMessage(res.error);
         }
       }
       return res;
@@ -955,6 +1000,32 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
     []
   );
 
+  const isMemberPinUnlocked = useCallback(
+    (memberId: string | null | undefined): boolean => {
+      const cleanCode = normalizeClubCode(clubCode);
+      if (!cleanCode || !memberId) return false;
+      const pinKey = `${cleanCode}::${memberId}`;
+      const inState = memberPinsByKey[pinKey];
+      if (typeof inState === 'string' && inState.trim().length > 0) {
+        return true;
+      }
+      const store = readSessionPins();
+      const inSession = store.memberPins[pinKey];
+      return typeof inSession === 'string' && inSession.trim().length > 0;
+    },
+    [clubCode, memberPinsByKey]
+  );
+
+  const lockMemberPin = useCallback(
+    (memberId?: string) => {
+      const activeCode = clubCodeRef.current;
+      const targetId = memberId ?? selectedMemberId;
+      if (!activeCode || !targetId) return;
+      evictStaleMemberPin(activeCode, targetId);
+    },
+    [selectedMemberId, evictStaleMemberPin]
+  );
+
   const saveScheduleEntry = useCallback(
     async (params: {
       memberId?: string;
@@ -978,7 +1049,9 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
 
       const pinKey = `${activeCode}::${targetMemberId}`;
       const explicitMemberPin = params.memberPin?.trim() ? params.memberPin.trim() : null;
-      const resolvedMemberPin = explicitMemberPin ?? memberPinsByKey[pinKey] ?? null;
+      const storedMemberPin = readSessionPins().memberPins[pinKey] ?? null;
+      const resolvedMemberPin =
+        explicitMemberPin ?? memberPinsByKey[pinKey] ?? storedMemberPin ?? null;
 
       let usedHostPin = hostPin;
       let res = await upsertMemberSchedule({
@@ -1006,7 +1079,7 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
         });
       }
 
-      if (res.errorCode === 'INVALID_MEMBER_PIN' && !explicitMemberPin && memberPinsByKey[pinKey]) {
+      if (res.errorCode === 'INVALID_MEMBER_PIN' && !explicitMemberPin && resolvedMemberPin) {
         evictStaleMemberPin(activeCode, targetMemberId);
       }
 
@@ -1072,7 +1145,7 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
       if (!fixedEntry) {
         return {
           data: null,
-          error: 'Thành viên này chưa lưu Lịch bận cố định (FIXED).',
+          error: 'Thành viên này chưa lưu lịch cứng hàng tuần.',
           errorCode: null,
         };
       }
@@ -1732,6 +1805,8 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
     selectCurrentMember,
     unlockHostRole,
     lockHostRole,
+    isMemberPinUnlocked,
+    lockMemberPin,
     verifyAndCacheMemberPin,
     saveScheduleEntry,
     copyMyFixedToCurrentWeek,

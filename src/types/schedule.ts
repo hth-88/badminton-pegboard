@@ -1,12 +1,12 @@
 import type { BadmintonRank, Sex } from './badminton';
 
 // =============================================================================
-// 1. Lưới thời gian 17 kíp 1 tiếng (7h–24h) × 7 ngày (T2..CN)
+// 1. Lưới thời gian 18 kíp 1 tiếng (6h–24h) × 7 ngày (T2..CN)
 // =============================================================================
 
-/** 17 khung giờ 1 tiếng bắt đầu từ 7h (7h–8h) tới 23h (23h–24h) */
+/** 18 khung giờ 1 tiếng bắt đầu từ 6h (06:00–07:00) tới 23h (23:00–24:00) */
 export const SCHEDULE_HOURS = [
-  7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+  6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
 ] as const;
 
 export type ScheduleHour = (typeof SCHEDULE_HOURS)[number];

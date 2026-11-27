@@ -275,6 +275,8 @@ export function App() {
       const res = await joinRoom(clean);
       if (res.ok) {
         handleSelectTab('courts');
+      } else if (res.error) {
+        setWarningToastMessage(res.error);
       }
     },
     [roomCode, joinRoom, handleSelectTab]
@@ -690,10 +692,18 @@ export function App() {
                 guardAction(() => {
                   addPlayers(playersToPush);
                   if (roomCode && opts?.attachRoomMeta) {
-                    void clubSchedule.attachActiveRoomAsHost({
-                      ...opts.attachRoomMeta,
-                      roomCode,
-                    });
+                    void clubSchedule
+                      .attachActiveRoomAsHost({
+                        ...opts.attachRoomMeta,
+                        roomCode,
+                      })
+                      .then((res) => {
+                        if (res.error) {
+                          setWarningToastMessage(
+                            `Đã nạp vào Hàng chờ, nhưng chưa ghim được banner CLB: ${res.error}`
+                          );
+                        }
+                      });
                   }
                   vibrateSuccess();
                   if (opts?.successToast) {
@@ -715,10 +725,18 @@ export function App() {
                   if (roomCode) {
                     deleteRoomReceipts(roomCode).catch(() => {});
                     if (opts?.attachRoomMeta) {
-                      void clubSchedule.attachActiveRoomAsHost({
-                        ...opts.attachRoomMeta,
-                        roomCode,
-                      });
+                      void clubSchedule
+                        .attachActiveRoomAsHost({
+                          ...opts.attachRoomMeta,
+                          roomCode,
+                        })
+                        .then((res) => {
+                          if (res.error) {
+                            setWarningToastMessage(
+                              `Đã làm mới buổi đánh, nhưng chưa ghim được banner CLB: ${res.error}`
+                            );
+                          }
+                        });
                     }
                   }
                   vibrateSuccess();

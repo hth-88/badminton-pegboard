@@ -12,10 +12,12 @@ import {
   Lock,
   PlusCircle,
   Radio,
+  RefreshCw,
   ShieldCheck,
   Unplug,
   UserCheck,
   Users,
+  WifiOff,
 } from 'lucide-react';
 import {
   getIsoWeekKeyFromDate,
@@ -94,6 +96,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
     disconnectClub,
     selectWeek,
     unlockHostRole,
+    refreshSchedule,
   } = schedule;
 
   const [activeMode, setActiveMode] = useState<ScheduleMainMode>('my_schedule');
@@ -170,8 +173,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
     const cleanPin = newClubHostPin.trim();
     setCreateError(null);
 
-    if (!/^[A-Z0-9_-]{3,32}$/.test(cleanCode)) {
-      setCreateError('Mã CLB từ 3–32 ký tự (chỉ dùng chữ không dấu, số, gạch ngang/dưới).');
+    if (!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(cleanCode)) {
+      setCreateError(
+        'Mã CLB từ 3–32 ký tự, bắt đầu bằng chữ hoặc số (chỉ dùng chữ không dấu, số, gạch ngang/dưới).'
+      );
       return;
     }
     if (!cleanName) {
@@ -200,7 +205,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       setNewClubCode('');
       setNewClubName('');
       setNewClubHostPin('');
-      onShowToast?.(`Đã tạo CLB "${res.data.club.name}" (?club=${res.data.club.clubCode})!`);
+      onShowToast?.(`Đã tạo CLB "${res.data.club.name}" (Mã CLB: ${res.data.club.clubCode})!`);
     } finally {
       setIsConnecting(false);
     }
@@ -213,14 +218,41 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
         ? `${window.location.origin}${window.location.pathname}`
         : '';
     const link = `${base}?club=${encodeURIComponent(club.clubCode)}`;
+
+    let copiedOk = false;
     try {
-      await navigator.clipboard.writeText(link);
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        copiedOk = true;
+      }
+    } catch {
+      copiedOk = false;
+    }
+
+    if (!copiedOk && typeof document !== 'undefined' && document.body) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = link;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.pointerEvents = 'none';
+        document.body.appendChild(textarea);
+        textarea.select();
+        copiedOk = document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch {
+        copiedOk = false;
+      }
+    }
+
+    if (copiedOk) {
       vibrateSuccess();
       setCopiedClubLink(true);
       setTimeout(() => setCopiedClubLink(false), 2000);
-      onShowToast?.('Đã sao chép đường dẫn mời thành viên báo lịch!');
-    } catch {
-      onShowToast?.(`Đường dẫn CLB: ${link}`);
+      onShowToast?.('Đã sao chép link CLB');
+    } else {
+      onShowToast?.(`Link CLB: ${link}`);
     }
   };
 
@@ -266,9 +298,24 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               {club ? club.name : 'Lịch tuần & Chốt sân'}
             </h2>
             {club && (
-              <StatusPill tone="accent">
-                <span className="font-mono-tabular">?club={club.clubCode}</span>
-              </StatusPill>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleCopyClubLink();
+                }}
+                title={`Sao chép link mời CLB (?club=${club.clubCode})`}
+                aria-label={`Sao chép link mời Mã CLB ${club.clubCode}`}
+                className="ui-btn ui-btn-accent-soft min-h-[44px] px-3.5 rounded-full text-[14px]"
+              >
+                {copiedClubLink ? (
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span>
+                  Mã CLB: <strong className="font-mono-tabular">{club.clubCode}</strong>
+                </span>
+              </button>
             )}
             {isWeekLocked && (
               <StatusPill tone="warning">
@@ -281,14 +328,17 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             className="text-[14px] mt-0.5"
             style={{ color: 'var(--text-secondary)' }}
           >
-            Gom lịch bận 7 ngày × 17 kíp, tìm khung giờ vàng và chốt người vào Hàng chờ
+            Gom lịch bận 7 ngày × 18 kíp (06:00–24:00), tìm khung giờ vàng và chốt người vào Hàng chờ
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <StatusPill tone={uiPermissions.clubRole === 'CLUB_HOST' ? 'accent' : 'neutral'}>
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{roleLabel}</span>
+          <StatusPill
+            tone={uiPermissions.clubRole === 'CLUB_HOST' ? 'accent' : 'neutral'}
+            className="max-w-[240px] sm:max-w-[320px]"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{roleLabel}</span>
           </StatusPill>
 
           {club && uiPermissions.clubRole !== 'CLUB_HOST' && (
@@ -493,6 +543,27 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       ) : (
         /* TRẠNG THÁI ĐÃ KẾT NỐI CLB */
         <>
+          {/* Cảnh báo đồng bộ / offline khi đang xem dữ liệu cache trên máy */}
+          {syncState === 'ERROR' && errorMessage && (
+            <div className="ui-banner-warning px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-[14px]">
+              <div className="flex items-center gap-2 min-w-0">
+                <WifiOff className="w-4 h-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void refreshSchedule();
+                }}
+                className="ui-btn ui-btn-secondary px-3.5 shrink-0 self-start sm:self-auto"
+                style={{ backgroundColor: 'var(--bg-surface)' }}
+              >
+                <RefreshCw className="w-4 h-4 shrink-0" />
+                <span>Thử lại</span>
+              </button>
+            </div>
+          )}
+
           {/* Thanh điều hướng Tuần lịch + Chia sẻ link CLB + Phòng LIVE */}
           <div className="ui-card p-4 space-y-3">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -556,7 +627,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     weekKey === 'FIXED' ? 'ui-btn-accent-soft' : 'ui-btn-secondary'
                   }`}
                 >
-                  {weekKey === 'FIXED' ? 'Quay lại tuần cụ thể' : 'Mẫu FIXED'}
+                  {weekKey === 'FIXED' ? 'Quay lại tuần cụ thể' : 'Lịch cứng'}
                 </button>
               </div>
 

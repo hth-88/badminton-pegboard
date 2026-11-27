@@ -8,9 +8,11 @@ import {
   getIsoWeekDateRange,
   makeSlotKey,
   normalizeBusySlots,
-  parseSlotKey,
 } from '../../engine/scheduleEngine';
-import { SESSION_KEY_CLUB_PINS } from '../../hooks/useClubSchedule';
+import {
+  SESSION_KEY_CLUB_PINS,
+  STORAGE_KEY_CLUB_MEMBER_PINS,
+} from '../../hooks/useClubSchedule';
 import { normalizeClubCode } from '../../services/clubScheduleSync';
 import type {
   BadmintonSessionState,
@@ -30,9 +32,6 @@ import {
   type WeekKey,
 } from '../../types/schedule';
 
-/** Mặc định hiển thị khung chiều-tối từ 15h (15h–24h), mở rộng sáng sớm sẽ thêm 7h–15h */
-export const DEFAULT_VISIBLE_START_HOUR: ScheduleHour = 15;
-
 export type HeatmapIntensityTier = 0 | 1 | 2 | 3 | 4;
 
 export type PartialMemberAvailabilityTag = 'LATE_ARRIVAL' | 'EARLY_LEAVE' | 'MID_BREAK';
@@ -46,35 +45,17 @@ export interface PartialBusyMemberItem {
 export type FinalizeBookingMode = 'DIRECT_PUSH' | 'MERGE_MISSING' | 'RESET_AND_PUSH' | 'CREATE_CLUB_ROOM';
 
 /**
- * Trả về danh sách các giờ bắt đầu kíp 1h hiển thị trên lưới:
- * - Mặc định (`expandEarlyMorning = false`): `15..23` (tức `15h–16h` tới `23h–24h`)
- * - Mở rộng (`expandEarlyMorning = true`): `7..23` (toàn bộ 17 kíp `7h–24h`)
+ * Trả về đầy đủ toàn bộ 18 khung giờ 1 tiếng trong ngày (`06:00 – 24:00`, các giờ `6..23`)
  */
-export function getVisibleScheduleHours(expandEarlyMorning: boolean): ScheduleHour[] {
-  if (expandEarlyMorning) {
-    return [...SCHEDULE_HOURS];
-  }
-  return SCHEDULE_HOURS.filter((h) => h >= DEFAULT_VISIBLE_START_HOUR);
+export function getVisibleScheduleHours(): ScheduleHour[] {
+  return [...SCHEDULE_HOURS];
 }
 
 /**
- * Đếm số kíp bận nằm trong khung sáng sớm (`7h–15h`, tức `startHour < 15`)
- * để hiển thị nhắc trên nút "Mở rộng sáng sớm" tránh ẩn ngầm dữ liệu.
+ * Định dạng nhãn khoảng giờ 1 tiếng căn cột đều (vd: `6` -> `"06:00 – 07:00"`, `23` -> `"23:00 – 24:00"`)
  */
-export function countEarlyMorningBusySlots(
-  busySlots: readonly ScheduleSlotKey[],
-  dayOfWeek?: DayOfWeek
-): number {
-  let count = 0;
-  for (const key of normalizeBusySlots(busySlots)) {
-    const parsed = parseSlotKey(key);
-    if (!parsed) continue;
-    if (dayOfWeek !== undefined && parsed.dayOfWeek !== dayOfWeek) continue;
-    if (parsed.hour < DEFAULT_VISIBLE_START_HOUR) {
-      count++;
-    }
-  }
-  return count;
+export function formatScheduleSlotRange(hour: ScheduleHour): string {
+  return `${String(hour).padStart(2, '0')}:00 – ${String(hour + 1).padStart(2, '0')}:00`;
 }
 
 /**
@@ -198,8 +179,8 @@ export function formatWeekKeyDisplay(weekKey: WeekKey): {
 } {
   if (weekKey === 'FIXED') {
     return {
-      title: 'Lịch cố định (FIXED)',
-      dateSublabel: 'Áp dụng mẫu hàng tuần',
+      title: 'Lịch cứng hàng tuần',
+      dateSublabel: 'Mẫu cố định hàng tuần',
       dayDateLabels: {},
     };
   }
@@ -248,18 +229,41 @@ export function hasCachedMemberSessionPin(
   clubCode: string | null | undefined,
   memberId: string | null | undefined
 ): boolean {
-  if (typeof sessionStorage === 'undefined') return false;
   const cleanCode = normalizeClubCode(clubCode ?? '');
   if (!cleanCode || !memberId) return false;
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY_CLUB_PINS);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as { memberPins?: Record<string, string> };
-    const cached = parsed?.memberPins?.[`${cleanCode}::${memberId}`];
-    return typeof cached === 'string' && cached.trim().length > 0;
-  } catch {
-    return false;
+  const pinKey = `${cleanCode}::${memberId}`;
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const rawLocal = localStorage.getItem(STORAGE_KEY_CLUB_MEMBER_PINS);
+      if (rawLocal) {
+        const parsedLocal = JSON.parse(rawLocal) as Record<string, string>;
+        const cachedLocal = parsedLocal?.[pinKey];
+        if (typeof cachedLocal === 'string' && cachedLocal.trim().length > 0) {
+          return true;
+        }
+      }
+    } catch {
+      // Bỏ qua
+    }
   }
+
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY_CLUB_PINS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { memberPins?: Record<string, string> };
+        const cached = parsed?.memberPins?.[pinKey];
+        if (typeof cached === 'string' && cached.trim().length > 0) {
+          return true;
+        }
+      }
+    } catch {
+      // Bỏ qua
+    }
+  }
+
+  return false;
 }
 
 /**

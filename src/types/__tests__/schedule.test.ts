@@ -17,9 +17,9 @@ import {
 } from '../schedule';
 
 describe('Phase 1 — Domain Types & Permission Matrix (src/types/schedule.ts)', () => {
-  it('định nghĩa đúng lưới giờ 17 kíp 1 tiếng (7h–24h) × 7 ngày (T2..CN)', () => {
-    expect(SCHEDULE_HOURS).toHaveLength(17);
-    expect(SCHEDULE_HOURS[0]).toBe(7);
+  it('định nghĩa đúng lưới giờ 18 kíp 1 tiếng (6h–24h) × 7 ngày (T2..CN)', () => {
+    expect(SCHEDULE_HOURS).toHaveLength(18);
+    expect(SCHEDULE_HOURS[0]).toBe(6);
     expect(SCHEDULE_HOURS[SCHEDULE_HOURS.length - 1]).toBe(23);
 
     expect(SCHEDULE_DAYS).toEqual([0, 1, 2, 3, 4, 5, 6]);
@@ -131,8 +131,8 @@ describe('Phase 1 — SQL Migration Security & Schema Contract', () => {
     expect(sql).toMatch(/raise exception 'WEEK_LOCKED';/);
     expect(sql).toMatch(/raise exception 'INVALID_MEMBER_PIN';/);
     expect(sql).toMatch(/raise exception 'MEMBER_INACTIVE';/);
-    expect(sql).toMatch(/jsonb_array_length\(p_busy_slots\)\s*>\s*119/i);
-    expect(sql).toContain("^[0-6]-(7|8|9|1[0-9]|2[0-3])$");
+    expect(sql).toMatch(/jsonb_array_length\(p_busy_slots\)\s*>\s*126/i);
+    expect(sql).toContain("^[0-6]-(6|7|8|9|1[0-9]|2[0-3])$");
     expect(sql).toMatch(/on conflict on constraint uq_member_schedules_club_week_member/i);
   });
 

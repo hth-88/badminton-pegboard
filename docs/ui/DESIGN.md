@@ -79,7 +79,20 @@
 
 ### 3.3. Quy Tắc Hiển Thị Chế Độ Người Xem (`VIEWER`) & Phân Quyền Điều Hướng
 - Chỉ xử lý ẩn/khóa ở tầng UI dựa trên `role === 'VIEWER'` / `resolveUiPermissions` (không sửa dữ liệu sync phòng, không sửa `useCloudRoom.ts`).
-- Thanh điều hướng dưới (`BottomNav`) luôn giữ cố định **5 tab** chạm chuẩn `>= 44px` cho cả Host và `VIEWER`: **`Lịch tuần · Sân · Hàng chờ · Lịch sử · Tính tiền`**.
+- Thanh điều hướng dưới (`BottomNav`) luôn giữ cố định **5 tab** chạm chuẩn `>= 44px` cho cả Host (`OFFLINE` / `CO_HOST`) và `VIEWER`: **`Lịch tuần · Sân · Hàng chờ · Lịch sử · Tính tiền`**.
 - `Luật cặp` nằm ở sub-tab thứ 2 bên trong **`Hàng chờ`** (`Danh sách chờ | Luật cặp`):
   - Với Host / Co-Host / Offline: hiển thị thanh chuyển `Danh sách chờ | Luật cặp`, đồng thời giữ nguyên badge đỏ `conflictCount` trên icon tab `Hàng chờ` khi có xung đột luật cặp.
-  - Với `VIEWER`: ẩn hoàn toàn sub-tab `Luật cặp`, nút Hoàn tác/Làm lại, nút Cài đặt Host, toàn bộ nút điều khiển sân/xếp kèo/chỉnh sửa hàng chờ & lịch sử; tab `Tính tiền` cho phép tự tra VietQR và bấm "Tôi đã chuyển"; tab `Lịch tuần` phân quyền độc lập theo vai trò CLB (`GUEST` / `CLUB_MEMBER` / `CLUB_HOST`).
+  - Với `VIEWER` (của phòng đánh): ẩn hoàn toàn sub-tab `Luật cặp`, nút Hoàn tác/Làm lại, nút Cài đặt Host, toàn bộ nút điều khiển sân/xếp kèo/chỉnh sửa hàng chờ & lịch sử; tab `Tính tiền` cho phép tự tra VietQR và bấm "Tôi đã chuyển"; tab `Lịch tuần` hoạt động độc lập theo vai trò CLB (`GUEST` / `CLUB_MEMBER` / `CLUB_HOST`) nên người đang xem phòng LIVE vẫn tự chọn tên và báo lịch tuần bình thường.
+
+### 3.4. Quy Ước Heatmap Đơn Sắc & Giao Diện Lịch Tuần (`06:00 – 24:00`)
+- **Heatmap 1 màu nhấn duy nhất (`--color-accent`):**
+  - Tuyệt đối không dùng bảng màu cầu vồng xanh–vàng–đỏ gây nhiễu thị giác. Toàn bộ lưới Heatmap biểu diễn mật độ người rảnh bằng **5 bậc sắc độ đơn sắc** (`ui-heatmap-0` → `ui-heatmap-4` trong `src/index.css`) pha từ `--bg-surface-secondary` tới `--color-accent`:
+    - `ui-heatmap-0`: `0` người rảnh hoặc chưa có người nộp (`--bg-surface-secondary`, chữ `--text-muted`).
+    - `ui-heatmap-1`: có người rảnh nhưng chưa đạt ngưỡng tối thiểu/ca hoặc tỷ lệ `< 40%` (`9%` `--color-accent`).
+    - `ui-heatmap-2`: đủ người tối thiểu & tỷ lệ `40% – <65%` (`18%` `--color-accent`, viền `--color-accent-border`).
+    - `ui-heatmap-3`: đủ người tối thiểu & tỷ lệ `65% – <85%` (`30%` `--color-accent`, viền `--color-accent-border`).
+    - `ui-heatmap-4`: khung giờ vàng cao điểm `>= 85%` (nền đặc `--color-accent`, chữ `--text-on-accent` đạt tương phản WCAG AA).
+- **Lưới 18 kíp mặc định & Chống kẹt cuộn trang trên điện thoại:**
+  - Hiển thị đầy đủ **18 kíp/ngày (`06:00 – 24:00`, giờ `6..23`)** mặc định với số liệu `tabular-nums` căn cột đều.
+  - Trên mobile (`< md`): tách cột danh sách giờ bên trái (giữ cuộn dọc trang tự nhiên, chạm lẻ đảo trạng thái) và **dải quét nhanh riêng bên phải** (`w-[58px]`, chỉ đặt `touch-action: none` duy nhất trên container dải quét này để vuốt chọn liền mạch nhiều giờ mà không khóa thao tác cuộn trang).
+  - Bộ chọn thành viên dùng Bottom Sheet (`<UiModal sheetOnMobile>`) hiển thị `<GenderDot>` + Tên (`truncate`) + `<RankBadge>` bên trái, icon ổ khóa nhỏ (nếu có PIN) + `<StatusPill>` (`Đã báo` / `Chưa báo`) bên phải.

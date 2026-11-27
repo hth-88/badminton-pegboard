@@ -1,18 +1,22 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CalendarClock,
   Check,
+  ChevronDown,
   Copy,
   GripVertical,
-  KeyRound,
+  Info,
   Lock,
+  LockOpen,
+  RotateCcw,
   Save,
+  Search,
   Sparkles,
-  Sunrise,
-  ChevronUp,
   UserPlus,
   X,
 } from 'lucide-react';
 import {
+  getIsoWeekKeyFromDate,
   makeSlotKey,
   normalizeBusySlots,
   setDayBusySlots,
@@ -32,13 +36,15 @@ import {
 } from '../../types/schedule';
 import { vibrateSuccess, vibrateWarning } from '../../utils/vibrate';
 import {
+  GenderDot,
   GenderToggleButton,
+  RankBadge,
   StatusPill,
   UiEmptyState,
   UiModal,
 } from '../ui/Primitives';
 import {
-  countEarlyMorningBusySlots,
+  formatScheduleSlotRange,
   formatWeekKeyDisplay,
   getVisibleScheduleHours,
   hasCachedMemberSessionPin,
@@ -47,11 +53,21 @@ import {
   resolveNearestScheduleHour,
 } from './scheduleUiHelpers';
 
+export const FIXED_SCHEDULE_HELP_TEXT =
+  'Lưu sẵn lịch học/làm cố định hàng tuần để setup nhanh; các tuần sau chỉ cần bấm Áp dụng lịch cứng rồi chỉnh lại vài buổi phát sinh.';
+
 export interface MyScheduleEditorProps {
   schedule: ReturnType<typeof useClubSchedule>;
   uiPermissions: ResolvedUiPermissions;
   onShowToast?: (message: string) => void;
 }
+
+type PendingPinEditIntent =
+  | { kind: 'TOGGLE_SLOT'; day: DayOfWeek; hour: ScheduleHour }
+  | { kind: 'SET_DAY'; day: DayOfWeek; isBusy: boolean }
+  | { kind: 'SAVE_DRAFT' }
+  | { kind: 'COPY_FIXED' }
+  | { kind: 'UNLOCK_ONLY' };
 
 export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
   schedule,
@@ -70,6 +86,9 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     isHost,
     selectCurrentMember,
     selectWeek,
+    isMemberPinUnlocked,
+    lockMemberPin,
+    verifyAndCacheMemberPin,
     saveScheduleEntry,
     copyMyFixedToCurrentWeek,
     registerMember,
@@ -80,6 +99,25 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
   const fixedEntry = selectedMember ? fixedEntriesByMemberId[selectedMember.id] : undefined;
   const isWeekLocked = Boolean(club?.lockedWeeks?.includes(weekKey));
   const canEditGrid = Boolean(selectedMember) && uiPermissions.canEditOwnSchedule;
+
+  const hasUnlockedPersonalPin = selectedMember
+    ? isMemberPinUnlocked
+      ? isMemberPinUnlocked(selectedMember.id)
+      : hasCachedMemberSessionPin(clubCode, selectedMember.id)
+    : false;
+
+  // CLUB_HOST bỏ qua hoàn toàn bước hỏi PIN cá nhân; thành viên có PIN chưa mở khóa thì xem tự do, chạm sửa mới hỏi
+  const requiresPinBeforeEdit = Boolean(
+    selectedMember && selectedMember.hasPin && !isHost && !hasUnlockedPersonalPin
+  );
+
+  // Ghi nhớ tuần ISO gần nhất để khi đang ở màn hình Set lịch cứng ('FIXED') có thể quay lại đúng tuần đang xem
+  const [fallbackIsoWeek, setFallbackIsoWeek] = useState<`${number}-W${string}`>(() =>
+    weekKey !== 'FIXED' ? weekKey : getIsoWeekKeyFromDate(new Date())
+  );
+  if (weekKey !== 'FIXED' && weekKey !== fallbackIsoWeek) {
+    setFallbackIsoWeek(weekKey);
+  }
 
   // Đồng bộ bản nháp theo thành viên / tuần / dữ liệu Cloud mới nhất mà không dùng setState trong useEffect
   const contextKey = `${clubCode ?? ''}|${weekKey}|${selectedMemberId ?? ''}`;
@@ -108,9 +146,40 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
   }
 
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(0);
-  const [expandEarlyMorning, setExpandEarlyMorning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // Bộ chọn thành viên chuẩn mobile 1 tay (Bottom Sheet / Modal)
+  const [showMemberPicker, setShowMemberPicker] = useState(false);
+  const [memberSearch, setMemberSearch] = useState('');
+
+  // Popover giải thích Lịch cứng (ⓘ)
+  const [showFixedInfo, setShowFixedInfo] = useState(false);
+  const fixedInfoWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showFixedInfo) return;
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      if (
+        fixedInfoWrapRef.current &&
+        event.target instanceof Node &&
+        !fixedInfoWrapRef.current.contains(event.target)
+      ) {
+        setShowFixedInfo(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowFixedInfo(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDownOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDownOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showFixedInfo]);
 
   // Modal Tự đăng ký tên mới
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -129,15 +198,15 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
   const [pinSetupError, setPinSetupError] = useState<string | null>(null);
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
 
-  // Modal Nhập PIN 4 số khi lưu lịch cho thành viên đã khóa PIN
-  const [pendingPinVerifyAction, setPendingPinVerifyAction] = useState<
-    'SAVE_DRAFT' | 'COPY_FIXED' | null
-  >(null);
+  // Modal Nhập PIN 4 số khi thao tác chỉnh sửa / lưu / áp dụng trên lịch đã khóa PIN
+  const [pendingPinIntent, setPendingPinIntent] = useState<PendingPinEditIntent | null>(null);
   const [verifyPinInput, setVerifyPinInput] = useState('');
   const [verifyPinError, setVerifyPinError] = useState<string | null>(null);
+  const [isVerifyingEditPin, setIsVerifyingEditPin] = useState(false);
 
   // Refs phục vụ dải quét Drag-to-Paint trên mobile & desktop
   const mobileRowRefs = useRef<Partial<Record<ScheduleHour, HTMLDivElement | null>>>({});
+  const desktopMouseHandledRef = useRef(false);
   const dragStateRef = useRef<{
     active: boolean;
     pointerId: number;
@@ -146,17 +215,18 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     targetBusy: boolean;
   } | null>(null);
 
-  const visibleHours = useMemo(
-    () => getVisibleScheduleHours(expandEarlyMorning),
-    [expandEarlyMorning]
-  );
-
+  const visibleHours = useMemo(() => getVisibleScheduleHours(), []);
   const busySlotSet = useMemo(() => new Set(draftBusySlots), [draftBusySlots]);
 
-  const earlyMorningBusyCount = useMemo(
-    () => countEarlyMorningBusySlots(draftBusySlots),
-    [draftBusySlots]
-  );
+  const filteredPickerMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return activeMembers;
+    return activeMembers.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        RANK_METADATA[m.rank].code.toLowerCase().includes(q)
+    );
+  }, [activeMembers, memberSearch]);
 
   const busyCountByDay = useMemo(() => {
     const counts: Record<DayOfWeek, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
@@ -174,6 +244,19 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const weekDisplay = useMemo(() => formatWeekKeyDisplay(weekKey), [weekKey]);
 
+  const openPinSetupModal = () => {
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setPinSetupError(null);
+    setShowPinSetupModal(true);
+  };
+
+  const requestPinForEdit = (intent: PendingPinEditIntent) => {
+    setVerifyPinInput('');
+    setVerifyPinError(null);
+    setPendingPinIntent(intent);
+  };
+
   const applyDraftBusyChange = (updater: (prev: ScheduleSlotKey[]) => ScheduleSlotKey[]) => {
     if (!canEditGrid) return;
     setLocalError(null);
@@ -183,7 +266,20 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const handleToggleSingleSlot = (day: DayOfWeek, hour: ScheduleHour) => {
     if (!canEditGrid) return;
+    if (requiresPinBeforeEdit) {
+      requestPinForEdit({ kind: 'TOGGLE_SLOT', day, hour });
+      return;
+    }
     applyDraftBusyChange((prev) => toggleBusySlot(prev, makeSlotKey(day, hour)));
+  };
+
+  const handleSetDayBusy = (day: DayOfWeek, isBusy: boolean) => {
+    if (!canEditGrid) return;
+    if (requiresPinBeforeEdit) {
+      requestPinForEdit({ kind: 'SET_DAY', day, isBusy });
+      return;
+    }
+    applyDraftBusyChange((prev) => setDayBusySlots(prev, day, isBusy));
   };
 
   const resolveMobileHitHour = (clientY: number): ScheduleHour | null => {
@@ -209,6 +305,14 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     const hour = resolveMobileHitHour(e.clientY);
+    if (requiresPinBeforeEdit) {
+      e.preventDefault();
+      e.stopPropagation();
+      requestPinForEdit(
+        hour !== null ? { kind: 'TOGGLE_SLOT', day, hour } : { kind: 'UNLOCK_ONLY' }
+      );
+      return;
+    }
     if (hour === null) return;
 
     const slotKey = makeSlotKey(day, hour);
@@ -242,7 +346,15 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const handleStripPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragStateRef.current;
-    if (!drag || !drag.active || e.pointerId !== drag.pointerId || !canEditGrid) return;
+    if (
+      !drag ||
+      !drag.active ||
+      e.pointerId !== drag.pointerId ||
+      !canEditGrid ||
+      requiresPinBeforeEdit
+    ) {
+      return;
+    }
 
     const hitHour = resolveMobileHitHour(e.clientY);
     if (hitHour === null || hitHour === drag.lastHour) return;
@@ -270,13 +382,19 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     }
   };
 
-  // Kéo chuột nhanh trên lưới Desktop (7 cột)
+  // Kéo chuột nhanh trên lưới Desktop (7 cột × 18 kíp)
   const handleDesktopCellMouseDown = (
     e: React.MouseEvent<HTMLButtonElement>,
     day: DayOfWeek,
     hour: ScheduleHour
   ) => {
     if (!canEditGrid || e.button !== 0) return;
+    desktopMouseHandledRef.current = true;
+    if (requiresPinBeforeEdit) {
+      e.preventDefault();
+      requestPinForEdit({ kind: 'TOGGLE_SLOT', day, hour });
+      return;
+    }
     const slotKey = makeSlotKey(day, hour);
     const nextTargetBusy = !busySlotSet.has(slotKey);
     dragStateRef.current = {
@@ -298,9 +416,25 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
     );
   };
 
+  const handleDesktopCellClick = (day: DayOfWeek, hour: ScheduleHour) => {
+    if (desktopMouseHandledRef.current) {
+      desktopMouseHandledRef.current = false;
+      return;
+    }
+    handleToggleSingleSlot(day, hour);
+  };
+
   const handleDesktopCellMouseEnter = (day: DayOfWeek, hour: ScheduleHour) => {
     const drag = dragStateRef.current;
-    if (!drag || !drag.active || drag.pointerId !== -1 || !canEditGrid) return;
+    if (
+      !drag ||
+      !drag.active ||
+      drag.pointerId !== -1 ||
+      !canEditGrid ||
+      requiresPinBeforeEdit
+    ) {
+      return;
+    }
     if (day !== drag.dayOfWeek) {
       drag.dayOfWeek = day;
       drag.lastHour = hour;
@@ -342,15 +476,8 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
   const executeSaveSchedule = async (explicitMemberPin?: string) => {
     if (!selectedMember) return;
 
-    if (
-      !explicitMemberPin &&
-      !isHost &&
-      selectedMember.hasPin &&
-      !hasCachedMemberSessionPin(clubCode, selectedMember.id)
-    ) {
-      setVerifyPinInput('');
-      setVerifyPinError(null);
-      setPendingPinVerifyAction('SAVE_DRAFT');
+    if (!explicitMemberPin && requiresPinBeforeEdit) {
+      requestPinForEdit({ kind: 'SAVE_DRAFT' });
       return;
     }
 
@@ -369,27 +496,30 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
         if (explicitMemberPin) {
           setVerifyPinError(res.error ?? 'Mã PIN cá nhân không chính xác.');
         } else {
-          setVerifyPinInput('');
-          setVerifyPinError(null);
-          setPendingPinVerifyAction('SAVE_DRAFT');
+          requestPinForEdit({ kind: 'SAVE_DRAFT' });
         }
         return;
       }
 
       if (res.error || !res.data) {
         vibrateWarning();
-        setLocalError(res.error ?? 'Không thể lưu lịch bận.');
+        const errMsg = res.error ?? 'Không thể lưu lịch bận.';
+        if (explicitMemberPin) {
+          setVerifyPinError(errMsg);
+        } else {
+          setLocalError(errMsg);
+        }
         return;
       }
 
       vibrateSuccess();
       setIsDirty(false);
-      setPendingPinVerifyAction(null);
+      setPendingPinIntent(null);
       setVerifyPinInput('');
       setVerifyPinError(null);
       onShowToast?.(
         weekKey === 'FIXED'
-          ? `Đã lưu lịch bận cố định (FIXED) cho ${selectedMember.name}.`
+          ? `Đã lưu lịch cứng hàng tuần cho ${selectedMember.name}.`
           : `Đã nộp lịch tuần ${weekKey} cho ${selectedMember.name}!`
       );
     } finally {
@@ -399,21 +529,31 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   const executeCopyFromFixed = async (explicitMemberPin?: string) => {
     if (!selectedMember) return;
-    if (!fixedEntry) {
-      onShowToast?.('Bạn chưa có Lịch cố định (FIXED). Đang mở trang khai Lịch cố định...');
-      void selectWeek('FIXED');
+
+    if (!explicitMemberPin && requiresPinBeforeEdit) {
+      requestPinForEdit({ kind: 'COPY_FIXED' });
       return;
     }
 
-    if (
-      !explicitMemberPin &&
-      !isHost &&
-      selectedMember.hasPin &&
-      !hasCachedMemberSessionPin(clubCode, selectedMember.id)
-    ) {
-      setVerifyPinInput('');
-      setVerifyPinError(null);
-      setPendingPinVerifyAction('COPY_FIXED');
+    if (!fixedEntry) {
+      if (explicitMemberPin) {
+        setIsVerifyingEditPin(true);
+        try {
+          const pinRes = await verifyAndCacheMemberPin(selectedMember.id, explicitMemberPin);
+          if (pinRes.data !== true) {
+            vibrateWarning();
+            setVerifyPinError(pinRes.error ?? 'Mã PIN cá nhân không chính xác.');
+            return;
+          }
+          setPendingPinIntent(null);
+          setVerifyPinInput('');
+          setVerifyPinError(null);
+        } finally {
+          setIsVerifyingEditPin(false);
+        }
+      }
+      onShowToast?.('Bạn chưa có lịch cứng. Đang mở màn hình Set lịch cứng...');
+      void selectWeek('FIXED');
       return;
     }
 
@@ -431,16 +571,19 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
         if (explicitMemberPin) {
           setVerifyPinError(res.error ?? 'Mã PIN cá nhân không chính xác.');
         } else {
-          setVerifyPinInput('');
-          setVerifyPinError(null);
-          setPendingPinVerifyAction('COPY_FIXED');
+          requestPinForEdit({ kind: 'COPY_FIXED' });
         }
         return;
       }
 
       if (res.error || !res.data) {
         vibrateWarning();
-        setLocalError(res.error ?? 'Không thể chép lịch từ FIXED.');
+        const errMsg = res.error ?? 'Không thể áp dụng lịch cứng.';
+        if (explicitMemberPin) {
+          setVerifyPinError(errMsg);
+        } else {
+          setLocalError(errMsg);
+        }
         return;
       }
 
@@ -448,12 +591,66 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
       setDraftBusySlots(normalizeBusySlots(res.data.busySlots));
       setDraftNote(res.data.note ?? '');
       setIsDirty(false);
-      setPendingPinVerifyAction(null);
+      setPendingPinIntent(null);
       setVerifyPinInput('');
       setVerifyPinError(null);
-      onShowToast?.(`Đã chép lịch cố định sang tuần ${weekKey} cho ${selectedMember.name}!`);
+      onShowToast?.(`Đã áp dụng lịch cứng vào tuần ${weekKey} cho ${selectedMember.name}!`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleVerifyPinForEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMember || !pendingPinIntent) return;
+
+    const cleanPin = verifyPinInput.trim();
+    if (!isValidFourDigitPin(cleanPin)) {
+      setVerifyPinError('Vui lòng nhập đúng 4 chữ số PIN cá nhân.');
+      return;
+    }
+
+    if (pendingPinIntent.kind === 'SAVE_DRAFT') {
+      await executeSaveSchedule(cleanPin);
+      return;
+    }
+
+    if (pendingPinIntent.kind === 'COPY_FIXED') {
+      await executeCopyFromFixed(cleanPin);
+      return;
+    }
+
+    setIsVerifyingEditPin(true);
+    setVerifyPinError(null);
+    try {
+      const res = await verifyAndCacheMemberPin(selectedMember.id, cleanPin);
+      if (res.data !== true) {
+        vibrateWarning();
+        setVerifyPinError(res.error ?? 'Mã PIN cá nhân không chính xác.');
+        return;
+      }
+
+      const intent = pendingPinIntent;
+      vibrateSuccess();
+      setPendingPinIntent(null);
+      setVerifyPinInput('');
+      setVerifyPinError(null);
+
+      if (intent.kind === 'TOGGLE_SLOT') {
+        setLocalError(null);
+        setDraftBusySlots((prev) =>
+          toggleBusySlot(prev, makeSlotKey(intent.day, intent.hour))
+        );
+        setIsDirty(true);
+      } else if (intent.kind === 'SET_DAY') {
+        setLocalError(null);
+        setDraftBusySlots((prev) => setDayBusySlots(prev, intent.day, intent.isBusy));
+        setIsDirty(true);
+      }
+
+      onShowToast?.(`Đã mở khóa chỉnh sửa lịch cho ${selectedMember.name}.`);
+    } finally {
+      setIsVerifyingEditPin(false);
     }
   };
 
@@ -548,136 +745,279 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
 
   return (
     <div className="space-y-4" onMouseUp={stopDesktopDrag} onMouseLeave={stopDesktopDrag}>
-      {/* Khối chọn thành viên & tiện ích cá nhân */}
-      <div className="ui-card p-4 md:p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+      {/* Khối chọn thành viên & công cụ Lịch cứng */}
+      <div className="ui-card p-4 md:p-5 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2.5">
           <div className="flex-1 min-w-0">
-            <label
-              htmlFor="schedule-member-select"
+            <span
+              id="schedule-member-picker-label"
               className="block text-[14px] font-semibold mb-1.5"
               style={{ color: 'var(--text-primary)' }}
             >
               Tên của bạn trong CLB
-            </label>
-            <select
-              id="schedule-member-select"
-              value={selectedMemberId ?? ''}
-              onChange={(e) => {
-                setLocalError(null);
-                selectCurrentMember(e.target.value || null);
+            </span>
+            <button
+              id="schedule-member-picker-trigger"
+              type="button"
+              aria-labelledby="schedule-member-picker-label schedule-member-picker-trigger"
+              aria-haspopup="dialog"
+              aria-expanded={showMemberPicker}
+              onClick={() => {
+                setMemberSearch('');
+                setShowMemberPicker(true);
               }}
-              className="ui-select"
+              className="w-full min-h-[48px] px-3.5 py-2 rounded-xl flex items-center justify-between gap-2.5 text-left transition-colors"
+              style={{
+                backgroundColor: 'var(--bg-input)',
+                border: '1px solid var(--border-subtle)',
+              }}
             >
-              <option value="">— Chọn tên thành viên để báo lịch —</option>
-              {activeMembers.map((m) => {
-                const hasSubmitted = Boolean(weekEntriesByMemberId[m.id]);
-                return (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({RANK_METADATA[m.rank].code})
-                    {hasSubmitted ? ' · Đã nộp' : ' · Chưa nộp'}
-                    {m.hasPin ? ' · Có PIN' : ''}
-                  </option>
-                );
-              })}
-            </select>
+              {selectedMember ? (
+                <>
+                  <span className="flex items-center gap-2 min-w-0 flex-1">
+                    <GenderDot sex={selectedMember.gender} />
+                    <span
+                      className="text-[14px] font-semibold truncate"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {selectedMember.name}
+                    </span>
+                    <RankBadge rank={selectedMember.rank} surface="tile" />
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    {selectedMember.hasPin && (
+                      <Lock
+                        className="w-3.5 h-3.5 shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                        aria-label="Đã khóa PIN bảo vệ"
+                      />
+                    )}
+                    <StatusPill tone={savedEntry ? 'accent' : 'neutral'}>
+                      <span>{savedEntry ? 'Đã báo' : 'Chưa báo'}</span>
+                    </StatusPill>
+                    <ChevronDown
+                      className="w-4 h-4 shrink-0"
+                      style={{ color: 'var(--text-secondary)' }}
+                    />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span
+                    className="text-[14px] truncate"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Chọn tên thành viên để báo lịch...
+                  </span>
+                  <ChevronDown
+                    className="w-4 h-4 shrink-0"
+                    style={{ color: 'var(--text-secondary)' }}
+                  />
+                </>
+              )}
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
-            {uiPermissions.canSelfRegisterMember && (
-              <button
-                type="button"
-                onClick={() => {
-                  setRegError(null);
-                  setShowRegisterModal(true);
-                }}
-                className="ui-btn ui-btn-secondary px-3.5"
-              >
-                <UserPlus className="w-4 h-4 shrink-0" />
-                <span>Thêm tên mới</span>
-              </button>
-            )}
-
-            {selectedMember && (uiPermissions.canSetOwnPin || isHost) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCurrentPinInput('');
-                  setNewPinInput('');
-                  setPinSetupError(null);
-                  setShowPinSetupModal(true);
-                }}
-                className="ui-btn ui-btn-secondary px-3.5"
-              >
-                <KeyRound className="w-4 h-4 shrink-0" />
-                <span>
-                  {selectedMember.hasPin
-                    ? isHost
-                      ? 'Đổi / Gỡ PIN'
-                      : 'Đổi PIN 4 số'
-                    : 'Đặt PIN 4 số'}
-                </span>
-              </button>
-            )}
-          </div>
+          {uiPermissions.canSelfRegisterMember && (
+            <button
+              type="button"
+              onClick={() => {
+                setRegError(null);
+                setShowRegisterModal(true);
+              }}
+              className="ui-btn ui-btn-secondary px-3.5 shrink-0 self-start sm:self-auto"
+            >
+              <UserPlus className="w-4 h-4 shrink-0" />
+              <span>Thêm tên mới</span>
+            </button>
+          )}
         </div>
 
-        {/* Thanh công cụ lịch cố định FIXED & trạng thái nộp */}
+        {/* Dòng gợi ý / trạng thái PIN nhẹ nhàng bên dưới bộ chọn tên */}
+        {selectedMember && (uiPermissions.canSetOwnPin || isHost) && (
+          <div
+            className="flex items-center gap-1.5 flex-wrap text-[14px] leading-snug"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {!selectedMember.hasPin ? (
+              <>
+                <span>Chưa khóa lịch ·</span>
+                <button
+                  type="button"
+                  onClick={openPinSetupModal}
+                  className="min-h-[44px] px-1 inline-flex items-center font-semibold underline decoration-dotted underline-offset-4"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  Tạo PIN 4 số nếu muốn tránh sửa nhầm
+                </button>
+              </>
+            ) : isHost ? (
+              <>
+                <Lock
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+                <span>Thành viên có PIN riêng (Host được chỉnh trực tiếp) ·</span>
+                <button
+                  type="button"
+                  onClick={openPinSetupModal}
+                  className="min-h-[44px] px-1 inline-flex items-center font-semibold underline decoration-dotted underline-offset-4"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  Đổi / Gỡ PIN
+                </button>
+              </>
+            ) : hasUnlockedPersonalPin ? (
+              <>
+                <LockOpen
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{ color: 'var(--color-accent)' }}
+                />
+                <span>Đã mở khóa chỉnh sửa trên máy này ·</span>
+                <button
+                  type="button"
+                  onClick={openPinSetupModal}
+                  className="min-h-[44px] px-1 inline-flex items-center font-semibold underline decoration-dotted underline-offset-4"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  Đổi PIN 4 số
+                </button>
+                {lockMemberPin && (
+                  <>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        lockMemberPin(selectedMember.id);
+                        onShowToast?.(`Đã khóa lại lịch của ${selectedMember.name} trên máy này.`);
+                      }}
+                      className="min-h-[44px] px-1 inline-flex items-center font-semibold underline decoration-dotted underline-offset-4"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Khóa lại
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <Lock
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+                <span>Xem tự do · Chạm vào ô giờ để nhập PIN sửa lịch ·</span>
+                <button
+                  type="button"
+                  onClick={openPinSetupModal}
+                  className="min-h-[44px] px-1 inline-flex items-center font-semibold underline decoration-dotted underline-offset-4"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  Đổi PIN 4 số
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Thanh trạng thái báo lịch & cụm nút Lịch cứng + nút Thông tin (ⓘ) */}
         {selectedMember && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-1 border-t ui-divider">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 pt-2 border-t ui-divider">
             <div className="flex items-center gap-2 flex-wrap">
               {savedEntry ? (
                 <StatusPill tone="accent">
                   <Check className="w-3.5 h-3.5" />
-                  <span>{weekKey === 'FIXED' ? 'Đã lưu lịch cố định' : 'Đã nộp lịch tuần này'}</span>
+                  <span>
+                    {weekKey === 'FIXED' ? 'Đã lưu lịch cứng' : 'Đã báo lịch tuần này'}
+                  </span>
                 </StatusPill>
               ) : (
                 <StatusPill tone="warning">
                   <span>
-                    {weekKey === 'FIXED'
-                      ? 'Chưa lưu lịch cố định'
-                      : 'Chưa nộp lịch tuần này (cần bấm Nộp lịch)'}
+                    {weekKey === 'FIXED' ? 'Chưa lưu lịch cứng' : 'Chưa báo lịch tuần này'}
                   </span>
-                </StatusPill>
-              )}
-
-              {selectedMember.hasPin && (
-                <StatusPill tone="neutral">
-                  <Lock className="w-3 h-3" />
-                  <span>Bảo vệ PIN 4 số</span>
                 </StatusPill>
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div
+              ref={fixedInfoWrapRef}
+              className="relative flex items-center gap-1.5 flex-wrap"
+            >
               {weekKey !== 'FIXED' ? (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void selectWeek('FIXED');
+                    }}
+                    className="ui-btn ui-btn-secondary px-3 gap-1.5"
+                  >
+                    <CalendarClock className="w-4 h-4 shrink-0" />
+                    <span>Set lịch cứng</span>
+                  </button>
+
                   <button
                     type="button"
                     disabled={!canEditGrid || isSaving}
                     onClick={() => {
                       void executeCopyFromFixed();
                     }}
-                    className="ui-btn ui-btn-accent-soft px-3.5"
+                    className="ui-btn ui-btn-accent-soft px-3 gap-1.5"
                   >
                     <Copy className="w-4 h-4 shrink-0" />
-                    <span>
-                      {fixedEntry ? 'Chép từ FIXED' : 'Khai lịch FIXED'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void selectWeek('FIXED');
-                    }}
-                    className="ui-btn ui-btn-ghost px-3"
-                  >
-                    <span>Sửa mẫu FIXED</span>
+                    <span>Áp dụng lịch cứng</span>
                   </button>
                 </>
               ) : (
-                <span className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-                  Đang chỉnh mẫu lịch bận cố định hàng tuần
-                </span>
+                <>
+                  <span
+                    className="text-[14px] font-semibold"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    Đang chỉnh Lịch cứng hàng tuần
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void selectWeek(fallbackIsoWeek);
+                    }}
+                    className="ui-btn ui-btn-secondary px-3 gap-1.5"
+                  >
+                    <RotateCcw className="w-4 h-4 shrink-0" />
+                    <span>Quay lại tuần {fallbackIsoWeek}</span>
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                aria-label="Giải thích tính năng lịch cứng"
+                aria-expanded={showFixedInfo}
+                aria-describedby={showFixedInfo ? 'fixed-schedule-help-popover' : undefined}
+                onPointerEnter={(e) => {
+                  if (e.pointerType === 'mouse') {
+                    setShowFixedInfo(true);
+                  }
+                }}
+                onPointerLeave={(e) => {
+                  if (e.pointerType === 'mouse') {
+                    setShowFixedInfo(false);
+                  }
+                }}
+                onClick={() => setShowFixedInfo((v) => !v)}
+                className="ui-icon-btn w-11 h-11 rounded-full shrink-0"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+
+              {showFixedInfo && (
+                <div
+                  id="fixed-schedule-help-popover"
+                  role="tooltip"
+                  className="absolute left-0 right-0 md:left-auto md:right-0 top-full mt-2 md:w-[340px] z-30 ui-toast p-3.5 text-[14px] leading-relaxed"
+                >
+                  {FIXED_SCHEDULE_HELP_TEXT}
+                </div>
               )}
             </div>
           </div>
@@ -725,10 +1065,13 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
         />
       ) : (
         <div className="ui-card p-4 md:p-5 space-y-4">
-          {/* Thanh điều khiển khung giờ & chú giải Rảnh/Bận */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {/* Thanh chú giải Rảnh / Bận (mặc định hiển thị trọn vẹn 18 kíp 06:00 – 24:00) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-3 flex-wrap text-[14px]">
-              <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: 'var(--color-accent)' }}>
+              <span
+                className="inline-flex items-center gap-1.5 font-semibold"
+                style={{ color: 'var(--color-accent)' }}
+              >
                 <span
                   className="w-3 h-3 rounded-full inline-block"
                   style={{
@@ -738,7 +1081,10 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                 />
                 <span>Rảnh (đi đánh được)</span>
               </span>
-              <span className="inline-flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <span
+                className="inline-flex items-center gap-1.5"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 <span
                   className="w-3 h-3 rounded-full inline-block"
                   style={{
@@ -746,30 +1092,16 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                     border: '1.5px solid var(--border-strong)',
                   }}
                 />
-                <span>Bận ({draftBusySlots.length} kíp tuần này)</span>
+                <span>Bận ({draftBusySlots.length}/126 kíp)</span>
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setExpandEarlyMorning((prev) => !prev)}
-              className="ui-btn ui-btn-secondary px-3.5 self-start sm:self-auto"
+            <span
+              className="text-[14px] tabular-nums"
+              style={{ color: 'var(--text-muted)' }}
             >
-              {expandEarlyMorning ? (
-                <>
-                  <ChevronUp className="w-4 h-4 shrink-0" />
-                  <span>Thu gọn sáng sớm (chỉ 15h–24h)</span>
-                </>
-              ) : (
-                <>
-                  <Sunrise className="w-4 h-4 shrink-0" />
-                  <span>
-                    Mở rộng sáng sớm (7h–15h)
-                    {earlyMorningBusyCount > 0 ? ` · ${earlyMorningBusyCount} bận` : ''}
-                  </span>
-                </>
-              )}
-            </button>
+              Khung giờ: 06:00 – 24:00 (18 kíp/ngày)
+            </span>
           </div>
 
           {/* =================================================================
@@ -805,9 +1137,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                       {DAY_LABELS_VI[day]}
                     </span>
                     {dateLabel && (
-                      <span
-                        className="text-[12px] tabular-nums leading-tight opacity-85"
-                      >
+                      <span className="text-[12px] tabular-nums leading-tight opacity-85">
                         {dateLabel}
                       </span>
                     )}
@@ -825,14 +1155,12 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
             </div>
 
             {/* Nút thao tác nhanh cho ngày đang chọn + hướng dẫn dải quét */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   disabled={!canEditGrid}
-                  onClick={() =>
-                    applyDraftBusyChange((prev) => setDayBusySlots(prev, selectedDay, false))
-                  }
+                  onClick={() => handleSetDayBusy(selectedDay, false)}
                   className="ui-btn ui-btn-secondary px-3 text-[14px]"
                 >
                   <span>Rảnh cả {DAY_LABELS_VI[selectedDay]}</span>
@@ -840,9 +1168,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                 <button
                   type="button"
                   disabled={!canEditGrid}
-                  onClick={() =>
-                    applyDraftBusyChange((prev) => setDayBusySlots(prev, selectedDay, true))
-                  }
+                  onClick={() => handleSetDayBusy(selectedDay, true)}
                   className="ui-btn ui-btn-secondary px-3 text-[14px]"
                 >
                   <span>Bận cả {DAY_LABELS_VI[selectedDay]}</span>
@@ -856,7 +1182,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
               </span>
             </div>
 
-            {/* Danh sách kíp 1h: Cột trái cuộn dọc tự nhiên, Cột phải là 1 dải quét liên tục duy nhất (touch-action: none) */}
+            {/* Danh sách 18 kíp 1h: Cột trái cuộn dọc tự nhiên, Cột phải là 1 dải quét liên tục duy nhất (touch-action: none) */}
             <div className="flex items-start gap-1.5">
               {/* Cột trái: KHÔNG touch-action:none để vuốt dọc scroll mượt; chạm lẻ đảo trạng thái */}
               <div className="flex-1 min-w-0 flex flex-col gap-1.5">
@@ -881,7 +1207,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                       }}
                     >
                       <span className="text-[14px] font-semibold tabular-nums">
-                        {hour}:00 – {hour + 1}:00
+                        {formatScheduleSlotRange(hour)}
                       </span>
                       <span
                         className="inline-flex items-center gap-1.5 text-[14px] font-semibold"
@@ -906,7 +1232,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                 })}
               </div>
 
-              {/* Cột phải: Dải quét Drag-to-Paint liền mạch — CHỈ đặt touch-action: none tại container này (không bị khe hở 6px làm trôi scroll) */}
+              {/* Cột phải: Dải quét Drag-to-Paint liền mạch — CHỈ đặt touch-action: none tại container này */}
               <div
                 data-drag-strip="true"
                 aria-label={`Dải quét nhanh khung giờ ngày ${DAY_LABELS_VI[selectedDay]}`}
@@ -933,7 +1259,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                       }}
                       role="button"
                       tabIndex={canEditGrid ? 0 : -1}
-                      aria-label={`Quét nhanh khung ${hour}h–${hour + 1}h ${DAY_LABELS_VI[selectedDay]}`}
+                      aria-label={`Quét nhanh khung ${formatScheduleSlotRange(hour)} ${DAY_LABELS_VI[selectedDay]}`}
                       aria-disabled={!canEditGrid}
                       data-slot-key={slotKey}
                       style={{
@@ -962,14 +1288,14 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
           </div>
 
           {/* =================================================================
-              GIAO DIỆN DESKTOP (>= md): Bảng 7 ngày × 17 kíp 1h trực quan
+              GIAO DIỆN DESKTOP (>= md): Bảng 7 ngày × 18 kíp 1h trực quan
               ================================================================= */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full border-separate border-spacing-1.5">
               <thead>
                 <tr>
                   <th
-                    className="w-[96px] text-left text-[14px] font-semibold px-2 py-2"
+                    className="w-[112px] text-left text-[14px] font-semibold px-2 py-2"
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     Khung giờ
@@ -981,7 +1307,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                         disabled={!canEditGrid}
                         onClick={() => {
                           const allBusy = busyCountByDay[day] >= SCHEDULE_HOURS.length;
-                          applyDraftBusyChange((prev) => setDayBusySlots(prev, day, !allBusy));
+                          handleSetDayBusy(day, !allBusy);
                         }}
                         title={`Đảo nhanh cả ngày ${DAY_LABELS_VI[day]}`}
                         className="w-full min-h-[44px] rounded-xl px-2 py-1.5 flex flex-col items-center justify-center ui-tile ui-tile-interactive"
@@ -1007,7 +1333,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                       className="text-[14px] font-semibold tabular-nums px-2 py-1 whitespace-nowrap"
                       style={{ color: 'var(--text-secondary)' }}
                     >
-                      {hour}:00 – {hour + 1}:00
+                      {formatScheduleSlotRange(hour)}
                     </td>
                     {SCHEDULE_DAYS.map((day) => {
                       const slotKey = makeSlotKey(day, hour);
@@ -1019,12 +1345,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                             disabled={!canEditGrid}
                             onMouseDown={(e) => handleDesktopCellMouseDown(e, day, hour)}
                             onMouseEnter={() => handleDesktopCellMouseEnter(day, hour)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                handleToggleSingleSlot(day, hour);
-                              }
-                            }}
+                            onClick={() => handleDesktopCellClick(day, hour)}
                             style={{
                               backgroundColor: isBusy
                                 ? 'var(--bg-surface-secondary)'
@@ -1062,8 +1383,22 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                 type="text"
                 maxLength={300}
                 disabled={!canEditGrid}
+                readOnly={requiresPinBeforeEdit}
                 value={draftNote}
+                onClick={(e) => {
+                  if (canEditGrid && requiresPinBeforeEdit) {
+                    e.currentTarget.blur();
+                    requestPinForEdit({ kind: 'UNLOCK_ONLY' });
+                  }
+                }}
+                onFocus={(e) => {
+                  if (canEditGrid && requiresPinBeforeEdit) {
+                    e.currentTarget.blur();
+                    requestPinForEdit({ kind: 'UNLOCK_ONLY' });
+                  }
+                }}
                 onChange={(e) => {
+                  if (requiresPinBeforeEdit) return;
                   setDraftNote(e.target.value);
                   setIsDirty(true);
                 }}
@@ -1111,7 +1446,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
                     {isSaving
                       ? 'Đang lưu...'
                       : weekKey === 'FIXED'
-                        ? 'Lưu lịch cố định'
+                        ? 'Lưu lịch cứng'
                         : savedEntry
                           ? 'Cập nhật lịch tuần'
                           : 'Nộp lịch tuần này'}
@@ -1122,6 +1457,119 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL 0: BỘ CHỌN THÀNH VIÊN CHUẨN MOBILE 1 TAY (BOTTOM SHEET / MODAL) */}
+      <UiModal
+        isOpen={showMemberPicker}
+        onClose={() => {
+          setShowMemberPicker(false);
+          setMemberSearch('');
+        }}
+        sheetOnMobile
+        maxWidthClass="max-w-md"
+        title="Chọn thành viên báo lịch"
+        subtitle={
+          club ? `${club.name} · ${activeMembers.length} thành viên` : undefined
+        }
+        footer={
+          uiPermissions.canSelfRegisterMember ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowMemberPicker(false);
+                setMemberSearch('');
+                setRegError(null);
+                setShowRegisterModal(true);
+              }}
+              className="ui-btn ui-btn-secondary w-full justify-center"
+            >
+              <UserPlus className="w-4 h-4 shrink-0" />
+              <span>Chưa có tên? Thêm tên mới vào CLB</span>
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="space-y-3">
+          {activeMembers.length >= 5 && (
+            <div className="relative">
+              <Search
+                className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: 'var(--text-muted)' }}
+              />
+              <input
+                type="text"
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="Tìm nhanh theo tên hoặc trình độ..."
+                className="ui-input pl-10"
+              />
+            </div>
+          )}
+
+          {filteredPickerMembers.length === 0 ? (
+            <p
+              className="py-6 text-center text-[14px]"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              {activeMembers.length === 0
+                ? 'CLB chưa có thành viên nào.'
+                : 'Không tìm thấy thành viên phù hợp.'}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {filteredPickerMembers.map((m) => {
+                const isSelected = m.id === selectedMemberId;
+                const hasSubmitted = Boolean(weekEntriesByMemberId[m.id]);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setLocalError(null);
+                      selectCurrentMember(m.id);
+                      setShowMemberPicker(false);
+                      setMemberSearch('');
+                    }}
+                    className="w-full min-h-[50px] px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 text-left transition-colors"
+                    style={{
+                      backgroundColor: isSelected
+                        ? 'var(--color-accent-soft)'
+                        : 'var(--bg-surface-secondary)',
+                      border: `1px solid ${
+                        isSelected ? 'var(--color-accent-border)' : 'var(--border-subtle)'
+                      }`,
+                    }}
+                  >
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      <GenderDot sex={m.gender} />
+                      <span
+                        className="text-[14px] font-semibold truncate"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {m.name}
+                      </span>
+                      <RankBadge rank={m.rank} surface="tile" />
+                    </span>
+
+                    <span className="flex items-center gap-2 shrink-0">
+                      {m.hasPin && (
+                        <Lock
+                          className="w-3.5 h-3.5 shrink-0"
+                          style={{ color: 'var(--text-muted)' }}
+                          aria-label="Đã khóa PIN bảo vệ"
+                        />
+                      )}
+                      <StatusPill tone={hasSubmitted ? 'accent' : 'neutral'}>
+                        <span>{hasSubmitted ? 'Đã báo' : 'Chưa báo'}</span>
+                      </StatusPill>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </UiModal>
 
       {/* MODAL 1: TỰ ĐĂNG KÝ TÊN MỚI VÀO CLB */}
       <UiModal
@@ -1254,13 +1702,13 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
         </form>
       </UiModal>
 
-      {/* MODAL 2: ĐẶT / ĐỔI / GỠ PIN 4 SỐ CÁ NHÂN */}
+      {/* MODAL 2: TẠO / ĐỔI / GỠ PIN 4 SỐ CÁ NHÂN */}
       <UiModal
         isOpen={showPinSetupModal && Boolean(selectedMember)}
         onClose={() => setShowPinSetupModal(false)}
         sheetOnMobile
         maxWidthClass="max-w-md"
-        title={selectedMember?.hasPin ? 'Quản lý PIN 4 số cá nhân' : 'Đặt PIN 4 số cá nhân'}
+        title={selectedMember?.hasPin ? 'Quản lý PIN 4 số cá nhân' : 'Tạo PIN 4 số cá nhân'}
         subtitle={selectedMember ? `Thành viên: ${selectedMember.name}` : undefined}
       >
         <div className="space-y-4">
@@ -1351,35 +1799,22 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
         </div>
       </UiModal>
 
-      {/* MODAL 3: XÁC THỰC NHANH PIN 4 SỐ KHI NỘP LỊCH */}
+      {/* MODAL 3: NHẬP PIN 4 SỐ ĐỂ CHỈNH SỬA LỊCH */}
       <UiModal
-        isOpen={pendingPinVerifyAction !== null && Boolean(selectedMember)}
+        isOpen={pendingPinIntent !== null && Boolean(selectedMember)}
         onClose={() => {
-          setPendingPinVerifyAction(null);
+          setPendingPinIntent(null);
           setVerifyPinInput('');
           setVerifyPinError(null);
         }}
+        sheetOnMobile
         maxWidthClass="max-w-sm"
-        title="Nhập PIN cá nhân để lưu lịch"
+        title="Nhập PIN 4 số để chỉnh sửa lịch"
         subtitle={selectedMember ? `Thành viên: ${selectedMember.name}` : undefined}
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!isValidFourDigitPin(verifyPinInput)) {
-              setVerifyPinError('Vui lòng nhập đúng 4 chữ số PIN cá nhân.');
-              return;
-            }
-            if (pendingPinVerifyAction === 'COPY_FIXED') {
-              void executeCopyFromFixed(verifyPinInput.trim());
-            } else {
-              void executeSaveSchedule(verifyPinInput.trim());
-            }
-          }}
-          className="space-y-4"
-        >
+        <form onSubmit={handleVerifyPinForEditSubmit} className="space-y-4">
           <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-            Tên thành viên này đang được bảo vệ bằng mã PIN 4 số. Nhập PIN một lần để lưu lịch trong phiên này.
+            Lịch của <strong>{selectedMember?.name}</strong> đang được khóa bằng PIN 4 số. Nhập đúng một lần để chỉnh sửa thoải mái trên thiết bị này.
           </p>
 
           <input
@@ -1405,7 +1840,7 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
             <button
               type="button"
               onClick={() => {
-                setPendingPinVerifyAction(null);
+                setPendingPinIntent(null);
                 setVerifyPinInput('');
                 setVerifyPinError(null);
               }}
@@ -1415,10 +1850,10 @@ export const MyScheduleEditor: React.FC<MyScheduleEditorProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || isVerifyingEditPin}
               className="ui-btn ui-btn-primary rounded-full flex-1"
             >
-              {isSaving ? 'Đang xác nhận...' : 'Xác nhận & Lưu'}
+              {isSaving || isVerifyingEditPin ? 'Đang mở khóa...' : 'Mở khóa'}
             </button>
           </div>
         </form>

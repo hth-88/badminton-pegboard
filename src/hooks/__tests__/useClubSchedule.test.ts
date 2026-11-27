@@ -18,6 +18,7 @@ const mockFetchClubMembers = vi.fn();
 const mockFetchWeekSchedules = vi.fn();
 const mockCreateClub = vi.fn();
 const mockVerifyClubHostPin = vi.fn();
+const mockVerifyMemberPin = vi.fn();
 const mockUpsertMemberSchedule = vi.fn();
 
 let activeRealtimeCallbacks: SubscribeClubScheduleCallbacks | null = null;
@@ -39,6 +40,7 @@ vi.mock('../../services/clubScheduleSync', async (importOriginal) => {
     fetchWeekSchedules: (...args: unknown[]) => mockFetchWeekSchedules(...args),
     createClub: (...args: unknown[]) => mockCreateClub(...args),
     verifyClubHostPin: (...args: unknown[]) => mockVerifyClubHostPin(...args),
+    verifyMemberPin: (...args: unknown[]) => mockVerifyMemberPin(...args),
     upsertMemberSchedule: (...args: unknown[]) => mockUpsertMemberSchedule(...args),
     subscribeToClubSchedule: (code: string, cb: SubscribeClubScheduleCallbacks) =>
       mockSubscribeToClubSchedule(code, cb),
@@ -216,6 +218,7 @@ describe('Phase 2 — useClubSchedule Hook & Realtime Integration', () => {
     mockFetchWeekSchedules.mockReset();
     mockCreateClub.mockReset();
     mockVerifyClubHostPin.mockReset();
+    mockVerifyMemberPin.mockReset();
     mockUpsertMemberSchedule.mockReset();
     mockSubscribeToClubSchedule.mockClear();
 
@@ -742,5 +745,109 @@ describe('Phase 2 — useClubSchedule Hook & Realtime Integration', () => {
     expect(harness.getResult().isHost).toBe(false);
     expect(harness.getResult().role).toBe('CLUB_MEMBER');
     expect(harness.getResult().submissionSummary.submittedCount).toBe(1);
+  });
+
+  it('7. isMemberPinUnlocked phản ánh tức thì trạng thái mở khóa PIN cá nhân trên thiết bị hiện tại và tự hủy khi PIN cũ hết hạn', async () => {
+    const mPinned = makeMember('uuid-pin', 'Tuấn Hùng', true);
+    mockFetchClubScheduleBundle.mockResolvedValue({
+      data: {
+        club: makeMockClub('CLB-T35'),
+        members: [mPinned],
+        weekEntries: [],
+        fixedEntries: [],
+      },
+      error: null,
+      errorCode: null,
+    });
+
+    const harness = createHookHarness(() =>
+      useClubSchedule({ initialClubCode: 'CLB-T35', initialWeekKey: '2026-W48' })
+    );
+    harness.render(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    harness.getResult().selectCurrentMember('uuid-pin');
+    expect(harness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(false);
+
+    // Nhập sai PIN -> vẫn khóa
+    mockVerifyMemberPin.mockResolvedValueOnce({
+      data: false,
+      error: 'Mã PIN cá nhân không chính xác.',
+      errorCode: 'INVALID_MEMBER_PIN',
+    });
+    const wrongRes = await harness.getResult().verifyAndCacheMemberPin('uuid-pin', '0000');
+    expect(wrongRes.data).toBe(false);
+    expect(harness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(false);
+
+    // Nhập đúng PIN -> mở khóa ngay trên thiết bị hiện tại & giữ bền vững trong localStorage kể cả khi đóng WebView/tab (xóa sessionStorage)
+    mockVerifyMemberPin.mockResolvedValueOnce({
+      data: true,
+      error: null,
+      errorCode: null,
+    });
+    const rightRes = await harness.getResult().verifyAndCacheMemberPin('uuid-pin', '0686');
+    expect(rightRes.data).toBe(true);
+    expect(harness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(true);
+
+    // Giả lập đóng hẳn WebView Zalo (sessionStorage bị xóa trắng), mở lại trang mới -> vẫn mở khóa trên máy hiện tại & gửi đúng memberPin khi lưu
+    sessionStorage.clear();
+    const reopenedHarness = createHookHarness(() =>
+      useClubSchedule({ initialClubCode: 'CLB-T35', initialWeekKey: '2026-W48' })
+    );
+    reopenedHarness.render(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    reopenedHarness.getResult().selectCurrentMember('uuid-pin');
+    expect(reopenedHarness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(true);
+
+    mockUpsertMemberSchedule.mockResolvedValueOnce({
+      data: {
+        id: 'sched-pin-ok',
+        clubCode: 'CLB-T35',
+        weekKey: '2026-W48',
+        memberId: 'uuid-pin',
+        busySlots: ['0-6'],
+        note: '',
+        updatedAt: '2026-11-26T04:00:00Z',
+      },
+      error: null,
+      errorCode: null,
+    });
+    const persistedSave = await reopenedHarness
+      .getResult()
+      .saveScheduleEntry({ busySlots: ['0-6'] });
+    expect(persistedSave.error).toBeNull();
+    expect(mockUpsertMemberSchedule).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        memberId: 'uuid-pin',
+        memberPin: '0686',
+      })
+    );
+
+    // Nếu máy khác đổi PIN khiến RPC trả INVALID_MEMBER_PIN -> tự gỡ cache khỏi cả localStorage & sessionStorage để hỏi lại PIN mới
+    mockUpsertMemberSchedule.mockResolvedValueOnce({
+      data: null,
+      error: 'Mã PIN cá nhân không chính xác.',
+      errorCode: 'INVALID_MEMBER_PIN',
+    });
+    await reopenedHarness.getResult().saveScheduleEntry({ busySlots: ['0-7'] });
+    expect(reopenedHarness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(false);
+
+    // Kiểm chứng lockMemberPin khóa lại thủ công trên máy mượn & selectWeek báo trạng thái ERROR khi rớt mạng
+    mockVerifyMemberPin.mockResolvedValueOnce({ data: true, error: null, errorCode: null });
+    await reopenedHarness.getResult().verifyAndCacheMemberPin('uuid-pin', '0686');
+    expect(reopenedHarness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(true);
+    reopenedHarness.getResult().lockMemberPin('uuid-pin');
+    expect(reopenedHarness.getResult().isMemberPinUnlocked('uuid-pin')).toBe(false);
+
+    mockFetchWeekSchedules.mockResolvedValueOnce({
+      data: null,
+      error: 'Không thể kết nối mạng. Vui lòng kiểm tra Wi-Fi/4G và thử lại.',
+      errorCode: null,
+    });
+    await reopenedHarness.getResult().selectWeek('2026-W49');
+    expect(reopenedHarness.getResult().syncState).toBe('ERROR');
+    expect(reopenedHarness.getResult().errorMessage).toContain('Không thể kết nối mạng');
   });
 });

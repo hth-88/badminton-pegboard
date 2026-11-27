@@ -63,6 +63,9 @@ export function normalizeClubCode(rawCode: string | null | undefined): string {
   return (rawCode ?? '').trim().toUpperCase();
 }
 
+export const NETWORK_OFFLINE_ERROR_VI =
+  'Không thể kết nối mạng. Vui lòng kiểm tra Wi-Fi/4G và thử lại.';
+
 /**
  * Tách mã lỗi chuẩn ClubRpcErrorCode từ lỗi trả về của Supabase RPC
  */
@@ -96,6 +99,18 @@ export function parseClubRpcError(err: unknown): {
         message: CLUB_RPC_ERROR_MESSAGES_VI[code],
       };
     }
+  }
+
+  if (
+    /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected/i.test(
+      combinedSearchText || rawMessage
+    ) ||
+    (typeof navigator !== 'undefined' && navigator.onLine === false)
+  ) {
+    return {
+      code: null,
+      message: NETWORK_OFFLINE_ERROR_VI,
+    };
   }
 
   return {

@@ -69,15 +69,20 @@ create policy "Public delete receipts"
 ---
 
 ## BƯỚC 2B: CHẠY MIGRATION SQL CHO LỊCH TUẦN CLB (`clubs`, `club_members`, `member_schedules`)
-Để bật tính năng **Lịch tuần & Chốt sân CLB** (một link `?club=` duy nhất, lịch bận cố định + theo tuần, bảo mật PIN phía server bằng `pgcrypto`):
+Để bật tính năng **Lịch tuần & Chốt sân CLB** (một link `?club=` duy nhất, lưới **18 kíp `06:00–24:00`**, lịch cứng hàng tuần + lịch theo tuần ISO, bảo mật PIN phía server bằng `pgcrypto`):
 
 1. Mở file migration [supabase/migrations/001_club_schedule_schema.sql](supabase/migrations/001_club_schedule_schema.sql) trong dự án.
 2. Trong Supabase Dashboard -> **SQL Editor** -> bấm **"New Query"**, dán toàn bộ nội dung file `001_club_schedule_schema.sql` và bấm **"Run"**.
-3. Script sẽ tự động:
-   - Bật `pgcrypto` trong schema `extensions`.
-   - Tạo 3 bảng `public.clubs`, `public.club_members` (có `auth_user_id` nullable và cột sinh `has_pin`), `public.member_schedules` (unique `(club_code, week_key, member_id)`).
-   - Bật RLS, thu hồi quyền `SELECT` cột `host_pin_hash` / `pin_hash` khỏi `anon` & `authenticated`, và bật Realtime cho cả 3 bảng.
-   - Tạo đầy đủ các RPC `SECURITY DEFINER` (`SET search_path = public, extensions`) kiểm tra khóa tuần, Host PIN và PIN cá nhân trên server.
+3. Script thiết lập đầy đủ & an toàn (idempotent — có thể chạy lại bất kỳ lúc nào mà không mất dữ liệu cũ):
+   - Bật extension `pgcrypto` trong schema `extensions`.
+   - Tạo 3 bảng:
+     - `public.clubs` (`club_code`, `name`, `host_pin_hash`, `active_rooms`, `locked_weeks`, `settings`).
+     - `public.club_members` (`id` UUID, `club_code`, `name`, `gender`, `rank`, `rank_score`, `no_singles`, `pin_hash`, cột sinh `has_pin`, `is_active`, `auth_user_id` nullable).
+     - `public.member_schedules` (`week_key` là `'FIXED'` hoặc `'YYYY-Www'`, `busy_slots` tối đa 126 kíp `0-6..6-23`, `note`, unique `(club_code, week_key, member_id)`).
+   - Bật RLS, thu hồi quyền `SELECT` cột nhạy cảm `host_pin_hash` / `pin_hash` khỏi `anon` & `authenticated` bằng column-level `GRANT SELECT`, và bật Realtime cho cả 3 bảng (loại trừ `pin_hash` & cột sinh `has_pin` khỏi publication PG 15–17).
+   - Tạo đầy đủ **12 RPC `SECURITY DEFINER`** (`SET search_path = public, extensions`, gọi tường minh `extensions.crypt` / `extensions.gen_salt`): `create_club`, `verify_club_host_pin`, `update_club_settings`, `set_club_week_lock`, `upsert_club_active_room`, `remove_club_active_room`, `register_club_member`, `update_club_member_by_host`, `delete_club_member_by_host`, `set_member_pin`, `verify_member_pin`, `upsert_member_schedule` (validate khóa kíp `^[0-6]-(6|7|8|9|1[0-9]|2[0-3])$` và tối đa `126` kíp/tuần).
+
+> **Lưu ý khi nâng cấp từ bản 17 kíp (`7h–24h`) lên 18 kíp (`6h–24h`):** Nếu bạn đã từng chạy bản `001_club_schedule_schema.sql` trước đó, **bắt buộc chạy lại** file `001_club_schedule_schema.sql` trong SQL Editor để `CREATE OR REPLACE FUNCTION public.upsert_member_schedule` cập nhật regex cho phép khung `06:00–07:00` (`*-6`) và trần `126` kíp/tuần.
 
 ---
 

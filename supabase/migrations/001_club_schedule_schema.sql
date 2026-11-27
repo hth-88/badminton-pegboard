@@ -991,7 +991,7 @@ begin
 
   if p_busy_slots is null
      or jsonb_typeof(p_busy_slots) <> 'array'
-     or jsonb_array_length(p_busy_slots) > 119 then
+     or jsonb_array_length(p_busy_slots) > 126 then
     raise exception 'INVALID_BUSY_SLOTS';
   end if;
 
@@ -999,7 +999,7 @@ begin
     select 1
     from jsonb_array_elements(p_busy_slots) as elem
     where jsonb_typeof(elem) <> 'string'
-       or (elem #>> '{}') !~ '^[0-6]-(7|8|9|1[0-9]|2[0-3])$'
+       or (elem #>> '{}') !~ '^[0-6]-(6|7|8|9|1[0-9]|2[0-3])$'
   ) then
     raise exception 'INVALID_BUSY_SLOTS';
   end if;

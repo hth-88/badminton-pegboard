@@ -5,7 +5,6 @@ import {
   ChevronUp,
   Clock,
   GitBranch,
-  Sunrise,
   Users,
 } from 'lucide-react';
 import {
@@ -51,7 +50,6 @@ export const ScheduleHeatmap: React.FC<ScheduleHeatmapProps> = ({
     setDurationHours,
   } = schedule;
 
-  const [expandEarlyMorning, setExpandEarlyMorning] = useState(false);
   const [showUnsubmittedList, setShowUnsubmittedList] = useState(false);
 
   const weekDisplay = useMemo(() => formatWeekKeyDisplay(weekKey), [weekKey]);
@@ -66,16 +64,9 @@ export const ScheduleHeatmap: React.FC<ScheduleHeatmapProps> = ({
   }, [heatmapSlots]);
 
   const visibleStartHours = useMemo(() => {
-    const candidateHours = getVisibleScheduleHours(expandEarlyMorning);
+    const candidateHours = getVisibleScheduleHours();
     return candidateHours.filter((h) => h + Math.ceil(durationHours) <= 24 && h + durationHours <= 24);
-  }, [expandEarlyMorning, durationHours]);
-
-  // Kiểm tra có khung giờ đạt chuẩn nằm ở buổi sáng (<15h) để báo cho người dùng biết
-  const morningQualifiedCount = useMemo(
-    () =>
-      heatmapSlots.filter((s) => s.startHour < 15 && s.meetsMinPlayers && s.freeCount > 0).length,
-    [heatmapSlots]
-  );
+  }, [durationHours]);
 
   const submissionPercent = Math.round(submissionSummary.submissionRatio * 100);
 
@@ -141,63 +132,40 @@ export const ScheduleHeatmap: React.FC<ScheduleHeatmapProps> = ({
           </div>
         )}
 
-        {/* Bộ chọn thời lượng (1h / 1.5h / 2h / 3h) + Mở rộng sáng sớm */}
-        <div className="pt-2 border-t ui-divider flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="inline-flex items-center gap-1.5 text-[14px] font-semibold mr-1"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>Thời lượng ca:</span>
-            </span>
-            <div
-              role="radiogroup"
-              aria-label="Chọn thời lượng buổi đánh"
-              className="ui-segmented-track inline-flex items-center gap-1"
-            >
-              {SESSION_DURATION_OPTIONS.map((opt) => {
-                const active = durationHours === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => setDurationHours(opt)}
-                    className="min-h-[44px] min-w-[56px] px-3 rounded-xl text-[14px] font-bold tabular-nums transition-colors"
-                    style={{
-                      backgroundColor: active ? 'var(--color-accent)' : 'transparent',
-                      color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {opt}h
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setExpandEarlyMorning((v) => !v)}
-            className="ui-btn ui-btn-secondary px-3.5 self-start sm:self-auto"
+        {/* Bộ chọn thời lượng (1h / 1.5h / 2h / 3h) */}
+        <div className="pt-2 border-t ui-divider flex items-center gap-2 flex-wrap">
+          <span
+            className="inline-flex items-center gap-1.5 text-[14px] font-semibold mr-1"
+            style={{ color: 'var(--text-secondary)' }}
           >
-            {expandEarlyMorning ? (
-              <>
-                <ChevronUp className="w-4 h-4 shrink-0" />
-                <span>Thu gọn sáng sớm</span>
-              </>
-            ) : (
-              <>
-                <Sunrise className="w-4 h-4 shrink-0" />
-                <span>
-                  Mở rộng sáng sớm (7h–15h)
-                  {morningQualifiedCount > 0 ? ` · ${morningQualifiedCount} ca đủ người` : ''}
-                </span>
-              </>
-            )}
-          </button>
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>Thời lượng ca:</span>
+          </span>
+          <div
+            role="radiogroup"
+            aria-label="Chọn thời lượng buổi đánh"
+            className="ui-segmented-track inline-flex items-center gap-1"
+          >
+            {SESSION_DURATION_OPTIONS.map((opt) => {
+              const active = durationHours === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setDurationHours(opt)}
+                  className="min-h-[44px] min-w-[56px] px-3 rounded-xl text-[14px] font-bold tabular-nums transition-colors"
+                  style={{
+                    backgroundColor: active ? 'var(--color-accent)' : 'transparent',
+                    color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {opt}h
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

@@ -153,10 +153,11 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
         return;
       }
       vibrateSuccess();
+      const weekLabel = weekKey === 'FIXED' ? 'Lịch cứng hàng tuần' : `lịch tuần ${weekKey}`;
       onShowToast?.(
         nextLocked
-          ? `Đã khóa sổ lịch tuần ${weekKey}.`
-          : `Đã mở khóa báo lịch tuần ${weekKey}.`
+          ? `Đã khóa sổ ${weekLabel}.`
+          : `Đã mở khóa ${weekLabel}.`
       );
     } finally {
       setBusyActionKey(null);
@@ -311,7 +312,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
       }
       vibrateSuccess();
       onShowToast?.(
-        `Đã chép lịch FIXED cho ${res.appliedCount} người (giữ nguyên ${res.skippedExistingCount} người đã nộp).`
+        `Đã áp dụng lịch cứng cho ${res.appliedCount} người (giữ nguyên ${res.skippedExistingCount} người đã báo).`
       );
     } finally {
       setBusyActionKey(null);
@@ -324,6 +325,11 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
     try {
       const res = await migrateLegacyRosterAsHost({ force: true });
       if (!res) return;
+      if (res.status === 'PARTIAL_ERROR' && res.errors.length > 0) {
+        vibrateWarning();
+        setPanelError(res.errors[0].error);
+        return;
+      }
       vibrateSuccess();
       onShowToast?.(
         res.createdMembers.length > 0
@@ -434,7 +440,13 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
                   className="text-[14px] font-semibold"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  {isWeekLocked ? `Mở khóa tuần ${weekKey}` : `Khóa sổ tuần ${weekKey}`}
+                  {weekKey === 'FIXED'
+                    ? isWeekLocked
+                      ? 'Mở khóa Lịch cứng'
+                      : 'Khóa sửa Lịch cứng'
+                    : isWeekLocked
+                      ? `Mở khóa tuần ${weekKey}`
+                      : `Khóa sổ tuần ${weekKey}`}
                 </div>
                 <div
                   className="text-[12px]"
@@ -453,7 +465,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
             </button>
           </div>
 
-          {/* Tiện ích đồng bộ lịch FIXED & Sổ CLB */}
+          {/* Tiện ích đồng bộ lịch cứng & Sổ CLB */}
           <div className="flex items-center gap-2 flex-wrap">
             {weekKey !== 'FIXED' && (
               <button
@@ -465,7 +477,7 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
                 className="ui-btn ui-btn-secondary px-3.5"
               >
                 <Copy className="w-4 h-4 shrink-0" />
-                <span>Chép FIXED cho người chưa nộp</span>
+                <span>Áp dụng lịch cứng cho người chưa báo</span>
               </button>
             )}
 
@@ -506,6 +518,9 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
                         void detachActiveRoomAsHost(r.roomCode).then((res) => {
                           if (!res.error) {
                             onShowToast?.(`Đã gỡ phòng LIVE "${r.roomCode}" khỏi CLB.`);
+                          } else {
+                            vibrateWarning();
+                            setPanelError(res.error);
                           }
                         });
                       }}
@@ -579,10 +594,14 @@ export const ClubHostPanel: React.FC<ClubHostPanelProps> = ({
                         </span>
                         {isInactive && <StatusPill tone="warning">Đã ẩn</StatusPill>}
                         {member.hasPin && (
-                          <StatusPill tone="neutral">
-                            <KeyRound className="w-3 h-3" />
-                            <span>Có PIN</span>
-                          </StatusPill>
+                          <span
+                            title="Thành viên đã đặt PIN cá nhân"
+                            aria-label="Đã đặt PIN cá nhân"
+                            className="inline-flex items-center shrink-0"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                          </span>
                         )}
                       </div>
 

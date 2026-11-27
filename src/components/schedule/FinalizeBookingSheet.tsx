@@ -434,7 +434,7 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
       sheetOnMobile
       maxWidthClass="max-w-xl"
       title={windowTitle}
-      subtitle={`${weekKey === 'FIXED' ? 'Mẫu FIXED' : `Tuần ${weekKey}`} · Ca ${slot.durationHours}h · ${slot.freeCount}/${slot.submittedCount} rảnh trọn buổi`}
+      subtitle={`${weekKey === 'FIXED' ? 'Lịch cứng hàng tuần' : `Tuần ${weekKey}`} · Ca ${slot.durationHours}h · ${slot.freeCount}/${slot.submittedCount} rảnh trọn buổi`}
       footer={
         canFinalize ? (
           <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
