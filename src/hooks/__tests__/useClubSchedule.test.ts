@@ -369,7 +369,8 @@ describe('Phase 2 — useClubSchedule Hook & Realtime Integration', () => {
 
     expect(harness.getResult().submissionSummary.submittedCount).toBe(4);
     expect(harness.getResult().goldenSlots.length).toBeGreaterThan(0);
-    expect(harness.getResult().twoShiftSuggestions.length).toBeGreaterThan(0);
+    // Cả 4 người đều rảnh trọn tuần -> đã có khung phủ 100%, không còn gợi ý chia 2 ca dư thừa
+    expect(harness.getResult().twoShiftSuggestions).toHaveLength(0);
 
     // Realtime: uuid-1 đổi tên và payload thiếu cột sinh has_pin (hasPinIncluded = false)
     mockFetchClubMembers.mockResolvedValue({

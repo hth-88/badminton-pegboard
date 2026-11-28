@@ -32,7 +32,6 @@ import {
 import {
   buildBookingSheetGroups,
   buildSuggestedClubRoomCode,
-  isValidRoomPin,
   mapClubMembersToSessionPlayers,
   partitionMergePlayers,
   type FinalizeBookingMode,
@@ -75,6 +74,9 @@ export interface FinalizeBookingSheetProps {
   ) => Promise<{ ok: boolean; error?: string }>;
   onShowToast?: (message: string) => void;
 }
+
+/** PIN Co-Host mặc định khi tạo phòng từ CLB (ô nhập đã ẩn vì Host CLB kế thừa quyền Host) */
+const DEFAULT_CLUB_ROOM_PIN = '1234';
 
 export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
   slot,
@@ -135,7 +137,7 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
   const [newRoomLabel, setNewRoomLabel] = useState(() =>
     slot ? formatWindowLabel(slot.dayOfWeek, slot.startHour, slot.endHour) : ''
   );
-  const [newRoomPin, setNewRoomPin] = useState('1234');
+  // Host CLB đã kế thừa quyền Host nên không cần nhập PIN Co-Host khi tạo phòng từ CLB
   const [alsoAttachExistingRoom, setAlsoAttachExistingRoom] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sheetError, setSheetError] = useState<string | null>(null);
@@ -215,15 +217,10 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
     // KỊCH BẢN 3: Tạo phòng mới gắn với CLB (active_rooms)
     if (mode === 'CREATE_CLUB_ROOM') {
       const cleanCode = newRoomCode.trim().toUpperCase();
-      const cleanPin = newRoomPin.trim() || '1234';
+      const cleanPin = DEFAULT_CLUB_ROOM_PIN;
       if (cleanCode.length < 2 || cleanCode.length > 24 || /\s/.test(cleanCode)) {
         vibrateWarning();
         setSheetError('Mã phòng mới từ 2–24 ký tự và không chứa khoảng trắng.');
-        return;
-      }
-      if (!isValidRoomPin(cleanPin)) {
-        vibrateWarning();
-        setSheetError('Mã PIN phòng phải từ 4 đến 6 ký tự.');
         return;
       }
 
@@ -767,52 +764,26 @@ export const FinalizeBookingSheet: React.FC<FinalizeBookingSheetProps> = ({
             {/* Form cấu hình phòng mới cho Kịch bản 3 */}
             {mode === 'CREATE_CLUB_ROOM' && (
               <div className="ui-tile p-3.5 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      htmlFor="booking-new-room-code"
-                      className="block text-[14px] font-semibold mb-1"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      Mã phòng mới
-                    </label>
-                    <input
-                      id="booking-new-room-code"
-                      type="text"
-                      maxLength={24}
-                      value={newRoomCode}
-                      onChange={(e) => {
-                        setNewRoomCode(e.target.value.toUpperCase().replace(/\s+/g, '-'));
-                        setSheetError(null);
-                      }}
-                      className="ui-input font-mono-tabular uppercase"
-                      style={{ backgroundColor: 'var(--bg-surface)' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="booking-new-room-pin"
-                      className="block text-[14px] font-semibold mb-1"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      PIN Co-Host (4–6 ký tự)
-                    </label>
-                    <input
-                      id="booking-new-room-pin"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={newRoomPin}
-                      onChange={(e) => {
-                        setNewRoomPin(e.target.value.slice(0, 6));
-                        setSheetError(null);
-                      }}
-                      placeholder="4–6 ký tự"
-                      className="ui-input font-mono-tabular"
-                      style={{ backgroundColor: 'var(--bg-surface)' }}
-                    />
-                  </div>
+                <div>
+                  <label
+                    htmlFor="booking-new-room-code"
+                    className="block text-[14px] font-semibold mb-1"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    Mã phòng mới
+                  </label>
+                  <input
+                    id="booking-new-room-code"
+                    type="text"
+                    maxLength={24}
+                    value={newRoomCode}
+                    onChange={(e) => {
+                      setNewRoomCode(e.target.value.toUpperCase().replace(/\s+/g, '-'));
+                      setSheetError(null);
+                    }}
+                    className="ui-input font-mono-tabular uppercase"
+                    style={{ backgroundColor: 'var(--bg-surface)' }}
+                  />
                 </div>
 
                 <div>

@@ -889,6 +889,22 @@ describe('Phase 4 & Phase 5 — Rendered UI Invariants & 5 UX Refinements', () =
     expect(html).not.toMatch(/bg-(emerald|rose|amber|blue|violet|indigo|cyan|purple)-/);
   });
 
+  it('ScheduleHeatmap Stage B: 2 card cao bằng nhau, nút 1 chạm Đưa vào buổi và thông báo chưa cần chia 2 ca', () => {
+    const schedule = makeMockSchedule({ role: 'CLUB_HOST' });
+    const html = renderToStaticMarkup(
+      <ScheduleHeatmap schedule={schedule} onSelectHeatmapSlot={() => {}} />
+    );
+
+    expect(html).toContain('items-stretch');
+    expect(html).not.toContain('items-start"');
+    expect(html).toContain('Đưa vào buổi');
+    expect(html).toContain('Xem tất cả (');
+    expect(html).toContain('khung giờ)');
+    // Mock: 4/4 người rảnh toàn tuần -> đã có khung phủ 100%
+    expect(html).toContain('Cả nhóm đã có khung giờ rảnh chung (4/4) — chưa cần chia 2 ca');
+    expect(html).toContain('Tìm 2 buổi khác ngày trong tuần');
+  });
+
   it('FinalizeBookingSheet: phân tách Rảnh trọn buổi & Bận 1 kíp, ẩn nút chốt với thành viên thường và mở đủ 3 kịch bản cho CLUB_HOST', () => {
     const schedule = makeMockSchedule({ role: 'CLUB_MEMBER' });
     // Khung T3 19h–21h: m1, m3, m4 rảnh trọn buổi (3 người); m2 bận 19h rảnh 20h -> Vào muộn (1 người); m5 chưa nộp

@@ -19,6 +19,9 @@ import {
   makeSlotKey,
   normalizeBusySlots,
   parseSlotKey,
+  findFullCoverageSlot,
+  getTimeOfDayBucket,
+  getTimePriority,
   rankGoldenSlots,
   setDayBusySlots,
   shiftIsoWeekKey,
@@ -592,6 +595,7 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
           heatmapSlots: heatmap,
           members,
           entriesByMemberId: entries,
+          allowRedundantPairs: true,
         });
 
         expect(top.length).toBeGreaterThan(0);
@@ -657,8 +661,132 @@ describe('Phase 2 — Pure Schedule Engine (src/engine/scheduleEngine.ts)', () =
         entriesByMemberId: entries,
         minPlayersPerShift: Number.NaN,
         limit: Number.NaN,
+        allowRedundantPairs: true,
       });
       expect(shifts.length).toBe(5);
+    });
+  });
+
+  describe('6. Stage B — Tie-breaker giờ vàng, đa dạng hóa theo ngày & chia 2 ca không dư thừa', () => {
+    const onlyFreeOn = (allowed: ScheduleSlotKey[]): ScheduleSlotKey[] => {
+      const allowSet = new Set(allowed);
+      return buildAllSlotKeys().filter((k) => !allowSet.has(k));
+    };
+    const build = (
+      freeByMember: Record<string, ScheduleSlotKey[]>,
+      durationHours: 1 | 1.5 | 2 | 3 = 1,
+      minPlayersPerShift = 2
+    ) => {
+      const members = Object.keys(freeByMember).map((id) => makeMember(id, id.toUpperCase()));
+      const entries: Record<string, MemberScheduleEntry> = {};
+      for (const [id, free] of Object.entries(freeByMember)) {
+        entries[id] = makeScheduleEntry(id, onlyFreeOn(free));
+      }
+      const heatmap = computeHeatmap({ members, entriesByMemberId: entries, durationHours, minPlayersPerShift });
+      return { members, entries, heatmap, minPlayersPerShift };
+    };
+
+    it('phân nhóm buổi và độ ưu tiên: 17h–22h > chiều > sáng', () => {
+      expect(getTimeOfDayBucket(6)).toBe('MORNING');
+      expect(getTimeOfDayBucket(12)).toBe('AFTERNOON');
+      expect(getTimeOfDayBucket(17)).toBe('EVENING');
+      expect(getTimePriority(19)).toBeGreaterThan(getTimePriority(14));
+      expect(getTimePriority(14)).toBeGreaterThan(getTimePriority(7));
+      expect(getTimePriority(7)).toBeGreaterThan(getTimePriority(23));
+    });
+
+    it('Top khung giờ vàng: đồng điểm thì ưu tiên tối > chiều > sáng', () => {
+      const free: ScheduleSlotKey[] = ['3-7', '1-14', '5-19'];
+      const { heatmap } = build({ a: free, b: free, c: free });
+      const top = rankGoldenSlots(heatmap, { limit: 3 });
+      expect(top.map((s) => s.startHour)).toEqual([19, 14, 7]);
+    });
+
+    it('Top 5 mặc định (diversifyByDay): trải đều các ngày, tối đa 2 khung không gối/ngày', () => {
+      // Thứ 2 rảnh dài 17h–22h (nhiều cửa sổ dính chùm), thêm T3, T4, T5 mỗi ngày một khung 19h
+      const monday: ScheduleSlotKey[] = ['0-17', '0-18', '0-19', '0-20', '0-21'];
+      const free: ScheduleSlotKey[] = [...monday, '1-19', '2-19', '3-19'];
+      const { heatmap } = build({ a: free, b: free, c: free }, 1);
+
+      const clumped = rankGoldenSlots(heatmap, { limit: 5 });
+      expect(new Set(clumped.map((s) => s.dayOfWeek)).size).toBe(1); // hành vi cũ: dính chùm 1 ngày
+
+      const diversified = rankGoldenSlots(heatmap, { limit: 5, diversifyByDay: true });
+      expect(diversified).toHaveLength(5);
+      expect(new Set(diversified.map((s) => s.dayOfWeek))).toEqual(new Set([0, 1, 2, 3]));
+      const perDay = new Map<number, number>();
+      for (const s of diversified) perDay.set(s.dayOfWeek, (perDay.get(s.dayOfWeek) ?? 0) + 1);
+      expect(Math.max(...perDay.values())).toBeLessThanOrEqual(2);
+      for (let i = 0; i < diversified.length; i++) {
+        for (let j = i + 1; j < diversified.length; j++) {
+          expect(doHeatmapSlotsOverlap(diversified[i], diversified[j])).toBe(false);
+        }
+      }
+    });
+
+    it('findFullCoverageSlot: nhận diện khung phủ 100% và trả null khi không có', () => {
+      const all = build({ a: ['0-19'], b: ['0-19'], c: ['0-19'] });
+      expect(findFullCoverageSlot(all.heatmap)).toMatchObject({ dayOfWeek: 0, startHour: 19, freeCount: 3 });
+
+      const partial = build({ a: ['0-19'], b: ['0-19'], c: ['1-19'] });
+      expect(findFullCoverageSlot(partial.heatmap)).toBeNull();
+      expect(findFullCoverageSlot([])).toBeNull();
+    });
+
+    it('Chia 2 ca: loại cặp mà 1 ca phủ trọn ca kia (union == max)', () => {
+      // Ca T2 19h: a,b,c,d ; ca T3 19h: a,b (tập con) -> vô nghĩa, phải bị loại
+      const { members, entries, heatmap, minPlayersPerShift } = build({
+        a: ['0-19', '1-19'],
+        b: ['0-19', '1-19'],
+        c: ['0-19'],
+        d: ['0-19'],
+      });
+      const sug = suggestTwoShifts({ heatmapSlots: heatmap, members, entriesByMemberId: entries, minPlayersPerShift });
+      expect(sug).toEqual([]);
+
+      const redundant = suggestTwoShifts({
+        heatmapSlots: heatmap,
+        members,
+        entriesByMemberId: entries,
+        minPlayersPerShift,
+        allowRedundantPairs: true,
+        requireDifferentDays: true,
+      });
+      expect(redundant.length).toBeGreaterThan(0);
+    });
+
+    it('Chia 2 ca: mọi gợi ý có union > max và ưu tiên cặp ít trùng người hơn', () => {
+      // X={a,b,c} ; Y={c,d,e} (trùng c) ; Z={d,e,f} (không trùng X) -> X+Z phủ 6, trùng 0
+      const { members, entries, heatmap, minPlayersPerShift } = build({
+        a: ['0-19'],
+        b: ['0-19'],
+        c: ['0-19', '1-19'],
+        d: ['1-19', '2-19'],
+        e: ['1-19', '2-19'],
+        f: ['2-19'],
+      }, 1, 3);
+      const sug = suggestTwoShifts({ heatmapSlots: heatmap, members, entriesByMemberId: entries, minPlayersPerShift });
+      expect(sug.length).toBeGreaterThan(0);
+      for (const s of sug) {
+        const max = Math.max(s.shiftA.assignedMemberIds.length, s.shiftB.assignedMemberIds.length);
+        expect(s.coveredMemberIds.length).toBeGreaterThan(max);
+      }
+      expect(sug[0].coveredMemberIds).toHaveLength(6);
+      expect(sug[0].overlapMemberIds).toEqual([]);
+    });
+
+    it('Chia 2 ca: hòa điểm thì ưu tiên ca tối 19h hơn ca sáng 6h', () => {
+      // Hai nhóm tách biệt {a,b} và {c,d}; nhóm cd có phương án sáng 6h (T2) hoặc tối 19h (T3)
+      const { members, entries, heatmap, minPlayersPerShift } = build({
+        a: ['4-19'],
+        b: ['4-19'],
+        c: ['0-6', '1-19'],
+        d: ['0-6', '1-19'],
+      });
+      const sug = suggestTwoShifts({ heatmapSlots: heatmap, members, entriesByMemberId: entries, minPlayersPerShift });
+      expect(sug.length).toBeGreaterThanOrEqual(2);
+      const hours = [sug[0].shiftA.slot.startHour, sug[0].shiftB.slot.startHour];
+      expect(hours).toEqual([19, 19]);
     });
   });
 });

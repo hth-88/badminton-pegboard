@@ -647,7 +647,7 @@ export function useClubSchedule(options: UseClubScheduleOptions = {}) {
   );
 
   const goldenSlots: HeatmapSlot[] = useMemo(
-    () => rankGoldenSlots(heatmapSlots, { limit: 5, requireMinPlayers: true }),
+    () => rankGoldenSlots(heatmapSlots, { limit: 5, requireMinPlayers: true, diversifyByDay: true }),
     [heatmapSlots]
   );
 

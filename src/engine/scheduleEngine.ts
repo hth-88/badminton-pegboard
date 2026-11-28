@@ -756,13 +756,66 @@ export interface RankGoldenSlotsOptions {
   requireMinPlayers?: boolean;
   /** Loại bỏ các cửa sổ trượt đè giờ nhau trong cùng một ngày để lấy đỉnh độc lập (mặc định false) */
   deduplicateOverlapping?: boolean;
+  /**
+   * Đa dạng hóa theo ngày: mỗi ngày tối đa `maxPerDay` khung không gối thời gian
+   * (ưu tiên 1 khung/ngày trước, rồi mới bổ sung khung thứ 2). Mặc định false.
+   */
+  diversifyByDay?: boolean;
+  /** Số khung tối đa mỗi ngày khi `diversifyByDay` bật (mặc định 2) */
+  maxPerDay?: number;
+}
+
+export type TimeOfDayBucket = 'MORNING' | 'AFTERNOON' | 'EVENING';
+
+/** Phân nhóm buổi theo giờ bắt đầu: Sáng < 12h, Chiều 12h–17h, Tối >= 17h */
+export function getTimeOfDayBucket(startHour: number): TimeOfDayBucket {
+  if (startHour < 12) return 'MORNING';
+  if (startHour < 17) return 'AFTERNOON';
+  return 'EVENING';
+}
+
+/**
+ * Độ ưu tiên khi hòa điểm: giờ vàng 17h–22h (3) > chiều 12h–17h (2) > sáng sớm 6h–12h (1) > khuya 22h+ (0).
+ */
+export function getTimePriority(startHour: number): number {
+  if (startHour >= 17 && startHour < 22) return 3;
+  if (startHour >= 12 && startHour < 17) return 2;
+  if (startHour >= 6 && startHour < 12) return 1;
+  return 0;
+}
+
+/**
+ * Tìm khung giờ đơn phủ 100% số người đã nộp lịch (nếu có), ưu tiên khung xếp hạng tốt nhất.
+ */
+export function findFullCoverageSlot(heatmapSlots: readonly HeatmapSlot[]): HeatmapSlot | null {
+  const full = heatmapSlots.filter(
+    (s) => s.submittedCount > 0 && s.freeCount === s.submittedCount
+  );
+  if (full.length === 0) return null;
+  return [...full].sort(compareGoldenRank)[0];
+}
+
+function compareGoldenRank(a: HeatmapSlot, b: HeatmapSlot): number {
+  if (a.meetsMinPlayers !== b.meetsMinPlayers) {
+    return a.meetsMinPlayers ? -1 : 1;
+  }
+  if (b.freeCount !== a.freeCount) {
+    return b.freeCount - a.freeCount;
+  }
+  if (b.partialCount !== a.partialCount) {
+    return b.partialCount - a.partialCount;
+  }
+  const tp = getTimePriority(b.startHour) - getTimePriority(a.startHour);
+  if (tp !== 0) return tp;
+  return compareHeatmapChronological(a, b);
 }
 
 /**
  * Xếp hạng các khung giờ vàng tốt nhất trong tuần theo:
  * 1. Số người rảnh trọn buổi (`freeCount`) giảm dần
  * 2. Số người bận một phần có thể vào muộn/về sớm (`partialCount`) giảm dần
- * 3. Thứ tự thời gian tăng dần (T2 -> CN, sáng -> tối) để 100% tất định
+ * 3. Tie-breaker giờ vàng: 17h–22h > chiều 12h–17h > sáng 6h–12h
+ * 4. Thứ tự thời gian tăng dần (T2 -> CN, sáng -> tối) để 100% tất định
  */
 export function rankGoldenSlots(
   heatmapSlots: readonly HeatmapSlot[],
@@ -772,6 +825,8 @@ export function rankGoldenSlots(
     limit = 5,
     requireMinPlayers = true,
     deduplicateOverlapping = false,
+    diversifyByDay = false,
+    maxPerDay = 2,
   } = options;
 
   const effectiveLimit = Number.isFinite(limit) ? Math.trunc(limit) : 5;
@@ -783,18 +838,27 @@ export function rankGoldenSlots(
     return true;
   });
 
-  const sorted = [...candidates].sort((a, b) => {
-    if (a.meetsMinPlayers !== b.meetsMinPlayers) {
-      return a.meetsMinPlayers ? -1 : 1;
+  const sorted = [...candidates].sort(compareGoldenRank);
+
+  if (diversifyByDay) {
+    const dayCap = Math.max(1, Number.isFinite(maxPerDay) ? Math.trunc(maxPerDay) : 2);
+    const chosen = new Set<HeatmapSlot>();
+    const perDay = new Map<number, HeatmapSlot[]>();
+    // Vòng i: mỗi ngày được thêm tới i khung không gối thời gian (ưu tiên trải đều các ngày)
+    for (let round = 1; round <= dayCap && chosen.size < effectiveLimit; round++) {
+      for (const slot of sorted) {
+        if (chosen.size >= effectiveLimit) break;
+        if (chosen.has(slot)) continue;
+        const dayPicked = perDay.get(slot.dayOfWeek) ?? [];
+        if (dayPicked.length >= round) continue;
+        if (dayPicked.some((existing) => doHeatmapSlotsOverlap(existing, slot))) continue;
+        dayPicked.push(slot);
+        perDay.set(slot.dayOfWeek, dayPicked);
+        chosen.add(slot);
+      }
     }
-    if (b.freeCount !== a.freeCount) {
-      return b.freeCount - a.freeCount;
-    }
-    if (b.partialCount !== a.partialCount) {
-      return b.partialCount - a.partialCount;
-    }
-    return compareHeatmapChronological(a, b);
-  });
+    return sorted.filter((slot) => chosen.has(slot));
+  }
 
   if (!deduplicateOverlapping) {
     return sorted.slice(0, effectiveLimit);
@@ -831,6 +895,11 @@ export interface SuggestTwoShiftsParams {
   limit?: number;
   /** Bắt buộc 2 ca phải nằm ở 2 ngày khác nhau trong tuần (mặc định false) */
   requireDifferentDays?: boolean;
+  /**
+   * Cho phép cặp mà một ca đã phủ trọn ca kia (union == max). Mặc định false:
+   * chỉ gợi ý cặp có `union(ca1, ca2) > max(ca1, ca2)`. Bật khi Host chủ động muốn đánh 2 buổi.
+   */
+  allowRedundantPairs?: boolean;
 }
 
 /**
@@ -854,6 +923,7 @@ export function suggestTwoShifts(params: SuggestTwoShiftsParams): TwoShiftSugges
     minPlayersPerShift = DEFAULT_CLUB_SETTINGS.minPlayersPerShift,
     limit = 5,
     requireDifferentDays = false,
+    allowRedundantPairs = false,
   } = params;
 
   const effectiveLimit = Number.isFinite(limit) ? Math.trunc(limit) : 5;
@@ -937,15 +1007,24 @@ export function suggestTwoShifts(params: SuggestTwoShiftsParams): TwoShiftSugges
       const interMask = maskA & maskB;
       const coveredCount = popcountBigInt(unionMask);
       const minShiftSize = Math.min(sizeA, sizeB);
+      // Ràng buộc: union phải lớn hơn ca lớn nhất, nếu không 1 ca đã phủ trọn ca kia (gợi ý vô nghĩa)
+      if (!allowRedundantPairs && coveredCount <= Math.max(sizeA, sizeB)) {
+        continue;
+      }
+      const overlapCount = popcountBigInt(interMask);
       const totalCapacity = sizeA + sizeB;
-      const differentDayBonus = slotA.dayOfWeek !== slotB.dayOfWeek ? 500 : 0;
+      const differentDayBonus = slotA.dayOfWeek !== slotB.dayOfWeek ? 1 : 0;
       const partialBonus = Math.min(99, slotA.partialCount + slotB.partialCount);
+      const timeBonus = getTimePriority(slotA.startHour) + getTimePriority(slotB.startHour);
 
+      // Thứ tự ưu tiên: phủ nhiều > ít trùng > ca nhỏ lớn > tổng công suất > giờ vàng > khác ngày > partial
       const score =
-        coveredCount * 1_000_000_000 +
-        minShiftSize * 1_000_000 +
-        totalCapacity * 1_000 +
-        differentDayBonus +
+        coveredCount * 1e13 +
+        (999 - Math.min(999, overlapCount)) * 1e10 +
+        minShiftSize * 1e7 +
+        totalCapacity * 1e4 +
+        timeBonus * 1e3 +
+        differentDayBonus * 1e2 +
         partialBonus;
 
       candidates.push({
